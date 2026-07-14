@@ -1,0 +1,120 @@
+meta:
+  universe_name: financials_only_v1
+  version: 0.2
+  description: >
+    Single-sector financials universe for stat-arb / residual mean-reversion research.
+    Covers diversified banks, regional banks, insurance, asset management, exchanges,
+    payments, and consumer finance. All names have 15+ years of trading history.
+  timezone: America/New_York
+  data_source: yfinance
+  asset_class: equities
+  currency: USD
+
+loader_defaults:
+  start_date: "1990-01-01"
+  end_date: null
+  interval: "1d"
+  auto_adjust: true
+  actions: true
+  repair: true
+  keepna: false
+  threads: true
+
+selection_policy:
+  objective: >
+    Large- and mid-cap U.S. financial names with broad representation across
+    diversified banks, regional banks, insurance, asset management, exchanges,
+    and payment processors. All names have 15+ years of trading history.
+  criteria:
+    - liquidity
+    - history_length
+    - sector_representativeness
+  exclusions:
+    - illiquid_names
+    - highly_idiosyncratic_names
+    - duplicate_membership_across_groups
+    - names_with_less_than_15_years_history
+
+hierarchy:
+  root: us_equities
+
+groups:
+  us_equities:
+    type: root
+    label: "US Equities"
+    children:
+      - financials
+
+  financials:
+    type: sector
+    label: "Financials"
+    proxy_etf: XLF
+    benchmark: SPY
+    risk_free: ^IRX
+    parent: us_equities
+    children: []
+    members:
+      - JPM
+      - BAC
+      - WFC
+      - C
+      - USB
+      - PNC
+      - TFC
+      - MTB
+      - FITB
+      - KEY
+      - HBAN
+      - RF
+      - GS
+      - MS
+      - SCHW
+      - AXP
+      - COF
+      - V
+      - MA
+      - ALL
+      - TRV
+      - PGR
+      - MET
+      - AFL
+      - CME
+
+tickers:
+  SPY:
+    kind: benchmark_etf
+    label: "SPDR S&P 500 ETF Trust"
+
+  XLF:
+    kind: sector_etf
+    label: "Financial Select Sector SPDR Fund"
+
+  ^IRX:
+    kind: risk_free_rate
+    label: "13-Week Treasury Bill Yield"
+
+  JPM:  { kind: equity, label: "JPMorgan Chase", sector: financials }
+  BAC:  { kind: equity, label: "Bank of America", sector: financials }
+  WFC:  { kind: equity, label: "Wells Fargo", sector: financials }
+  C:    { kind: equity, label: "Citigroup", sector: financials }
+  USB:  { kind: equity, label: "U.S. Bancorp", sector: financials }
+  PNC:  { kind: equity, label: "PNC Financial Services", sector: financials }
+  TFC:  { kind: equity, label: "Truist Financial", sector: financials }
+  MTB:  { kind: equity, label: "M&T Bank", sector: financials }
+  FITB: { kind: equity, label: "Fifth Third Bancorp", sector: financials }
+  KEY:  { kind: equity, label: "KeyCorp", sector: financials }
+  HBAN: { kind: equity, label: "Huntington Bancshares", sector: financials }
+  RF:   { kind: equity, label: "Regions Financial", sector: financials }
+  GS:   { kind: equity, label: "Goldman Sachs", sector: financials }
+  MS:   { kind: equity, label: "Morgan Stanley", sector: financials }
+  SCHW: { kind: equity, label: "Charles Schwab", sector: financials }
+  AXP:  { kind: equity, label: "American Express", sector: financials }
+  COF:  { kind: equity, label: "Capital One", sector: financials }
+  V:    { kind: equity, label: "Visa", sector: financials }
+  MA:   { kind: equity, label: "Mastercard", sector: financials }
+  ALL:  { kind: equity, label: "Allstate", sector: financials }
+  TRV:  { kind: equity, label: "Travelers Companies", sector: financials }
+  PGR:  { kind: equity, label: "Progressive", sector: financials }
+  MET:  { kind: equity, label: "MetLife", sector: financials }
+  AFL:  { kind: equity, label: "Aflac", sector: financials }
+  CME:  { kind: equity, label: "CME Group", sector: financials }

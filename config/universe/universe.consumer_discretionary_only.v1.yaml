@@ -1,0 +1,120 @@
+meta:
+  universe_name: consumer_discretionary_only_v1
+  version: 0.2
+  description: >
+    Single-sector consumer discretionary universe for stat-arb / residual mean-reversion
+    research. Covers retail, restaurants, homebuilders, travel, automotive, and apparel.
+    All names have 15+ years of trading history.
+  timezone: America/New_York
+  data_source: yfinance
+  asset_class: equities
+  currency: USD
+
+loader_defaults:
+  start_date: "1990-01-01"
+  end_date: null
+  interval: "1d"
+  auto_adjust: true
+  actions: true
+  repair: true
+  keepna: false
+  threads: true
+
+selection_policy:
+  objective: >
+    Large- and mid-cap U.S. consumer discretionary names with broad representation
+    across retail, restaurants, homebuilders, travel, automotive, and apparel.
+    All names have 15+ years of trading history.
+  criteria:
+    - liquidity
+    - history_length
+    - sector_representativeness
+  exclusions:
+    - illiquid_names
+    - highly_idiosyncratic_names
+    - duplicate_membership_across_groups
+    - names_with_less_than_15_years_history
+
+hierarchy:
+  root: us_equities
+
+groups:
+  us_equities:
+    type: root
+    label: "US Equities"
+    children:
+      - consumer_discretionary
+
+  consumer_discretionary:
+    type: sector
+    label: "Consumer Discretionary"
+    proxy_etf: XLY
+    benchmark: SPY
+    risk_free: ^IRX
+    parent: us_equities
+    children: []
+    members:
+      - AMZN
+      - HD
+      - LOW
+      - TJX
+      - ROST
+      - BBY
+      - AZO
+      - ORLY
+      - GPC
+      - MCD
+      - SBUX
+      - YUM
+      - DRI
+      - MAR
+      - BKNG
+      - EXPE
+      - NKE
+      - RL
+      - TPR
+      - F
+      - DHI
+      - LEN
+      - PHM
+      - EBAY
+      - HAS
+
+tickers:
+  SPY:
+    kind: benchmark_etf
+    label: "SPDR S&P 500 ETF Trust"
+
+  XLY:
+    kind: sector_etf
+    label: "Consumer Discretionary Select Sector SPDR Fund"
+
+  ^IRX:
+    kind: risk_free_rate
+    label: "13-Week Treasury Bill Yield"
+
+  AMZN: { kind: equity, label: "Amazon", sector: consumer_discretionary }
+  HD:   { kind: equity, label: "Home Depot", sector: consumer_discretionary }
+  LOW:  { kind: equity, label: "Lowe's", sector: consumer_discretionary }
+  TJX:  { kind: equity, label: "TJX Companies", sector: consumer_discretionary }
+  ROST: { kind: equity, label: "Ross Stores", sector: consumer_discretionary }
+  BBY:  { kind: equity, label: "Best Buy", sector: consumer_discretionary }
+  AZO:  { kind: equity, label: "AutoZone", sector: consumer_discretionary }
+  ORLY: { kind: equity, label: "O'Reilly Automotive", sector: consumer_discretionary }
+  GPC:  { kind: equity, label: "Genuine Parts Company", sector: consumer_discretionary }
+  MCD:  { kind: equity, label: "McDonald's", sector: consumer_discretionary }
+  SBUX: { kind: equity, label: "Starbucks", sector: consumer_discretionary }
+  YUM:  { kind: equity, label: "Yum! Brands", sector: consumer_discretionary }
+  DRI:  { kind: equity, label: "Darden Restaurants", sector: consumer_discretionary }
+  MAR:  { kind: equity, label: "Marriott International", sector: consumer_discretionary }
+  BKNG: { kind: equity, label: "Booking Holdings", sector: consumer_discretionary }
+  EXPE: { kind: equity, label: "Expedia Group", sector: consumer_discretionary }
+  NKE:  { kind: equity, label: "Nike", sector: consumer_discretionary }
+  RL:   { kind: equity, label: "Ralph Lauren", sector: consumer_discretionary }
+  TPR:  { kind: equity, label: "Tapestry", sector: consumer_discretionary }
+  F:    { kind: equity, label: "Ford Motor", sector: consumer_discretionary }
+  DHI:  { kind: equity, label: "D.R. Horton", sector: consumer_discretionary }
+  LEN:  { kind: equity, label: "Lennar", sector: consumer_discretionary }
+  PHM:  { kind: equity, label: "PulteGroup", sector: consumer_discretionary }
+  EBAY: { kind: equity, label: "eBay", sector: consumer_discretionary }
+  HAS:  { kind: equity, label: "Hasbro", sector: consumer_discretionary }

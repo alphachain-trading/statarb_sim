@@ -1,0 +1,64 @@
+# canonical.yaml — single source of truth for the statarb_sim pipeline.
+#
+# NOTE: no filesystem paths live here. All roots (data, artifacts, panels,
+# simulation runs, universe configs) are derived from settings.py. Only the
+# *names* of sub-locations (panel subdir, run name, fixtures dir relative to
+# the project root) and model/strategy parameters are configured here.
+
+# --- what to trade -----------------------------------------------------------
+selected_sectors: [materials, financials, utilities, consumer_discretionary, consumer_staples, energy, health_care, industrials, information_technology, real_estate]
+residual_key: exp_hl504_mh1008_rf
+
+# --- candidate panel (produced by the residuals stage; see fixtures note) -----
+panels:
+  subdir: full_v1                                        # under settings.CANDIDATE_PANELS_ROOT
+
+# --- data --------------------------------------------------------------------
+data:
+  price_field: Close
+  return_method: log
+
+# --- z-score (single timescale) ----------------------------------------------
+z_score:
+  lookback: 126
+  method: ewm
+
+# --- mean-reversion diagnostics ----------------------------------------------
+diagnostics:
+  lookback: 252
+  compute_frequency: "off"
+
+# --- candidate selection -----------------------------------------------------
+candidate_selection:
+  allowed_candidate_subtypes: [pca]
+  require_is_valid: true
+  require_success: true
+
+# --- pair-spread trader ------------------------------------------------------
+trader:
+  entry_z: 1.75
+  exit_z: 0.0
+  max_holding_days: null
+  exit_rule: null
+
+# --- position sizing ---------------------------------------------------------
+sizing:
+  base_pair_notional: 100000.0
+  vol_normalize: true
+
+# --- portfolio risk limits ---------------------------------------------------
+risk_manager:
+  max_gross_exposure: 10.0
+  max_ticker_exposure_pct: 0.15
+
+# --- capital reference -------------------------------------------------------
+capital:
+  total_capital: 1000000.0
+
+# --- run window / output -----------------------------------------------------
+run:
+  name: full_v1             # simulate output subdir under settings.SIMULATION_RUNS_ROOT
+  start_date: null
+  end_date: null
+  progress: true
+  progress_step: 10

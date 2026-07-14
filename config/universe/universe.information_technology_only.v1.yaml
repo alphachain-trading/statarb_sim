@@ -1,0 +1,120 @@
+meta:
+  universe_name: information_technology_only_v1
+  version: 0.2
+  description: >
+    Single-sector information technology universe for stat-arb / residual mean-reversion
+    research. Covers semiconductors, software, hardware, and IT services.
+    All names have 15+ years of trading history.
+  timezone: America/New_York
+  data_source: yfinance
+  asset_class: equities
+  currency: USD
+
+loader_defaults:
+  start_date: "1990-01-01"
+  end_date: null
+  interval: "1d"
+  auto_adjust: true
+  actions: true
+  repair: true
+  keepna: false
+  threads: true
+
+selection_policy:
+  objective: >
+    Large- and mid-cap U.S. technology names with broad representation across
+    semiconductors, application software, systems software, hardware, and IT services.
+    All names have 15+ years of trading history.
+  criteria:
+    - liquidity
+    - history_length
+    - sector_representativeness
+  exclusions:
+    - illiquid_names
+    - highly_idiosyncratic_names
+    - duplicate_membership_across_groups
+    - names_with_less_than_15_years_history
+
+hierarchy:
+  root: us_equities
+
+groups:
+  us_equities:
+    type: root
+    label: "US Equities"
+    children:
+      - information_technology
+
+  information_technology:
+    type: sector
+    label: "Information Technology"
+    proxy_etf: XLK
+    benchmark: SPY
+    risk_free: ^IRX
+    parent: us_equities
+    children: []
+    members:
+      - AAPL
+      - MSFT
+      - NVDA
+      - INTC
+      - TXN
+      - QCOM
+      - ADI
+      - MCHP
+      - MU
+      - AMAT
+      - KLAC
+      - CSCO
+      - MSI
+      - IBM
+      - ORCL
+      - ADBE
+      - CRM
+      - INTU
+      - ADSK
+      - HPQ
+      - NTAP
+      - WDC
+      - GLW
+      - APH
+      - ROP
+
+tickers:
+  SPY:
+    kind: benchmark_etf
+    label: "SPDR S&P 500 ETF Trust"
+
+  XLK:
+    kind: sector_etf
+    label: "Technology Select Sector SPDR Fund"
+
+  ^IRX:
+    kind: risk_free_rate
+    label: "13-Week Treasury Bill Yield"
+
+  AAPL: { kind: equity, label: "Apple", sector: information_technology }
+  MSFT: { kind: equity, label: "Microsoft", sector: information_technology }
+  NVDA: { kind: equity, label: "Nvidia", sector: information_technology }
+  INTC: { kind: equity, label: "Intel", sector: information_technology }
+  TXN:  { kind: equity, label: "Texas Instruments", sector: information_technology }
+  QCOM: { kind: equity, label: "Qualcomm", sector: information_technology }
+  ADI:  { kind: equity, label: "Analog Devices", sector: information_technology }
+  MCHP: { kind: equity, label: "Microchip Technology", sector: information_technology }
+  MU:   { kind: equity, label: "Micron Technology", sector: information_technology }
+  AMAT: { kind: equity, label: "Applied Materials", sector: information_technology }
+  KLAC: { kind: equity, label: "KLA Corporation", sector: information_technology }
+  CSCO: { kind: equity, label: "Cisco", sector: information_technology }
+  MSI:  { kind: equity, label: "Motorola Solutions", sector: information_technology }
+  IBM:  { kind: equity, label: "IBM", sector: information_technology }
+  ORCL: { kind: equity, label: "Oracle", sector: information_technology }
+  ADBE: { kind: equity, label: "Adobe", sector: information_technology }
+  CRM:  { kind: equity, label: "Salesforce", sector: information_technology }
+  INTU: { kind: equity, label: "Intuit", sector: information_technology }
+  ADSK: { kind: equity, label: "Autodesk", sector: information_technology }
+  HPQ:  { kind: equity, label: "HP Inc.", sector: information_technology }
+  NTAP: { kind: equity, label: "NetApp", sector: information_technology }
+  WDC:  { kind: equity, label: "Western Digital", sector: information_technology }
+  GLW:  { kind: equity, label: "Corning", sector: information_technology }
+  APH:  { kind: equity, label: "Amphenol", sector: information_technology }
+  ROP:  { kind: equity, label: "Roper Technologies", sector: information_technology }

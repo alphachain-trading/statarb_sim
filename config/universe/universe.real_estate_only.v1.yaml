@@ -1,0 +1,98 @@
+meta:
+  universe_name: real_estate_only_v1
+  version: 0.2
+  description: >
+    Single-sector real estate universe for stat-arb / residual mean-reversion research.
+    Covers industrial, residential, office, retail, health care, hotel, self-storage,
+    and specialty REITs plus real estate services. All names have 15+ years of
+    trading history.
+  timezone: America/New_York
+  data_source: yfinance
+  asset_class: equities
+  currency: USD
+
+loader_defaults:
+  start_date: "1990-01-01"
+  end_date: null
+  interval: "1d"
+  auto_adjust: true
+  actions: true
+  repair: true
+  keepna: false
+  threads: true
+
+selection_policy:
+  objective: >
+    All available large- and mid-cap U.S. real estate names in the S&P 500 with
+    15+ years of trading history. Smaller universe constrained by sector size.
+  criteria:
+    - liquidity
+    - history_length
+    - sector_representativeness
+  exclusions:
+    - illiquid_names
+    - names_with_less_than_15_years_history
+
+hierarchy:
+  root: us_equities
+
+groups:
+  us_equities:
+    type: root
+    label: "US Equities"
+    children:
+      - real_estate
+
+  real_estate:
+    type: sector
+    label: "Real Estate"
+    proxy_etf: XLRE
+    benchmark: SPY
+    risk_free: ^IRX
+    parent: us_equities
+    children: []
+    members:
+      - PLD
+      - AMT
+      - SPG
+      - PSA
+      - WELL
+      - EQR
+      - AVB
+      - VTR
+      - BXP
+      - KIM
+      - HST
+      - IRM
+      - DOC
+      - CBRE
+      - WY
+
+tickers:
+  SPY:
+    kind: benchmark_etf
+    label: "SPDR S&P 500 ETF Trust"
+
+  XLRE:
+    kind: sector_etf
+    label: "Real Estate Select Sector SPDR Fund"
+
+  ^IRX:
+    kind: risk_free_rate
+    label: "13-Week Treasury Bill Yield"
+
+  PLD:  { kind: equity, label: "Prologis", sector: real_estate }
+  AMT:  { kind: equity, label: "American Tower", sector: real_estate }
+  SPG:  { kind: equity, label: "Simon Property Group", sector: real_estate }
+  PSA:  { kind: equity, label: "Public Storage", sector: real_estate }
+  WELL: { kind: equity, label: "Welltower", sector: real_estate }
+  EQR:  { kind: equity, label: "Equity Residential", sector: real_estate }
+  AVB:  { kind: equity, label: "AvalonBay Communities", sector: real_estate }
+  VTR:  { kind: equity, label: "Ventas", sector: real_estate }
+  BXP:  { kind: equity, label: "BXP Inc.", sector: real_estate }
+  KIM:  { kind: equity, label: "Kimco Realty", sector: real_estate }
+  HST:  { kind: equity, label: "Host Hotels & Resorts", sector: real_estate }
+  IRM:  { kind: equity, label: "Iron Mountain", sector: real_estate }
+  DOC:  { kind: equity, label: "Healthpeak Properties", sector: real_estate }
+  CBRE: { kind: equity, label: "CBRE Group", sector: real_estate }
+  WY:   { kind: equity, label: "Weyerhaeuser", sector: real_estate }

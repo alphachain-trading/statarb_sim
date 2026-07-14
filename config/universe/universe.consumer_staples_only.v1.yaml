@@ -1,0 +1,122 @@
+meta:
+  universe_name: consumer_staples_only_v1
+  version: 0.2
+  description: >
+    Single-sector consumer staples universe for stat-arb / residual mean-reversion research.
+    Defensive sector with stable earnings and business-model homogeneity across packaged foods,
+    household products, beverages, and retail. Structural analog to utilities.
+  timezone: America/New_York
+  data_source: yfinance
+  asset_class: equities
+  currency: USD
+
+loader_defaults:
+  start_date: "1990-01-01"
+  end_date: null
+  interval: "1d"
+  auto_adjust: true
+  actions: true
+  repair: true
+  keepna: false
+  threads: true
+
+selection_policy:
+  objective: >
+    Large- and mid-cap U.S. consumer staples names with broad representation across
+    packaged foods, household products, beverages, tobacco, and staples retail.
+    All names have 15+ years of trading history.
+  criteria:
+    - liquidity
+    - history_length
+    - sector_representativeness
+  exclusions:
+    - illiquid_names
+    - highly_idiosyncratic_names
+    - duplicate_membership_across_groups
+    - names_with_less_than_15_years_history
+
+hierarchy:
+  root: us_equities
+
+groups:
+  us_equities:
+    type: root
+    label: "US Equities"
+    children:
+      - consumer_staples
+
+  consumer_staples:
+    type: sector
+    label: "Consumer Staples"
+    proxy_etf: XLP
+    benchmark: SPY
+    risk_free: ^IRX
+    parent: us_equities
+    children: []
+    members:
+      - PG
+      - KO
+      - PEP
+      - COST
+      - WMT
+      - PM
+      - MO
+      - CL
+      - KMB
+      - CLX
+      - EL
+      - GIS
+      - HSY
+      - KR
+      - SYY
+      - TGT
+      - ADM
+      - CPB
+      - CAG
+      - MKC
+      - HRL
+      - SJM
+      - STZ
+      - TAP
+      - TSN
+      - BF-B
+
+tickers:
+  SPY:
+    kind: benchmark_etf
+    label: "SPDR S&P 500 ETF Trust"
+
+  XLP:
+    kind: sector_etf
+    label: "Consumer Staples Select Sector SPDR Fund"
+
+  ^IRX:
+    kind: risk_free_rate
+    label: "13-Week Treasury Bill Yield"
+
+  PG:   { kind: equity, label: "Procter & Gamble", sector: consumer_staples }
+  KO:   { kind: equity, label: "Coca-Cola", sector: consumer_staples }
+  PEP:  { kind: equity, label: "PepsiCo", sector: consumer_staples }
+  COST: { kind: equity, label: "Costco", sector: consumer_staples }
+  WMT:  { kind: equity, label: "Walmart", sector: consumer_staples }
+  PM:   { kind: equity, label: "Philip Morris International", sector: consumer_staples }
+  MO:   { kind: equity, label: "Altria Group", sector: consumer_staples }
+  CL:   { kind: equity, label: "Colgate-Palmolive", sector: consumer_staples }
+  KMB:  { kind: equity, label: "Kimberly-Clark", sector: consumer_staples }
+  CLX:  { kind: equity, label: "Clorox", sector: consumer_staples }
+  EL:   { kind: equity, label: "Estee Lauder", sector: consumer_staples }
+  GIS:  { kind: equity, label: "General Mills", sector: consumer_staples }
+  HSY:  { kind: equity, label: "Hershey", sector: consumer_staples }
+  KR:   { kind: equity, label: "Kroger", sector: consumer_staples }
+  SYY:  { kind: equity, label: "Sysco", sector: consumer_staples }
+  TGT:  { kind: equity, label: "Target", sector: consumer_staples }
+  ADM:  { kind: equity, label: "Archer-Daniels-Midland", sector: consumer_staples }
+  CPB:  { kind: equity, label: "Campbell Soup", sector: consumer_staples }
+  CAG:  { kind: equity, label: "Conagra Brands", sector: consumer_staples }
+  MKC:  { kind: equity, label: "McCormick", sector: consumer_staples }
+  HRL:  { kind: equity, label: "Hormel Foods", sector: consumer_staples }
+  SJM:  { kind: equity, label: "J.M. Smucker", sector: consumer_staples }
+  STZ:  { kind: equity, label: "Constellation Brands", sector: consumer_staples }
+  TAP:  { kind: equity, label: "Molson Coors Beverage", sector: consumer_staples }
+  TSN:  { kind: equity, label: "Tyson Foods", sector: consumer_staples }
+  BF-B: { kind: equity, label: "Brown-Forman", sector: consumer_staples }

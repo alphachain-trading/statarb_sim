@@ -1,0 +1,120 @@
+meta:
+  universe_name: industrials_only_v1
+  version: 0.2
+  description: >
+    Single-sector industrials universe for stat-arb / residual mean-reversion research.
+    Covers aerospace & defense, machinery, transportation, business services, and
+    environmental services. All names have 15+ years of trading history.
+  timezone: America/New_York
+  data_source: yfinance
+  asset_class: equities
+  currency: USD
+
+loader_defaults:
+  start_date: "1990-01-01"
+  end_date: null
+  interval: "1d"
+  auto_adjust: true
+  actions: true
+  repair: true
+  keepna: false
+  threads: true
+
+selection_policy:
+  objective: >
+    Large- and mid-cap U.S. industrial names with broad representation across
+    aerospace & defense, machinery, rail, logistics, and business services.
+    All names have 15+ years of trading history.
+  criteria:
+    - liquidity
+    - history_length
+    - sector_representativeness
+  exclusions:
+    - illiquid_names
+    - highly_idiosyncratic_names
+    - duplicate_membership_across_groups
+    - names_with_less_than_15_years_history
+
+hierarchy:
+  root: us_equities
+
+groups:
+  us_equities:
+    type: root
+    label: "US Equities"
+    children:
+      - industrials
+
+  industrials:
+    type: sector
+    label: "Industrials"
+    proxy_etf: XLI
+    benchmark: SPY
+    risk_free: ^IRX
+    parent: us_equities
+    children: []
+    members:
+      - BA
+      - LMT
+      - RTX
+      - GD
+      - NOC
+      - LHX
+      - TXT
+      - CAT
+      - DE
+      - CMI
+      - EMR
+      - ETN
+      - HON
+      - ITW
+      - PH
+      - ROK
+      - DOV
+      - MMM
+      - UNP
+      - CSX
+      - NSC
+      - FDX
+      - UPS
+      - WM
+      - RSG
+
+tickers:
+  SPY:
+    kind: benchmark_etf
+    label: "SPDR S&P 500 ETF Trust"
+
+  XLI:
+    kind: sector_etf
+    label: "Industrial Select Sector SPDR Fund"
+
+  ^IRX:
+    kind: risk_free_rate
+    label: "13-Week Treasury Bill Yield"
+
+  BA:   { kind: equity, label: "Boeing", sector: industrials }
+  LMT:  { kind: equity, label: "Lockheed Martin", sector: industrials }
+  RTX:  { kind: equity, label: "RTX Corporation", sector: industrials }
+  GD:   { kind: equity, label: "General Dynamics", sector: industrials }
+  NOC:  { kind: equity, label: "Northrop Grumman", sector: industrials }
+  LHX:  { kind: equity, label: "L3Harris", sector: industrials }
+  TXT:  { kind: equity, label: "Textron", sector: industrials }
+  CAT:  { kind: equity, label: "Caterpillar", sector: industrials }
+  DE:   { kind: equity, label: "Deere & Company", sector: industrials }
+  CMI:  { kind: equity, label: "Cummins", sector: industrials }
+  EMR:  { kind: equity, label: "Emerson Electric", sector: industrials }
+  ETN:  { kind: equity, label: "Eaton Corporation", sector: industrials }
+  HON:  { kind: equity, label: "Honeywell", sector: industrials }
+  ITW:  { kind: equity, label: "Illinois Tool Works", sector: industrials }
+  PH:   { kind: equity, label: "Parker Hannifin", sector: industrials }
+  ROK:  { kind: equity, label: "Rockwell Automation", sector: industrials }
+  DOV:  { kind: equity, label: "Dover Corporation", sector: industrials }
+  MMM:  { kind: equity, label: "3M", sector: industrials }
+  UNP:  { kind: equity, label: "Union Pacific", sector: industrials }
+  CSX:  { kind: equity, label: "CSX Corporation", sector: industrials }
+  NSC:  { kind: equity, label: "Norfolk Southern", sector: industrials }
+  FDX:  { kind: equity, label: "FedEx", sector: industrials }
+  UPS:  { kind: equity, label: "United Parcel Service", sector: industrials }
+  WM:   { kind: equity, label: "Waste Management", sector: industrials }
+  RSG:  { kind: equity, label: "Republic Services", sector: industrials }

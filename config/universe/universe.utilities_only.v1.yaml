@@ -1,0 +1,117 @@
+meta:
+  universe_name: utilities_only_v1
+  version: 0.2
+  description: >
+    Single-sector utilities universe for stat-arb / residual mean-reversion research.
+    Chosen for relative defensiveness and business-model homogeneity versus more narrative sectors.
+  timezone: America/New_York
+  data_source: yfinance
+  asset_class: equities
+  currency: USD
+
+loader_defaults:
+  start_date: "1990-01-01"
+  end_date: null
+  interval: "1d"
+  auto_adjust: true
+  actions: true
+  repair: true
+  keepna: false
+  threads: true
+
+selection_policy:
+  objective: >
+    Large- and mid-cap U.S. utility names with broad representation across electric,
+    multi-utility, gas utility, water utility, and independent power segments.
+  criteria:
+    - liquidity
+    - history_length
+    - sector_representativeness
+  exclusions:
+    - illiquid_names
+    - highly_idiosyncratic_names
+    - duplicate_membership_across_groups
+
+hierarchy:
+  root: us_equities
+
+groups:
+  us_equities:
+    type: root
+    label: "US Equities"
+    children:
+      - utilities
+
+  utilities:
+    type: sector
+    label: "Utilities"
+    proxy_etf: XLU
+    benchmark: SPY
+    risk_free: ^IRX
+    parent: us_equities
+    children: []
+    members:
+      - NEE
+      - SO
+      - DUK
+      - AEP
+      - SRE
+      - D
+      - EXC
+      - ETR
+      - XEL
+      - PEG
+      - ED
+      - EIX
+      - ES
+      - PPL
+      - FE
+      - WEC
+      - ATO
+      - CNP
+      - DTE
+      - AEE
+      - CMS
+      - NI
+      - AES
+      - EVRG
+      - LNT
+
+tickers:
+  SPY:
+    kind: benchmark_etf
+    label: "SPDR S&P 500 ETF Trust"
+
+  XLU:
+    kind: sector_etf
+    label: "Utilities Select Sector SPDR Fund"
+
+  ^IRX:
+    kind: risk_free_rate
+    label: "13-Week Treasury Bill Yield"
+
+  NEE:  { kind: equity, label: "NextEra Energy", sector: utilities }
+  SO:   { kind: equity, label: "Southern Company", sector: utilities }
+  DUK:  { kind: equity, label: "Duke Energy", sector: utilities }
+  AEP:  { kind: equity, label: "American Electric Power", sector: utilities }
+  SRE:  { kind: equity, label: "Sempra", sector: utilities }
+  D:    { kind: equity, label: "Dominion Energy", sector: utilities }
+  EXC:  { kind: equity, label: "Exelon", sector: utilities }
+  ETR:  { kind: equity, label: "Entergy", sector: utilities }
+  XEL:  { kind: equity, label: "Xcel Energy", sector: utilities }
+  PEG:  { kind: equity, label: "Public Service Enterprise Group", sector: utilities }
+  ED:   { kind: equity, label: "Consolidated Edison", sector: utilities }
+  EIX:  { kind: equity, label: "Edison International", sector: utilities }
+  ES:   { kind: equity, label: "Eversource Energy", sector: utilities }
+  PPL:  { kind: equity, label: "PPL Corporation", sector: utilities }
+  FE:   { kind: equity, label: "FirstEnergy", sector: utilities }
+  WEC:  { kind: equity, label: "WEC Energy Group", sector: utilities }
+  ATO:  { kind: equity, label: "Atmos Energy", sector: utilities }
+  CNP:  { kind: equity, label: "CenterPoint Energy", sector: utilities }
+  DTE:  { kind: equity, label: "DTE Energy", sector: utilities }
+  AEE:  { kind: equity, label: "Ameren", sector: utilities }
+  CMS:  { kind: equity, label: "CMS Energy", sector: utilities }
+  NI:   { kind: equity, label: "NiSource", sector: utilities }
+  AES:  { kind: equity, label: "AES Corporation", sector: utilities }
+  EVRG: { kind: equity, label: "Evergy", sector: utilities }
+  LNT:  { kind: equity, label: "Alliant Energy", sector: utilities }

@@ -1,0 +1,89 @@
+meta:
+  universe_name: energy_only_v1
+  version: 0.2
+  description: >
+    Single-sector energy universe for stat-arb / residual mean-reversion research.
+    Covers integrated oil & gas, E&P, equipment & services, refining, and midstream.
+    Smaller universe (12 names) — all available pre-2010 S&P 500 energy constituents.
+  timezone: America/New_York
+  data_source: yfinance
+  asset_class: equities
+  currency: USD
+
+loader_defaults:
+  start_date: "1990-01-01"
+  end_date: null
+  interval: "1d"
+  auto_adjust: true
+  actions: true
+  repair: true
+  keepna: false
+  threads: true
+
+selection_policy:
+  objective: >
+    All available large- and mid-cap U.S. energy names in the S&P 500 with
+    15+ years of trading history. Smaller universe constrained by sector size.
+  criteria:
+    - liquidity
+    - history_length
+    - sector_representativeness
+  exclusions:
+    - illiquid_names
+    - names_with_less_than_15_years_history
+
+hierarchy:
+  root: us_equities
+
+groups:
+  us_equities:
+    type: root
+    label: "US Equities"
+    children:
+      - energy
+
+  energy:
+    type: sector
+    label: "Energy"
+    proxy_etf: XLE
+    benchmark: SPY
+    risk_free: ^IRX
+    parent: us_equities
+    children: []
+    members:
+      - XOM
+      - CVX
+      - COP
+      - EOG
+      - OXY
+      - DVN
+      - APA
+      - SLB
+      - HAL
+      - VLO
+      - WMB
+
+tickers:
+  SPY:
+    kind: benchmark_etf
+    label: "SPDR S&P 500 ETF Trust"
+
+  XLE:
+    kind: sector_etf
+    label: "Energy Select Sector SPDR Fund"
+
+  ^IRX:
+    kind: risk_free_rate
+    label: "13-Week Treasury Bill Yield"
+
+  XOM:  { kind: equity, label: "ExxonMobil", sector: energy }
+  CVX:  { kind: equity, label: "Chevron", sector: energy }
+  COP:  { kind: equity, label: "ConocoPhillips", sector: energy }
+  EOG:  { kind: equity, label: "EOG Resources", sector: energy }
+  OXY:  { kind: equity, label: "Occidental Petroleum", sector: energy }
+  DVN:  { kind: equity, label: "Devon Energy", sector: energy }
+  APA:  { kind: equity, label: "APA Corporation", sector: energy }
+  SLB:  { kind: equity, label: "Schlumberger", sector: energy }
+  HAL:  { kind: equity, label: "Halliburton", sector: energy }
+  VLO:  { kind: equity, label: "Valero Energy", sector: energy }
+  WMB:  { kind: equity, label: "Williams Companies", sector: energy }

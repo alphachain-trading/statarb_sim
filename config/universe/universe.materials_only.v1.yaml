@@ -1,0 +1,94 @@
+meta:
+  universe_name: materials_only_v1
+  version: 0.2
+  description: >
+    Single-sector materials universe for stat-arb / residual mean-reversion research.
+    Covers industrial gases, specialty chemicals, packaging, steel, construction
+    materials, and fertilizers. Smaller universe (13 names) — all available pre-2010
+    S&P 500 materials constituents.
+  timezone: America/New_York
+  data_source: yfinance
+  asset_class: equities
+  currency: USD
+
+loader_defaults:
+  start_date: "1990-01-01"
+  end_date: null
+  interval: "1d"
+  auto_adjust: true
+  actions: true
+  repair: true
+  keepna: false
+  threads: true
+
+selection_policy:
+  objective: >
+    All available large- and mid-cap U.S. materials names in the S&P 500 with
+    15+ years of trading history. Smaller universe constrained by sector size.
+  criteria:
+    - liquidity
+    - history_length
+    - sector_representativeness
+  exclusions:
+    - illiquid_names
+    - names_with_less_than_15_years_history
+
+hierarchy:
+  root: us_equities
+
+groups:
+  us_equities:
+    type: root
+    label: "US Equities"
+    children:
+      - materials
+
+  materials:
+    type: sector
+    label: "Materials"
+    proxy_etf: XLB
+    benchmark: SPY
+    risk_free: ^IRX
+    parent: us_equities
+    children: []
+    members:
+      - LIN
+      - APD
+      - SHW
+      - ECL
+      - PPG
+      - IFF
+      - NUE
+      - NEM
+      - VMC
+      - BALL
+      - AVY
+      - IP
+      - CF
+
+tickers:
+  SPY:
+    kind: benchmark_etf
+    label: "SPDR S&P 500 ETF Trust"
+
+  XLB:
+    kind: sector_etf
+    label: "Materials Select Sector SPDR Fund"
+
+  ^IRX:
+    kind: risk_free_rate
+    label: "13-Week Treasury Bill Yield"
+
+  LIN:  { kind: equity, label: "Linde", sector: materials }
+  APD:  { kind: equity, label: "Air Products", sector: materials }
+  SHW:  { kind: equity, label: "Sherwin-Williams", sector: materials }
+  ECL:  { kind: equity, label: "Ecolab", sector: materials }
+  PPG:  { kind: equity, label: "PPG Industries", sector: materials }
+  IFF:  { kind: equity, label: "International Flavors & Fragrances", sector: materials }
+  NUE:  { kind: equity, label: "Nucor", sector: materials }
+  NEM:  { kind: equity, label: "Newmont", sector: materials }
+  VMC:  { kind: equity, label: "Vulcan Materials", sector: materials }
+  BALL: { kind: equity, label: "Ball Corporation", sector: materials }
+  AVY:  { kind: equity, label: "Avery Dennison", sector: materials }
+  IP:   { kind: equity, label: "International Paper", sector: materials }
+  CF:   { kind: equity, label: "CF Industries", sector: materials }

@@ -1,0 +1,120 @@
+meta:
+  universe_name: health_care_only_v1
+  version: 0.2
+  description: >
+    Single-sector health care universe for stat-arb / residual mean-reversion research.
+    Covers pharmaceuticals, biotechnology, health care equipment, distributors,
+    managed care, and life sciences tools. All names have 15+ years of trading history.
+  timezone: America/New_York
+  data_source: yfinance
+  asset_class: equities
+  currency: USD
+
+loader_defaults:
+  start_date: "1990-01-01"
+  end_date: null
+  interval: "1d"
+  auto_adjust: true
+  actions: true
+  repair: true
+  keepna: false
+  threads: true
+
+selection_policy:
+  objective: >
+    Large- and mid-cap U.S. health care names with broad representation across
+    pharmaceuticals, biotech, equipment, distributors, managed care, and services.
+    All names have 15+ years of trading history.
+  criteria:
+    - liquidity
+    - history_length
+    - sector_representativeness
+  exclusions:
+    - illiquid_names
+    - highly_idiosyncratic_names
+    - duplicate_membership_across_groups
+    - names_with_less_than_15_years_history
+
+hierarchy:
+  root: us_equities
+
+groups:
+  us_equities:
+    type: root
+    label: "US Equities"
+    children:
+      - health_care
+
+  health_care:
+    type: sector
+    label: "Health Care"
+    proxy_etf: XLV
+    benchmark: SPY
+    risk_free: ^IRX
+    parent: us_equities
+    children: []
+    members:
+      - JNJ
+      - PFE
+      - MRK
+      - LLY
+      - BMY
+      - AMGN
+      - GILD
+      - BIIB
+      - ABT
+      - MDT
+      - SYK
+      - BDX
+      - BSX
+      - ISRG
+      - BAX
+      - ZBH
+      - UNH
+      - CI
+      - ELV
+      - CVS
+      - MCK
+      - CAH
+      - DHR
+      - TMO
+      - A
+
+tickers:
+  SPY:
+    kind: benchmark_etf
+    label: "SPDR S&P 500 ETF Trust"
+
+  XLV:
+    kind: sector_etf
+    label: "Health Care Select Sector SPDR Fund"
+
+  ^IRX:
+    kind: risk_free_rate
+    label: "13-Week Treasury Bill Yield"
+
+  JNJ:  { kind: equity, label: "Johnson & Johnson", sector: health_care }
+  PFE:  { kind: equity, label: "Pfizer", sector: health_care }
+  MRK:  { kind: equity, label: "Merck", sector: health_care }
+  LLY:  { kind: equity, label: "Eli Lilly", sector: health_care }
+  BMY:  { kind: equity, label: "Bristol Myers Squibb", sector: health_care }
+  AMGN: { kind: equity, label: "Amgen", sector: health_care }
+  GILD: { kind: equity, label: "Gilead Sciences", sector: health_care }
+  BIIB: { kind: equity, label: "Biogen", sector: health_care }
+  ABT:  { kind: equity, label: "Abbott Laboratories", sector: health_care }
+  MDT:  { kind: equity, label: "Medtronic", sector: health_care }
+  SYK:  { kind: equity, label: "Stryker", sector: health_care }
+  BDX:  { kind: equity, label: "Becton Dickinson", sector: health_care }
+  BSX:  { kind: equity, label: "Boston Scientific", sector: health_care }
+  ISRG: { kind: equity, label: "Intuitive Surgical", sector: health_care }
+  BAX:  { kind: equity, label: "Baxter International", sector: health_care }
+  ZBH:  { kind: equity, label: "Zimmer Biomet", sector: health_care }
+  UNH:  { kind: equity, label: "UnitedHealth Group", sector: health_care }
+  CI:   { kind: equity, label: "Cigna", sector: health_care }
+  ELV:  { kind: equity, label: "Elevance Health", sector: health_care }
+  CVS:  { kind: equity, label: "CVS Health", sector: health_care }
+  MCK:  { kind: equity, label: "McKesson", sector: health_care }
+  CAH:  { kind: equity, label: "Cardinal Health", sector: health_care }
+  DHR:  { kind: equity, label: "Danaher", sector: health_care }
+  TMO:  { kind: equity, label: "Thermo Fisher Scientific", sector: health_care }
+  A:    { kind: equity, label: "Agilent Technologies", sector: health_care }
