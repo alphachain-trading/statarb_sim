@@ -446,7 +446,7 @@ def _build_sim_config(cfg: dict):
             allow_fractional_shares=False,
             share_rounding="nearest",
         ),
-        performance=PerformanceConfig(enabled=True, metrics_table=True, report_html=False),
+        performance=PerformanceConfig(enabled=True, metrics_table=True, report_html=True),
         # output_dir is the *parent* under which the persistence layer creates a
         # single run dir named {datetime}_{config_hash[:8]}. Passing a pre-built
         # run dir here double-nests, so hand it the runs root.

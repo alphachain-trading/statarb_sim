@@ -1,7 +1,7 @@
-data/
-artifacts/
+/data/
+/artifacts/
 .claude/
-logs/
+/logs/
 __pycache__/
 *.pyc
 .idea/
