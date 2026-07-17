@@ -4,12 +4,15 @@ Sweep runner — orchestrate parameter sweeps and persist results.
 Usage from Jupyter:
     from sweep_runner import SweepConfig, run_sweep, load_sweep_results, view_*
 
-    # Single-timescale (backward compatible)
+    # candidate_panel_subdir is set per SweepConfig and is required — a
+    # SweepConfig without it raises, naming the offending RUNS[i].
+
+    # Single-timescale
     RUNS = [
-        SweepConfig(z_method="ewm", z_lookback=21),
-        SweepConfig(z_method="ewm", z_lookback=42),
+        SweepConfig(z_method="ewm", z_lookback=21, candidate_panel_subdir="V2.pair"),
+        SweepConfig(z_method="ewm", z_lookback=42, candidate_panel_subdir="V2.pair"),
     ]
-    run_sweep(RUNS, candidate_panel_subdir="V2.pair")
+    run_sweep(RUNS)
 
     # Multi-timescale
     from src.simulator.config import ZScoreConfig
@@ -18,20 +21,9 @@ Usage from Jupyter:
             ZScoreConfig(lookback=10, method="ewm", residual_key="exp_hl63_mh126"),
             ZScoreConfig(lookback=21, method="ewm", residual_key="exp_hl126_mh252"),
             ZScoreConfig(lookback=42, method="ewm", residual_key="exp_hl252_mh504"),
-        ]),
+        ], candidate_panel_subdir="V3.pair"),
     ]
-    run_sweep(RUNS, candidate_panel_subdir="V3.pair")
-
-    # Multi-timescale with cross-ts gate and timescale risk
-    from src.simulator.config import ZScoreConfig, CrossTimescaleEntryConfig, TimescaleRiskConfig
-    RUNS = [
-        SweepConfig(
-            z_score_overrides=[...],
-            cross_ts=CrossTimescaleEntryConfig(same_sign_required=True, min_abs_z_all=0.5),
-            timescale_risk=TimescaleRiskConfig(max_timescales_per_spread=1, selection="max_abs_z"),
-        ),
-    ]
-    run_sweep(RUNS, candidate_panel_subdir="V3.pair")
+    run_sweep(RUNS)
 
     df = load_sweep_results()
     view_signal(df)
@@ -108,6 +100,10 @@ class SweepConfig:
 
     # Universe
     excluded_sectors: list[str] | None = None
+
+    # Candidate panel — required. "" = unset, which _resolve_panel_subdir
+    # rejects. Single source of truth; no run_sweep-level override.
+    candidate_panel_subdir: str = ""
 
     # Date range
     start_date: str | None = "2010-01-01"
@@ -228,11 +224,41 @@ def _extract_run_id(result) -> str:
     return f"unknown_{datetime.now().strftime('%Y%m%d_%H%M')}"
 
 
-def _build_sim_config(
-    sweep: SweepConfig,
-    candidate_panel_subdir: str,
-) -> SimulatorConfig:
-    """Convert SweepConfig → SimulatorConfig."""
+def _describe(sweep: SweepConfig, index: int | None) -> str:
+    """Locate a SweepConfig in a RUNS list for error messages."""
+    where = "SweepConfig" if index is None else f"RUNS[{index}]"
+    try:
+        return f"{where} (alias={sweep.alias!r})"
+    except Exception:
+        # alias is derived; never let message-building mask the real error.
+        return where
+
+
+def _resolve_panel_subdir(sweep: SweepConfig, index: int | None = None) -> str:
+    """
+    The candidate panel for one sweep — required on the SweepConfig.
+
+    Single source of truth: the panel comes only from
+    SweepConfig.candidate_panel_subdir, and it must be set. An unset panel
+    would silently run against whatever DataConfig defaults to while leaving
+    every other parameter identical, so it fails loud rather than guessing.
+
+    "" is the unset sentinel, matching DataConfig.candidate_panel_subdir and
+    the truthiness checks every consumer already uses.
+    """
+    panel = sweep.candidate_panel_subdir or ""
+    if not panel:
+        raise ValueError(
+            f"{_describe(sweep, index)}: candidate_panel_subdir is unset. "
+            f"Set it on the SweepConfig, e.g. SweepConfig(..., candidate_panel_subdir='V4')."
+        )
+    return panel
+
+
+def _build_sim_config(sweep: SweepConfig, *, index: int | None = None) -> SimulatorConfig:
+    """Convert SweepConfig → SimulatorConfig, resolving the candidate panel."""
+
+    panel = _resolve_panel_subdir(sweep, index)
 
     if sweep.is_multi_timescale:
         z_score = sweep.z_score_overrides
@@ -254,7 +280,7 @@ def _build_sim_config(
 
     return SimulatorConfig(
         data=DataConfig(
-            candidate_panel_subdir=candidate_panel_subdir,
+            candidate_panel_subdir=panel,
             excluded_sectors=sweep.excluded_sectors,
             data_path=str(DATA_UNIVERSES),
         ),
@@ -295,7 +321,7 @@ def _build_sim_config(
     )
 
 
-def dedup_key(sweep: SweepConfig, candidate_panel_subdir: str) -> str:
+def dedup_key(sweep: SweepConfig, *, index: int | None = None) -> str:
     """
     Identity of a sweep run, for skip_existing decisions.
 
@@ -304,7 +330,7 @@ def dedup_key(sweep: SweepConfig, candidate_panel_subdir: str) -> str:
     like interval_scoring weights. SweepConfig.alias is a lossy display
     label (a subset of fields) and must not be used for dedup.
     """
-    return hash_config(_build_sim_config(sweep, candidate_panel_subdir))
+    return hash_config(_build_sim_config(sweep, index=index))
 
 
 def _existing_keys(existing: pd.DataFrame) -> set[str]:
@@ -440,10 +466,13 @@ def view_summary(df: pd.DataFrame) -> pd.DataFrame:
 
 def run_sweep(
     runs: list[SweepConfig],
-    candidate_panel_subdir: str,
     *,
     skip_existing: bool = True,
 ) -> (pd.DataFrame, list[SimulationResult]):
+    # Validate the whole batch before running anything — a bad RUNS[7] should
+    # surface now, not hours into the sweep.
+    panels = [_resolve_panel_subdir(sweep, i) for i, sweep in enumerate(runs)]
+
     existing = load_sweep_results()
     results = existing.reset_index().to_dict("records") if not existing.empty else []
     existing_keys = _existing_keys(existing)
@@ -453,7 +482,8 @@ def run_sweep(
     all_sweep_results = []
 
     for i, sweep in enumerate(runs):
-        sim_config = _build_sim_config(sweep, candidate_panel_subdir)
+        panel = panels[i]
+        sim_config = _build_sim_config(sweep, index=i)
         key = hash_config(sim_config)
 
         if skip_existing and key in existing_keys:
@@ -503,10 +533,10 @@ def run_sweep(
                 "run_duration_s": round(duration_s, 1),
                 **sweep_fields,
                 **result.performance.metrics,
-                # After the splats: sweep_fields carries no panel/hash, and
-                # these are the real dedup identity of the run.
+                # After the splats: the resolved panel is what actually ran,
+                # and these are the real dedup identity of the run.
                 "config_hash": key,
-                "candidate_panel_subdir": candidate_panel_subdir,
+                "candidate_panel_subdir": panel,
             }
         except Exception as e:
             duration_s = _time.perf_counter() - t0
@@ -519,7 +549,7 @@ def run_sweep(
                 "error": str(e),
                 **{f.name: getattr(sweep, f.name) for f in fields(sweep)},
                 "config_hash": key,
-                "candidate_panel_subdir": candidate_panel_subdir,
+                "candidate_panel_subdir": panel,
             }
 
         results.append(row)
@@ -540,9 +570,11 @@ def run_sweep(
 
 def _run_one_sweep(args: tuple) -> dict:
     """Worker function for run_sweep_parallel."""
-    sweep, candidate_panel_subdir, i, n_total = args
+    sweep, i, n_total = args
     import time as _t
-    from src.simulator.sweep_runner import _build_sim_config, _extract_run_id
+    from src.simulator.sweep_runner import (
+        _build_sim_config, _extract_run_id, _resolve_panel_subdir,
+    )
     from src.simulator.simulator_factory import run_from_config
     from src.simulator.simulation_persistence import hash_config
     from dataclasses import fields
@@ -550,7 +582,8 @@ def _run_one_sweep(args: tuple) -> dict:
 
     print(f"[worker] START [{i+1}/{n_total}] {sweep.alias}", flush=True)
     t0 = _t.perf_counter()
-    sim_config = _build_sim_config(sweep, candidate_panel_subdir)
+    panel = _resolve_panel_subdir(sweep, i)
+    sim_config = _build_sim_config(sweep, index=i)
     key = hash_config(sim_config)
     try:
         result = run_from_config(sim_config)
@@ -576,7 +609,7 @@ def _run_one_sweep(args: tuple) -> dict:
             **sweep_fields,
             **result.performance.metrics,
             "config_hash": key,
-            "candidate_panel_subdir": candidate_panel_subdir,
+            "candidate_panel_subdir": panel,
         }
         print(f"[worker] DONE  [{i+1}/{n_total}] {sweep.alias} [{key[:8]}] in {duration_s/60:.1f}min", flush=True)
     except Exception as e:
@@ -590,27 +623,31 @@ def _run_one_sweep(args: tuple) -> dict:
             "error": str(e),
             **{f.name: getattr(sweep, f.name) for f in fields(sweep)},
             "config_hash": key,
-            "candidate_panel_subdir": candidate_panel_subdir,
+            "candidate_panel_subdir": panel,
         }
     return row
 
 
 def run_sweep_parallel(
     runs: list[SweepConfig],
-    candidate_panel_subdir: str,
     *,
     n_workers: int = 8,
     skip_existing: bool = True,
 ) -> pd.DataFrame:
     import multiprocessing as mp
 
+    # Validate the whole batch before spawning workers — a bad RUNS[7] should
+    # not surface inside a pool after the others have started.
+    for i, sweep in enumerate(runs):
+        _resolve_panel_subdir(sweep, i)
+
     existing = load_sweep_results()
     existing_rows = existing.reset_index().to_dict("records") if not existing.empty else []
     existing_keys = _existing_keys(existing)
 
     pending = [
-        s for s in runs
-        if not (skip_existing and dedup_key(s, candidate_panel_subdir) in existing_keys)
+        s for i, s in enumerate(runs)
+        if not (skip_existing and dedup_key(s, index=i) in existing_keys)
     ]
     skipped = len(runs) - len(pending)
     print(f"[sweep_parallel] {len(pending)} runs to execute, {skipped} skipped. Workers: {n_workers}")
@@ -618,7 +655,7 @@ def run_sweep_parallel(
     if not pending:
         return existing
 
-    args = [(sweep, candidate_panel_subdir, i, len(pending)) for i, sweep in enumerate(pending)]
+    args = [(sweep, i, len(pending)) for i, sweep in enumerate(pending)]
 
     mp.set_start_method("spawn", force=True)
     with mp.Pool(processes=n_workers) as pool:
