@@ -61,6 +61,7 @@ from src.simulator.config import (
 )
 from src.simulator.simulator import SimulationResult
 from src.simulator.simulator_factory import run_from_config
+from src.simulator.simulation_persistence import hash_config
 from src.candidates.candidate_selector import CandidateSelectionConfig
 
 
@@ -294,6 +295,30 @@ def _build_sim_config(
     )
 
 
+def dedup_key(sweep: SweepConfig, candidate_panel_subdir: str) -> str:
+    """
+    Identity of a sweep run, for skip_existing decisions.
+
+    Hashes the fully-built SimulatorConfig, so every parameter that affects
+    the run is covered — including candidate_panel_subdir and nested fields
+    like interval_scoring weights. SweepConfig.alias is a lossy display
+    label (a subset of fields) and must not be used for dedup.
+    """
+    return hash_config(_build_sim_config(sweep, candidate_panel_subdir))
+
+
+def _existing_keys(existing: pd.DataFrame) -> set[str]:
+    """
+    Dedup keys already present in the results index.
+
+    Rows predating the config_hash column contribute no key, so they are
+    re-run rather than wrongly skipped.
+    """
+    if existing.empty or "config_hash" not in existing.columns:
+        return set()
+    return set(existing["config_hash"].dropna().tolist())
+
+
 # ---------------------------------------------------------------------------
 # Sweep results I/O
 # ---------------------------------------------------------------------------
@@ -421,23 +446,24 @@ def run_sweep(
 ) -> (pd.DataFrame, list[SimulationResult]):
     existing = load_sweep_results()
     results = existing.reset_index().to_dict("records") if not existing.empty else []
-    existing_aliases = set(existing["alias"].tolist()) if not existing.empty else set()
+    existing_keys = _existing_keys(existing)
 
     n_total = len(runs)
     n_skipped = 0
     all_sweep_results = []
 
     for i, sweep in enumerate(runs):
-        if skip_existing and sweep.alias in existing_aliases:
-            print(f"[sweep {i+1}/{n_total}] Skipping {sweep.alias} — already in results")
+        sim_config = _build_sim_config(sweep, candidate_panel_subdir)
+        key = hash_config(sim_config)
+
+        if skip_existing and key in existing_keys:
+            print(f"[sweep {i+1}/{n_total}] Skipping {sweep.alias} [{key[:8]}] — already in results")
             n_skipped += 1
             continue
 
         print("=" * 100)
-        print(f"[sweep {i+1}/{n_total}] {sweep.alias}")
+        print(f"[sweep {i+1}/{n_total}] {sweep.alias} [{key[:8]}]")
         print("=" * 100)
-
-        sim_config = _build_sim_config(sweep, candidate_panel_subdir)
 
         t0 = _time.perf_counter()
         try:
@@ -477,6 +503,10 @@ def run_sweep(
                 "run_duration_s": round(duration_s, 1),
                 **sweep_fields,
                 **result.performance.metrics,
+                # After the splats: sweep_fields carries no panel/hash, and
+                # these are the real dedup identity of the run.
+                "config_hash": key,
+                "candidate_panel_subdir": candidate_panel_subdir,
             }
         except Exception as e:
             duration_s = _time.perf_counter() - t0
@@ -488,10 +518,12 @@ def run_sweep(
                 "run_duration_s": round(duration_s, 1),
                 "error": str(e),
                 **{f.name: getattr(sweep, f.name) for f in fields(sweep)},
+                "config_hash": key,
+                "candidate_panel_subdir": candidate_panel_subdir,
             }
 
         results.append(row)
-        existing_aliases.add(sweep.alias)
+        existing_keys.add(key)
 
         df = pd.DataFrame(results)
         df = df.set_index("run_id")
@@ -512,13 +544,15 @@ def _run_one_sweep(args: tuple) -> dict:
     import time as _t
     from src.simulator.sweep_runner import _build_sim_config, _extract_run_id
     from src.simulator.simulator_factory import run_from_config
+    from src.simulator.simulation_persistence import hash_config
     from dataclasses import fields
     from datetime import datetime
 
     print(f"[worker] START [{i+1}/{n_total}] {sweep.alias}", flush=True)
     t0 = _t.perf_counter()
+    sim_config = _build_sim_config(sweep, candidate_panel_subdir)
+    key = hash_config(sim_config)
     try:
-        sim_config = _build_sim_config(sweep, candidate_panel_subdir)
         result = run_from_config(sim_config)
         duration_s = _t.perf_counter() - t0
         run_id = _extract_run_id(result)
@@ -541,8 +575,10 @@ def _run_one_sweep(args: tuple) -> dict:
             "run_duration_s": round(duration_s, 1),
             **sweep_fields,
             **result.performance.metrics,
+            "config_hash": key,
+            "candidate_panel_subdir": candidate_panel_subdir,
         }
-        print(f"[worker] DONE  [{i+1}/{n_total}] {sweep.alias} in {duration_s/60:.1f}min", flush=True)
+        print(f"[worker] DONE  [{i+1}/{n_total}] {sweep.alias} [{key[:8]}] in {duration_s/60:.1f}min", flush=True)
     except Exception as e:
         duration_s = _t.perf_counter() - t0
         print(f"[worker] FAIL  [{i+1}/{n_total}] {sweep.alias}: {e}", flush=True)
@@ -553,6 +589,8 @@ def _run_one_sweep(args: tuple) -> dict:
             "run_duration_s": round(duration_s, 1),
             "error": str(e),
             **{f.name: getattr(sweep, f.name) for f in fields(sweep)},
+            "config_hash": key,
+            "candidate_panel_subdir": candidate_panel_subdir,
         }
     return row
 
@@ -568,9 +606,12 @@ def run_sweep_parallel(
 
     existing = load_sweep_results()
     existing_rows = existing.reset_index().to_dict("records") if not existing.empty else []
-    existing_aliases = set(existing["alias"].tolist()) if not existing.empty else set()
+    existing_keys = _existing_keys(existing)
 
-    pending = [s for s in runs if not (skip_existing and s.alias in existing_aliases)]
+    pending = [
+        s for s in runs
+        if not (skip_existing and dedup_key(s, candidate_panel_subdir) in existing_keys)
+    ]
     skipped = len(runs) - len(pending)
     print(f"[sweep_parallel] {len(pending)} runs to execute, {skipped} skipped. Workers: {n_workers}")
 
