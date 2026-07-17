@@ -39,22 +39,21 @@ import pandas as pd
 
 from settings import CANDIDATE_PANELS_ROOT, CONFIG_UNIVERSE, DATA_UNIVERSES, SIMULATION_RUNS_ROOT
 from src.simulator.config import (
-    DataConfig, CapitalConfig, SimulatorConfig,
-    ActivationConfig, RunConfig, ExecutionConfig,
-    ZScoreConfig, MRDiagnosticsConfig,
+    DataConfig, SimulatorConfig,
+    RunConfig,
+    ZScoreConfig,
     PairSpreadTraderConfig, RiskManagerConfig,
     SizingConfig, VolSizingConfig, KellyConfig,
     EntryFeatureConfig, FeatureSpec,
     FeatureIntervalSpec, IntervalScoringConfig,
     CrossTimescaleEntryConfig, TimescaleRiskConfig,
-    PerformanceConfig, PersistenceConfig,
     SpectrumConfig,
     discover_sector_data_sources, sector_abbrev,
 )
 from src.simulator.simulator import SimulationResult
 from src.simulator.simulator_factory import run_from_config
 from src.simulator.simulation_persistence import hash_config
-from src.candidates.candidate_selector import CandidateSelectionConfig
+from src.simulator.sweep_defaults import get_default_bundle, merge_defaults
 
 
 # ---------------------------------------------------------------------------
@@ -104,6 +103,11 @@ class SweepConfig:
     # Candidate panel — required. "" = unset, which _resolve_panel_subdir
     # rejects. Single source of truth; no run_sweep-level override.
     candidate_panel_subdir: str = ""
+
+    # Which named bundle of non-swept SimulatorConfig defaults to use — see
+    # sweep_defaults.DEFAULT_CONFIGS. On the sweep (not a _build_sim_config
+    # arg) so it enters config_hash and is recorded per run.
+    defaults: str = "standard_v1"
 
     # Date range
     start_date: str | None = "2010-01-01"
@@ -278,47 +282,39 @@ def _build_sim_config(sweep: SweepConfig, *, index: int | None = None) -> Simula
         timescale_risk=sweep.timescale_risk,
     )
 
-    return SimulatorConfig(
-        data=DataConfig(
+    # Fields derived from the sweep. The remaining SimulatorConfig fields
+    # (capital, candidate_selection, activation, diagnostics, execution,
+    # performance, persistence) come from the named defaults bundle; residual
+    # is left to its SimulatorConfig default, as before.
+    sweep_derived = {
+        "data": DataConfig(
             candidate_panel_subdir=panel,
             excluded_sectors=sweep.excluded_sectors,
             data_path=str(DATA_UNIVERSES),
         ),
-        capital=CapitalConfig(total_capital=1_000_000.0),
-        candidate_selection=CandidateSelectionConfig(
-            allowed_candidate_subtypes=("pca",), require_is_valid=True,
-        ),
-        activation=ActivationConfig(one_active_per_group=False, switch_only_when_flat=False),
-        z_score=z_score,
-        diagnostics=MRDiagnosticsConfig(lookback=252, compute_frequency="off"),
-        trader=PairSpreadTraderConfig(
+        "z_score": z_score,
+        "trader": PairSpreadTraderConfig(
             entry_z=sweep.entry_z,
             exit_z=sweep.exit_z,
             cross_ts=sweep.cross_ts,
             max_holding_days=sweep.max_holding_days,
             exit_rule=sweep.exit_rule,
         ),
-        sizing=sizing,
-        risk_manager=risk_manager,
-        run=RunConfig(
+        "sizing": sizing,
+        "risk_manager": risk_manager,
+        "run": RunConfig(
             progress=True,
             progress_step=10,
             start_date=sweep.start_date,
             end_date=sweep.end_date,
         ),
-        execution=ExecutionConfig(allow_fractional_shares=False, share_rounding="nearest"),
-        performance=PerformanceConfig(
-            enabled=True,
-            metrics_table=True,
-            report_html=True,
-            benchmark_ticker=None,
-            annualization_factor=252,
-            per_group_breakdown=True,
-        ),
-        persistence=PersistenceConfig(enabled=True),
-        spectrum=sweep.spectrum,
-        entry_features=sweep.entry_features,
-    )
+        "spectrum": sweep.spectrum,
+        "entry_features": sweep.entry_features,
+    }
+
+    bundle = get_default_bundle(sweep.defaults)
+    kwargs = merge_defaults(sweep_derived, bundle, sweep.defaults)
+    return SimulatorConfig(**kwargs)
 
 
 def dedup_key(sweep: SweepConfig, *, index: int | None = None) -> str:
