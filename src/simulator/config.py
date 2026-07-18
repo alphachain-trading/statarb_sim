@@ -671,8 +671,12 @@ class IntervalScoringConfig:
     feature_specs
         One FeatureIntervalSpec per feature used in scoring.
     feature_weights
-        Relative aggregation weights per feature name. Missing entries default
-        to 1.0 (equal contribution).
+        Relative aggregation weight per feature, keyed by the same name used in
+        the corresponding FeatureIntervalSpec.feature. Every spec must have an
+        entry and every entry must name a spec — validated here, since a
+        missing weight is silently unrecoverable at sizing time: defaulting it
+        would promote an intentionally-zeroed feature to full weight and skew
+        every trade's size.
     floor_multiplier
         Minimum output multiplier. Default 0.25.
     cap_multiplier
@@ -700,6 +704,30 @@ class IntervalScoringConfig:
         if len(names) != len(set(names)):
             dupes = [n for n in names if names.count(n) > 1]
             raise ValueError(f"IntervalScoringConfig: duplicate feature specs: {sorted(set(dupes))}")
+
+        # feature_weights must correspond exactly to feature_specs, both ways.
+        # SizingEngine raises KeyError on a missing weight — correctly, since
+        # defaulting one would silently promote an intentionally-zeroed feature
+        # to full weight. But that only surfaces at the first trade, minutes
+        # into a run, so catch the mismatch at construction instead.
+        spec_names = set(names)
+        weight_names = set(self.feature_weights)
+
+        unknown = weight_names - spec_names
+        if unknown:
+            raise ValueError(
+                f"IntervalScoringConfig: feature_weights names no such feature spec: "
+                f"{sorted(unknown)}. Known feature_specs: {sorted(spec_names)}. "
+                f"Keys must match FeatureIntervalSpec.feature exactly."
+            )
+
+        missing = spec_names - weight_names
+        if missing:
+            raise ValueError(
+                f"IntervalScoringConfig: feature_specs have no feature_weights entry: "
+                f"{sorted(missing)}. Given feature_weights: {sorted(weight_names)}. "
+                f"Every spec needs an explicit weight — there is no default."
+            )
 
 
 @dataclass(slots=True, frozen=True)
