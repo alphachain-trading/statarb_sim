@@ -479,6 +479,33 @@ def create_pair_candidates_for_date(
     return CandidatePanelResult(panel=panel, metadata=metadata)
 
 
+def _clear_stem_artifacts(out_dir: Path, stem: str) -> list[Path]:
+    """
+    Remove a single panel stem's prior artifacts before a fresh write.
+
+    Matches the stage_download convention of deleting stale artifacts to force
+    a clean rebuild: a reused stem must not keep its old meta or, worse, a
+    residual_params.pkl fitted under a different config.
+
+    Scoped to THIS stem only — sibling panels sharing a batch directory and the
+    shared series/ folder are left untouched. (series/ filenames are keyed by
+    spread/ticker, not stem, so pruning it safely is a separate, unresolved
+    concern and deliberately out of scope here.)
+
+    Returns the paths actually removed.
+    """
+    removed: list[Path] = []
+    for path in (
+        out_dir / f"{stem}.panel.parquet",
+        out_dir / f"{stem}.meta.json",
+        out_dir / f"{stem}_residual_params.pkl",
+    ):
+        if path.exists():
+            path.unlink()
+            removed.append(path)
+    return removed
+
+
 def create_pair_candidate_panel(
     bundle: GroupReturnBundle,
     residual_cfg: CausalResidualConfig,
@@ -697,6 +724,13 @@ def create_pair_candidate_panel(
         stem = auto_stem if persist_result_file_stem == "" else persist_result_file_stem
 
         result.metadata["artifact_out_dir"] = str(out_dir)
+
+        # Remove this stem's prior artifacts before writing fresh ones, so a
+        # reused stem cannot leave a stale meta or a residual_params.pkl from a
+        # different config behind. Stem-scoped: sibling panels in a shared batch
+        # directory and the shared series/ folder are untouched.
+        for removed_path in _clear_stem_artifacts(out_dir, stem):
+            print(f"[persist] removed stale artifact before rewrite: {removed_path}")
 
         save_candidate_panel_result(
             result=result,
