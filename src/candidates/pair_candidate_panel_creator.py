@@ -693,7 +693,6 @@ def create_pair_candidate_panel(
         ),
         "pair_cfg": asdict(pair_cfg),
         "residual_cfg": asdict(residual_cfg),
-        "residual_config": asdict(residual_cfg),
     }
 
     result = CandidatePanelResult(panel=panel, metadata=metadata)
