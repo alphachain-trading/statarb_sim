@@ -8,7 +8,7 @@ from typing import Any
 
 import pandas as pd
 
-from settings import CANDIDATE_PANELS_ROOT, CONFIG_UNIVERSE
+from src.settings import CANDIDATE_PANELS_ROOT, CONFIG_UNIVERSE
 from src.simulator.candidate_activation import CandidateActivation
 from src.simulator.candidate_filter import CandidateFilter
 from src.simulator.candidate_signals import CandidateSignalGenerator

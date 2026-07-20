@@ -11,7 +11,7 @@ import pandas as pd
 
 from src.simulator.config import PersistenceConfig, SimulatorConfig
 
-from settings import SIMULATION_RUNS_ROOT
+from src.settings import SIMULATION_RUNS_ROOT
 
 
 # ---------------------------------------------------------------------------

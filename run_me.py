@@ -34,7 +34,7 @@ from pathlib import Path
 
 import yaml
 
-from settings import (
+from src.settings import (
     CONFIG_ROOT,
     CONFIG_UNIVERSE,
     PROJECT_ROOT,

@@ -300,7 +300,7 @@ class DataConfig:
                 universe_config_name=self.universe_config_name,
                 candidate_panel_stem=self.candidate_panel_stem,
             )]
-        from settings import CANDIDATE_PANELS_ROOT, CONFIG_UNIVERSE
+        from src.settings import CANDIDATE_PANELS_ROOT, CONFIG_UNIVERSE
         panel_dir = Path(CANDIDATE_PANELS_ROOT)
         if self.candidate_panel_subdir:
             panel_dir = panel_dir / self.candidate_panel_subdir

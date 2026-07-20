@@ -22,7 +22,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from settings import SIMULATION_RUNS_ROOT
+from src.settings import SIMULATION_RUNS_ROOT
 
 
 def rebuild_sweep_results(

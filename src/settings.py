@@ -1,5 +1,6 @@
 from pathlib import Path
-PROJECT_ROOT = Path(__file__).parent
+# settings.py lives in src/, so the repo root is two levels up (src/ -> root).
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
 CONFIG_ROOT = PROJECT_ROOT / "config"
 CONFIG_UNIVERSE = CONFIG_ROOT / 'universe'
 CONFIG_SP500 = CONFIG_ROOT / 'sp500_constituents'

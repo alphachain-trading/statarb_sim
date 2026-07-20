@@ -29,15 +29,12 @@ The system trades equity pair spreads within S&P 500 sectors. Across 10 sectors,
 ## Quickstart
 
 ```bash
-git clone https://github.com/<username>/statarb_sim
+git clone https://github.com/alphachain-trading/statarb_sim.git
 cd statarb_sim
+python -m venv .venv
+source .venv/bin/activate       # .venv\Scripts\activate on Windows
 pip install -r requirements.txt
-
-# Run the materials sector demo (uses committed fixtures, no download needed)
-python run_me.py
-
-# Run the full 10-sector universe (downloads ~500MB of market data)
-python run_me.py --config config/demo_full.yaml --stage all
+pip install -e .
 ```
 
 ## Architecture

@@ -22,7 +22,7 @@ from typing import Any
 import pandas as pd
 from tqdm.auto import tqdm
 
-from settings import CONFIG_UNIVERSE, DATA_UNIVERSES, CANDIDATE_PANELS_ROOT
+from src.settings import CONFIG_UNIVERSE, DATA_UNIVERSES, CANDIDATE_PANELS_ROOT
 
 from src.simulator.config import TimescaleConfig, SectorDataSource, sector_abbrev
 from src.candidates.pair_candidate_panel_creator import (

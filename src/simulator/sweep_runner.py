@@ -37,7 +37,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from settings import CANDIDATE_PANELS_ROOT, CONFIG_UNIVERSE, DATA_UNIVERSES, SIMULATION_RUNS_ROOT
+from src.settings import CANDIDATE_PANELS_ROOT, CONFIG_UNIVERSE, DATA_UNIVERSES, SIMULATION_RUNS_ROOT
 from src.simulator.config import (
     DataConfig, SimulatorConfig,
     RunConfig,

@@ -36,7 +36,7 @@ from src.residuals.spreads import (
 )
 from src.utils.date_utils import make_ranking_dates
 
-from settings import CANDIDATE_PANELS_ROOT
+from src.settings import CANDIDATE_PANELS_ROOT
 
 
 HedgeRatioMethodList = list[HedgeRatioMethod]
