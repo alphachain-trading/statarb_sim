@@ -199,6 +199,8 @@ def _build_pair_candidate_rows_for_date(
     asof_datetime: pd.Timestamp,
     residual_cfg: CausalResidualConfig,
     pair_cfg: PairSpreadConfig,
+    hedge_ratio_lb: int | None,
+    mr_diag_lb: int | None,
     debug: bool,
     fitted_model: FittedCausalResidualModel | None = None,
 ) -> list[dict[str, Any]]:
@@ -211,35 +213,44 @@ def _build_pair_candidate_rows_for_date(
             cfg=residual_cfg,
         )
 
-    aligned_window = _slice_candidate_window(
-        bundle=bundle,
-        asof_datetime=dt,
-        lookback=residual_cfg.lookback,
+    rf_series = bundle.risk_free_returns if fitted_model.subtract_risk_free else None
+
+    # Two independent candidate-scoring windows applied to the SAME fitted model:
+    #   hedge_ratio_lb → residuals feeding OLS/PCA hedge-ratio estimation
+    #   mr_diag_lb     → residuals feeding the spread whose MR diagnostics we score
+    hedge_window = _slice_candidate_window(bundle=bundle, asof_datetime=dt, lookback=hedge_ratio_lb)
+    diag_window = _slice_candidate_window(bundle=bundle, asof_datetime=dt, lookback=mr_diag_lb)
+
+    rr_hedge = apply_causal_residual_model(
+        model=fitted_model, aligned_returns=hedge_window, rf_series=rf_series,
+    )
+    rr_diag = apply_causal_residual_model(
+        model=fitted_model, aligned_returns=diag_window, rf_series=rf_series,
     )
 
-    residual_returns = apply_causal_residual_model(
-        model=fitted_model,
-        aligned_returns=aligned_window,
-        rf_series=bundle.risk_free_returns if fitted_model.subtract_risk_free else None,
-    )
-
-    # Optional ticker subset filtering.
+    # Optional ticker subset filtering (apply to both windows).
     if pair_cfg.tickers is not None:
-        available = [t for t in pair_cfg.tickers if t in residual_returns.columns]
+        available = [t for t in pair_cfg.tickers if t in rr_hedge.columns]
         if len(available) < 2:
             return []
-        residual_returns = residual_returns[available]
+        rr_hedge = rr_hedge[available]
+        rr_diag = rr_diag[[t for t in available if t in rr_diag.columns]]
 
+    # Pre-clean each window once (independent NaN handling per window).
+    rr_hedge_clean = rr_hedge.replace([np.inf, -np.inf], np.nan).dropna(axis=0, how="any").dropna(axis=1, how="any")
+    rr_diag_clean = rr_diag.replace([np.inf, -np.inf], np.nan).dropna(axis=0, how="any").dropna(axis=1, how="any")
+
+    hedge_cols = set(rr_hedge_clean.columns)
+    diag_numpy = rr_diag_clean.to_numpy(dtype=float)
+    diag_col_index = {t: i for i, t in enumerate(rr_diag_clean.columns)}
+
+    # Candidate universe: pairs are formed from tickers present in the hedge
+    # window (the weight source); each pair is skipped if either leg is absent
+    # from either cleaned window.
     pair_ids = generate_spread_ids(
-        tickers=list(residual_returns.columns),
+        tickers=list(rr_hedge_clean.columns),
         n_legs=2,
     )
-
-    # Pre-clean residuals once (avoids repeated copy+dropna per pair)
-    rr_clean = residual_returns.replace([np.inf, -np.inf], np.nan).dropna(axis=0, how="any").dropna(axis=1, how="any")
-    rr_numpy = rr_clean.to_numpy(dtype=float)
-    rr_columns = list(rr_clean.columns)
-    col_index = {t: i for i, t in enumerate(rr_columns)}
 
     rows: list[dict[str, Any]] = []
 
@@ -247,12 +258,14 @@ def _build_pair_candidate_rows_for_date(
         for sid in pair_ids:
             left, right = spread_members(sid)
 
-            if left not in col_index or right not in col_index:
+            if left not in hedge_cols or right not in hedge_cols:
+                continue
+            if left not in diag_col_index or right not in diag_col_index:
                 continue
 
             try:
                 weights = _compute_pair_weights(
-                    residual_returns=rr_clean,
+                    residual_returns=rr_hedge_clean,
                     left=left,
                     right=right,
                     method=method,
@@ -260,10 +273,10 @@ def _build_pair_candidate_rows_for_date(
             except (ValueError, np.linalg.LinAlgError):
                 continue
 
-            # Fast path: compute spread directly from pre-cleaned numpy array
+            # Spread built on the (independent) diagnostics window.
             w_left = float(weights[left])
             w_right = float(weights[right])
-            spread_return = rr_numpy[:, col_index[left]] * w_left + rr_numpy[:, col_index[right]] * w_right
+            spread_return = diag_numpy[:, diag_col_index[left]] * w_left + diag_numpy[:, diag_col_index[right]] * w_right
 
             diagnostics = _fast_pair_diagnostics(
                 spread_return=spread_return,
@@ -426,11 +439,21 @@ def create_pair_candidates_for_date(
     residual_cfg: CausalResidualConfig,
     pair_cfg: PairSpreadConfig,
     *,
+    hedge_ratio_lb: int | None = None,
+    mr_diag_lb: int | None = None,
     debug: bool = False,
 ) -> CandidatePanelResult:
     """
     Create pair spread candidates for one exact as-of date.
+
+    hedge_ratio_lb / mr_diag_lb are the (independent) candidate-scoring windows;
+    when omitted they fall back to residual_cfg.lookback (single shared window).
     """
+    if hedge_ratio_lb is None:
+        hedge_ratio_lb = residual_cfg.lookback
+    if mr_diag_lb is None:
+        mr_diag_lb = residual_cfg.lookback
+
     dt = pd.Timestamp(asof_date)
     aligned_index = bundle.aligned_returns.index
 
@@ -457,6 +480,8 @@ def create_pair_candidates_for_date(
         asof_datetime=dt,
         residual_cfg=residual_cfg,
         pair_cfg=pair_cfg,
+        hedge_ratio_lb=hedge_ratio_lb,
+        mr_diag_lb=mr_diag_lb,
         debug=debug,
     )
 
@@ -512,6 +537,8 @@ def create_pair_candidate_panel(
     pair_cfg: PairSpreadConfig,
     frequency: str | None = None,
     *,
+    hedge_ratio_lb: int | None = None,
+    mr_diag_lb: int | None = None,
     dates: list[str | pd.Timestamp] | None = None,
     debug: bool = False,
     start_date: str | None = None,
@@ -526,8 +553,17 @@ def create_pair_candidate_panel(
     """
     Create a pair spread CandidatePanel at the requested as-of dates.
 
+    hedge_ratio_lb / mr_diag_lb are the two independent candidate-scoring
+    windows (hedge-ratio fit vs mean-reversion diagnostics). When omitted they
+    fall back to residual_cfg.lookback (single shared window).
+
     Same walkforward interface as create_portfolio_candidate_panel.
     """
+    if hedge_ratio_lb is None:
+        hedge_ratio_lb = residual_cfg.lookback
+    if mr_diag_lb is None:
+        mr_diag_lb = residual_cfg.lookback
+
     aligned_index = bundle.aligned_returns.index
 
     # ── resolve as-of datetimes ──────────────────────────────────────
@@ -659,6 +695,8 @@ def create_pair_candidate_panel(
                     asof_datetime=dt,
                     residual_cfg=residual_cfg,
                     pair_cfg=pair_cfg,
+                    hedge_ratio_lb=hedge_ratio_lb,
+                    mr_diag_lb=mr_diag_lb,
                     debug=debug,
                     fitted_model=model,
                 )
@@ -693,6 +731,8 @@ def create_pair_candidate_panel(
         ),
         "pair_cfg": asdict(pair_cfg),
         "residual_cfg": asdict(residual_cfg),
+        "hedge_ratio_lb": hedge_ratio_lb,
+        "mr_diag_lb": mr_diag_lb,
     }
 
     result = CandidatePanelResult(panel=panel, metadata=metadata)

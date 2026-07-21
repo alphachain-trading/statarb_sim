@@ -1,5 +1,5 @@
 {
-  "artifact_out_dir": "/home/nikolajnock/PycharmProjects/hierarchical-arb/artifacts/candidate_panels/V4",
+  "artifact_out_dir": "fixtures/materials_v1",
   "artifact_type": "candidate_panel",
   "asof_date_max": "2026-05-01",
   "asof_date_min": "2009-08-14",
@@ -8,11 +8,13 @@
   "explicit_dates": null,
   "frequency": "W-FRI",
   "group_id": "materials",
+  "hedge_ratio_lb": 252,
   "hedge_ratio_methods": [
     "pca"
   ],
-  "n_asof_datetimes": 874,
-  "n_rows": 65832,
+  "mr_diag_lb": 252,
+  "n_asof_datetimes": 873,
+  "n_rows": 68094,
   "pair_cfg": {
     "hedge_ratio_methods": [
       "pca"
@@ -26,14 +28,6 @@
     "tiny_weight_threshold": 1e-06
   },
   "residual_cfg": {
-    "half_life": 504,
-    "lookback": 252,
-    "min_history": 1008,
-    "remove_residual_pcs": 0,
-    "subtract_risk_free": true,
-    "window_mode": "expanding"
-  },
-  "residual_config": {
     "half_life": 504,
     "lookback": 252,
     "min_history": 1008,

@@ -92,22 +92,26 @@ class CausalResidualConfig:
         Used as the matching key between panels and ZScoreConfig,
         and as part of position identity in multi-timescale mode.
 
-        Examples:
-            exp_hl126_mh252
-            exp_equal_mh504
-            rol_lb252_hl126_mh252
-            exp_hl63_mh126_pc2
+        The three residual modes map to distinct key shapes:
+            eq_rolling      -> rol_lb21            (rol_lb21_mh40 if min_history != lookback)
+            eq_expanding    -> exp_mh252
+            decay_expanding -> exp_hl504_mh1008    (+ _rf when subtract_risk_free)
+
+        The decay_expanding shape is byte-identical to the historical format
+        (e.g. exp_hl504_mh1008_rf); panels persisted before the ResidualMode
+        redesign resolve to the same key.
         """
-        parts = []
-        parts.append("exp" if self.window_mode == "expanding" else f"rol_lb{self.lookback}")
-        parts.append(f"hl{self.half_life}" if self.half_life else "equal")
-        if self.min_history:
-            parts.append(f"mh{self.min_history}")
-        if self.remove_residual_pcs > 0:
-            parts.append(f"pc{self.remove_residual_pcs}")
-        if self.subtract_risk_free:
-            parts.append("rf")
-        return "_".join(parts)
+        rf = "_rf" if self.subtract_risk_free else ""
+        if self.window_mode == "rolling":
+            # eq_rolling: equal-weight rolling fit window
+            mh = f"_mh{self.min_history}" if self.min_history != self.lookback else ""
+            return f"rol_lb{self.lookback}{mh}{rf}"
+        # expanding
+        if self.half_life:
+            # decay_expanding
+            return f"exp_hl{self.half_life}_mh{self.min_history}{rf}"
+        # eq_expanding
+        return f"exp_mh{self.min_history}{rf}"
 
 
 @dataclass(frozen=True)

@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
+from enum import Enum
 from pathlib import Path
+from typing import Literal
 import pandas as pd
 
 from src.candidates.candidate_selector import CandidateSelectionConfig
@@ -117,48 +119,22 @@ class TimescaleRiskConfig:
                 )
 
 
-@dataclass(frozen=True)
-class TimescaleConfig:
+class ResidualMode(str, Enum):
+    """Residual-fitting mode selected on PanelBatchConfig.
+
+    Determines both the fit window (rolling vs expanding) and the weighting
+    scheme (equal vs exponential decay) used when fitting the causal residual
+    model. decay+rolling is deliberately excluded (redundant/ambiguous).
     """
-    Residual + z-score halflife pairing.
+    EQ_ROLLING = "eq_rolling"          # equal-weight, rolling fit window (lookback)
+    EQ_EXPANDING = "eq_expanding"      # equal-weight, expanding fit window
+    DECAY_EXPANDING = "decay_expanding"  # half-life decay, expanding fit window
 
-    Used by both panel creation (residual_half_life) and simulation (z_score_half_life).
-    Default z_score_half_life = residual_half_life // 6 (empirical sweet spot).
-    """
-    residual_half_life: int = 126
-    z_score_half_life: int | None = None  # None → residual_half_life // 6
 
-    @property
-    def resolved_z_hl(self) -> int:
-        if self.z_score_half_life is not None:
-            return self.z_score_half_life
-        return max(self.residual_half_life // 6, 1)
-
-    @property
-    def label(self) -> str:
-        return f"rhl{self.residual_half_life}_zhl{self.resolved_z_hl}"
-
-    def to_residual_cfg(
-        self,
-        window_mode: str = "expanding",
-        min_history: int | None = None,
-        remove_residual_pcs: int = 0,
-        subtract_risk_free: bool = False,
-    ) -> CausalResidualConfig:
-        """Build the CausalResidualConfig for this timescale."""
-        return CausalResidualConfig(
-            window_mode=window_mode,
-            half_life=self.residual_half_life,
-            min_history=min_history if min_history is not None else self.residual_half_life * 2,
-            remove_residual_pcs=remove_residual_pcs,
-            subtract_risk_free=subtract_risk_free,
-        )
-
-    def __post_init__(self) -> None:
-        if self.residual_half_life < 1:
-            raise ValueError(f"residual_half_life must be >= 1, got {self.residual_half_life}")
-        if self.z_score_half_life is not None and self.z_score_half_life < 1:
-            raise ValueError(f"z_score_half_life must be >= 1, got {self.z_score_half_life}")
+class AbsOrMult(str, Enum):
+    """How a min-lookback figure is interpreted for decay_expanding."""
+    ABSOLUTE = "absolute"      # value is the min_history directly
+    MULTIPLIER = "multiplier"  # min_history = residual_hl * value
 
 
 @dataclass(frozen=True)
