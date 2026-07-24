@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from enum import Enum
 from pathlib import Path
 from typing import Literal
 import pandas as pd
@@ -117,24 +116,6 @@ class TimescaleRiskConfig:
                     f"max_pct_single_timescale must be in (0, 1], "
                     f"got {self.max_pct_single_timescale}"
                 )
-
-
-class ResidualMode(str, Enum):
-    """Residual-fitting mode selected on PanelBatchConfig.
-
-    Determines both the fit window (rolling vs expanding) and the weighting
-    scheme (equal vs exponential decay) used when fitting the causal residual
-    model. decay+rolling is deliberately excluded (redundant/ambiguous).
-    """
-    EQ_ROLLING = "eq_rolling"          # equal-weight, rolling fit window (lookback)
-    EQ_EXPANDING = "eq_expanding"      # equal-weight, expanding fit window
-    DECAY_EXPANDING = "decay_expanding"  # half-life decay, expanding fit window
-
-
-class AbsOrMult(str, Enum):
-    """How a min-lookback figure is interpreted for decay_expanding."""
-    ABSOLUTE = "absolute"      # value is the min_history directly
-    MULTIPLIER = "multiplier"  # min_history = residual_hl * value
 
 
 @dataclass(frozen=True)

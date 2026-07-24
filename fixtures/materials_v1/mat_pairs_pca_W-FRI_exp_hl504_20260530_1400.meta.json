@@ -28,9 +28,13 @@
     "tiny_weight_threshold": 1e-06
   },
   "residual_cfg": {
-    "half_life": 504,
-    "lookback": 252,
+    "hl": 504,
+    "lb": null,
     "min_history": 1008,
+    "min_lb_dec_exp": 2,
+    "min_lb_eq_exp": null,
+    "min_lb_type_dec_exp": "multiplier",
+    "mode": "decay_expanding",
     "remove_residual_pcs": 0,
     "subtract_risk_free": true,
     "window_mode": "expanding"

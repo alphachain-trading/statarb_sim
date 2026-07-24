@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 import pandas as pd
 
-from src.residuals.causal_residuals import CausalResidualConfig
+from src.residuals.causal_residuals import CausalResidualConfig, ResidualMode, AbsOrMult
 from src.simulator.candidate_signals import (
     CandidateSignalGenerator,
     _ewm_mean_std_last,
@@ -81,11 +81,20 @@ class ZSpectrumCapture:
             if rhl in trading_rhl_to_rkey:
                 self._rhl_to_rkey[rhl] = trading_rhl_to_rkey[rhl]
             else:
-                # Spectrum-only rhl: create config and inject into signal_generator
+                # Spectrum-only rhl: create config and inject into signal_generator.
+                # subtract_risk_free mirrors the existing trading residual configs'
+                # convention for this simulation run (guaranteed non-empty here,
+                # since signal_generator.residual_configs always has at least one
+                # entry — the trading z-score's own residual config).
+                subtract_risk_free = next(
+                    iter(self.signal_generator.residual_configs.values())
+                ).subtract_risk_free
                 rc = CausalResidualConfig(
-                    window_mode="expanding",
-                    half_life=rhl,
-                    min_history=rhl * 2,
+                    mode=ResidualMode.DECAY_EXPANDING,
+                    subtract_risk_free=subtract_risk_free,
+                    hl=rhl,
+                    min_lb_type_dec_exp=AbsOrMult.MULTIPLIER,
+                    min_lb_dec_exp=2,
                     remove_residual_pcs=0,
                 )
                 rkey = rc.key

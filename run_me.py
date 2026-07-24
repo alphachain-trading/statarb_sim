@@ -208,18 +208,21 @@ def _update_panel_stem(cfg: dict, stem: str) -> None:
 def _make_panel_batch_cfg(cfg: dict):
     """Build the PanelBatchConfig shared by the single- and multi-sector paths."""
     from src.candidates.panel_batch import PanelBatchConfig
-    from src.simulator.config import ResidualMode, AbsOrMult
+    from src.residuals.causal_residuals import CausalResidualConfig, ResidualMode, AbsOrMult
 
     # decay_expanding, hl=504, min_history = 504 * 2 = 1008, subtract RF.
     # Reproduces the historical residual_key exp_hl504_mh1008_rf exactly.
+    residual_cfg = CausalResidualConfig(
+        mode=ResidualMode.DECAY_EXPANDING,
+        subtract_risk_free=True,
+        hl=504,
+        min_lb_type_dec_exp=AbsOrMult.MULTIPLIER,
+        min_lb_dec_exp=2,
+    )
     return PanelBatchConfig(
-        residual_mode=ResidualMode.DECAY_EXPANDING,
-        residual_hl=504,
+        residual_configs=[residual_cfg],
         hedge_ratio_lb=252,
         mr_diag_lb=252,
-        residual_min_lb_type_dec_exp=AbsOrMult.MULTIPLIER,
-        residual_min_lb_dec_exp=2,
-        subtract_risk_free=True,
         selected_sectors=_selected_sectors(cfg),
         universe_dir=CONFIG_UNIVERSE,
         data_path=DATA_UNIVERSES,

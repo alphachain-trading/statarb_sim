@@ -1,11 +1,30 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from enum import Enum
+from typing import Literal
 
 import numpy as np
 import pandas as pd
 
 from src.data.returns import GroupReturnBundle
+
+
+class ResidualMode(str, Enum):
+    """Residual-fitting mode for CausalResidualConfig.
+
+    decay_rolling is deliberately excluded — time-decay + rolling window is
+    redundant/ambiguous with decay_expanding.
+    """
+    EQ_ROLLING = "eq_rolling"          # equal-weight, rolling fit window (lb)
+    EQ_EXPANDING = "eq_expanding"      # equal-weight, expanding fit window
+    DECAY_EXPANDING = "decay_expanding"  # half-life decay, expanding fit window
+
+
+class AbsOrMult(str, Enum):
+    """How min_lb_dec_exp is interpreted for DECAY_EXPANDING's min_history."""
+    ABSOLUTE = "absolute"      # min_history = min_lb_dec_exp directly
+    MULTIPLIER = "multiplier"  # min_history = hl * min_lb_dec_exp
 
 
 def _to_daily_rf(rf_annual_pct: pd.Series, index: pd.Index) -> pd.Series:
@@ -22,66 +41,99 @@ def _subtract_rf(df: pd.DataFrame, rf_daily: pd.Series) -> pd.DataFrame:
     return df.subtract(rf_daily.reindex(df.index), axis=0)
 
 
-@dataclass(frozen=True)
+@dataclass
 class CausalResidualConfig:
-    window_mode: str = "rolling"          # "rolling" | "expanding"
-    lookback: int = 252                   # rolling window size (ignored when expanding)
-    half_life: int | None = None
-    min_history: int | None = None
-    remove_residual_pcs: int = 0          # number of leading PCs to remove from residuals (0 = disabled)
-    subtract_risk_free: bool = False      # subtract daily RF (^IRX) from all returns before fitting
+    """
+    Canonical, mode-structured residual-fitting config.
+
+    Scope is step 1 only (residual fitting) — hedge-ratio / MR-diagnostics
+    windows are PanelBatchConfig's concern. Persisted, keyed, and
+    reconstructed via from_dict. Mode-specific fields and subtract_risk_free
+    carry no defaults: each must be stated explicitly, since both are
+    material to the computation and to the resulting key.
+    """
+
+    mode: ResidualMode
+    subtract_risk_free: bool          # no default — material to computation and to key
+    remove_residual_pcs: int = 0      # genuine "off" state, keeps its default
+
+    lb: int | None = None                          # EQ_ROLLING only
+    hl: int | None = None                          # DECAY_EXPANDING only
+    min_lb_type_dec_exp: AbsOrMult | None = None   # DECAY_EXPANDING only
+    min_lb_dec_exp: int | None = None              # DECAY_EXPANDING only
+    min_lb_eq_exp: int | None = None               # EQ_EXPANDING only
+
+    window_mode: Literal["rolling", "expanding"] = field(init=False)
+    min_history: int = field(init=False)
 
     def __post_init__(self) -> None:
-        if self.window_mode not in ("rolling", "expanding"):
-            raise ValueError(
-                f"window_mode must be 'rolling' or 'expanding', got {self.window_mode!r}"
-            )
-        if self.window_mode == "rolling" and self.lookback <= 0:
-            raise ValueError("lookback must be positive when window_mode='rolling'.")
-        if self.half_life is not None and self.half_life <= 0:
-            raise ValueError("half_life must be positive.")
-        if self.min_history is not None and self.min_history <= 0:
-            raise ValueError("min_history must be positive.")
-        if (
-            self.window_mode == "rolling"
-            and self.min_history is not None
-            and self.min_history < self.lookback
-        ):
-            raise ValueError("min_history must be >= lookback.")
+        self.window_mode = "rolling" if self.mode == ResidualMode.EQ_ROLLING else "expanding"
+
+        match self.mode:
+            case ResidualMode.EQ_ROLLING:
+                if self.lb is None:
+                    raise ValueError("EQ_ROLLING requires lb")
+                if self.hl is not None or self.min_lb_eq_exp is not None:
+                    raise ValueError("EQ_ROLLING: hl / min_lb_eq_exp must be None")
+                self.min_history = self.lb
+            case ResidualMode.DECAY_EXPANDING:
+                if self.hl is None:
+                    raise ValueError("DECAY_EXPANDING requires hl")
+                if self.min_lb_type_dec_exp is None or self.min_lb_dec_exp is None:
+                    raise ValueError("DECAY_EXPANDING requires both min_lb_type_dec_exp and min_lb_dec_exp")
+                if self.lb is not None or self.min_lb_eq_exp is not None:
+                    raise ValueError("DECAY_EXPANDING: lb / min_lb_eq_exp must be None")
+                self.min_history = (
+                    self.hl * self.min_lb_dec_exp
+                    if self.min_lb_type_dec_exp == AbsOrMult.MULTIPLIER
+                    else self.min_lb_dec_exp
+                )
+            case ResidualMode.EQ_EXPANDING:
+                if self.min_lb_eq_exp is None:
+                    raise ValueError("EQ_EXPANDING requires min_lb_eq_exp")
+                if self.lb is not None or self.hl is not None:
+                    raise ValueError("EQ_EXPANDING: lb / hl must be None")
+                self.min_history = self.min_lb_eq_exp
+            case _:  # pragma: no cover - exhaustive
+                raise ValueError(f"Unknown mode: {self.mode!r}")
+
         if self.remove_residual_pcs < 0:
             raise ValueError("remove_residual_pcs must be >= 0.")
 
     def eff_min_history(self) -> int | None:
-        if self.min_history is not None:
-            return self.min_history
-        if self.window_mode == "rolling":
-            return self.lookback
-        return None
+        return self.min_history
+
+    @property
+    def half_life(self) -> int | None:
+        """Compatibility for fitting code (causal_residuals.py reads cfg.half_life
+        unprefixed) — no fitting-code changes required."""
+        return self.hl if self.mode == ResidualMode.DECAY_EXPANDING else None
+
+    @property
+    def lookback(self) -> int | None:
+        """Compatibility for fitting code (causal_residuals.py reads cfg.lookback
+        unprefixed) — no fitting-code changes required."""
+        return self.lb if self.mode == ResidualMode.EQ_ROLLING else None
 
     @classmethod
-    def from_dict(cls, raw: dict) -> CausalResidualConfig:
+    def from_dict(cls, d: dict) -> CausalResidualConfig:
         """
-        Build from a metadata dict (e.g. from meta.json).
+        Reconstruct from a persisted meta.json.
 
-        Handles legacy formats where window_mode may be absent.
+        Requires mode and subtract_risk_free explicitly present — clean
+        break, no parsing of the old flat format.
         """
-        window_mode = raw.get("window_mode")
-        lookback = raw.get("lookback", 252)
-        half_life = raw.get("half_life")
-        min_history = raw.get("min_history", 252)
-        remove_residual_pcs = raw.get("remove_residual_pcs", 0)
-        subtract_risk_free = raw.get("subtract_risk_free", False)
-
-        if window_mode is None:
-            window_mode = "rolling" if lookback is not None else "expanding"
-
         return cls(
-            window_mode=window_mode,
-            lookback=lookback if lookback is not None else 252,
-            half_life=half_life,
-            min_history=min_history,
-            remove_residual_pcs=remove_residual_pcs,
-            subtract_risk_free=subtract_risk_free,
+            mode=ResidualMode(d["mode"]),
+            subtract_risk_free=d["subtract_risk_free"],
+            remove_residual_pcs=d.get("remove_residual_pcs", 0),
+            lb=d.get("lb"),
+            hl=d.get("hl"),
+            min_lb_type_dec_exp=(
+                AbsOrMult(d["min_lb_type_dec_exp"]) if d.get("min_lb_type_dec_exp") else None
+            ),
+            min_lb_dec_exp=d.get("min_lb_dec_exp"),
+            min_lb_eq_exp=d.get("min_lb_eq_exp"),
         )
 
     @property
@@ -89,29 +141,31 @@ class CausalResidualConfig:
         """
         Canonical short key identifying this residual configuration.
 
-        Used as the matching key between panels and ZScoreConfig,
-        and as part of position identity in multi-timescale mode.
+        Used as the matching key between panels and ZScoreConfig, and as
+        part of position identity in multi-timescale mode.
 
         The three residual modes map to distinct key shapes:
-            eq_rolling      -> rol_lb21            (rol_lb21_mh40 if min_history != lookback)
+            eq_rolling      -> rol_lb21            (rol_lb21_mh40 if min_history != lb)
             eq_expanding    -> exp_mh252
             decay_expanding -> exp_hl504_mh1008    (+ _rf when subtract_risk_free)
 
-        The decay_expanding shape is byte-identical to the historical format
-        (e.g. exp_hl504_mh1008_rf); panels persisted before the ResidualMode
-        redesign resolve to the same key.
+        remove_residual_pcs=0 (the always-used production value) omits the
+        _pc fragment entirely, so the decay_expanding key stays byte-identical
+        to the historical exp_hl504_mh1008_rf. Any nonzero value now correctly
+        produces a distinct key — closes a real collision gap where two
+        configs differing only in remove_residual_pcs previously produced
+        the same key.
         """
         rf = "_rf" if self.subtract_risk_free else ""
-        if self.window_mode == "rolling":
-            # eq_rolling: equal-weight rolling fit window
-            mh = f"_mh{self.min_history}" if self.min_history != self.lookback else ""
-            return f"rol_lb{self.lookback}{mh}{rf}"
-        # expanding
-        if self.half_life:
-            # decay_expanding
-            return f"exp_hl{self.half_life}_mh{self.min_history}{rf}"
-        # eq_expanding
-        return f"exp_mh{self.min_history}{rf}"
+        pc = f"_pc{self.remove_residual_pcs}" if self.remove_residual_pcs else ""
+        match self.mode:
+            case ResidualMode.EQ_ROLLING:
+                mh = f"_mh{self.min_history}" if self.min_history != self.lb else ""
+                return f"rol_lb{self.lb}{mh}{pc}{rf}"
+            case ResidualMode.EQ_EXPANDING:
+                return f"exp_mh{self.min_history}{pc}{rf}"
+            case ResidualMode.DECAY_EXPANDING:
+                return f"exp_hl{self.hl}_mh{self.min_history}{pc}{rf}"
 
 
 @dataclass(frozen=True)
@@ -180,7 +234,7 @@ def _wls_multi(
 def fit_causal_residual_model(
     bundle: GroupReturnBundle,
     date: pd.Timestamp,
-    cfg: CausalResidualConfig | None = None,
+    cfg: CausalResidualConfig,
 ) -> FittedCausalResidualModel:
     """
     Fit the causal residualization model using only data up to `date`.
@@ -192,9 +246,6 @@ def fit_causal_residual_model(
 
     All returns are converted to excess returns (minus daily RF) before fitting.
     """
-    if cfg is None:
-        cfg = CausalResidualConfig()
-
     aligned = _slice_fit_window(
         bundle=bundle,
         date=pd.Timestamp(date),
@@ -354,8 +405,8 @@ def apply_causal_residual_model(
 
 def create_causal_residuals(
     bundle: GroupReturnBundle,
+    cfg: CausalResidualConfig,
     date: pd.Timestamp | None = None,
-    cfg: CausalResidualConfig | None = None,
 ) -> pd.DataFrame:
     """
     Convenience wrapper:
@@ -367,8 +418,6 @@ def create_causal_residuals(
     - pair analysis
     - portfolio optimization on one trailing window
     """
-    if cfg is None:
-        cfg = CausalResidualConfig()
     if date is None:
         raise ValueError("date must be provided for causal residual creation.")
 
