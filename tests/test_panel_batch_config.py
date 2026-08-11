@@ -9,9 +9,16 @@ Covers, without touching disk or market data:
   2. min_history resolution per mode (multiplier / absolute / lb-equals).
   3. CausalResidualConfig construction-time validation (mode-specific
      required/forbidden fields, no-default enforcement, from_dict contract).
-  4. PanelBatchConfig construction-time validation (non-empty list,
-     hedge_ratio_lb/mr_diag_lb scalar-vs-list rules) and window broadcasting.
+  4. CausalResidualConfig.from_key: round-trip for all three modes, the
+     EQ_ROLLING malformed-mh-mismatch raise, malformed/unrecognized keys,
+     and round-trip against every real persisted residual_key found in
+     fixtures/artifacts.
+  5. PanelBatchConfig construction-time validation (non-empty list,
+     hedge_ratio_lb/mr_diag_lb scalar-vs-list rules), window broadcasting,
+     and residual_configs accepting list[str] (resolved eagerly, mixed
+     lists rejected).
 """
+import json
 import sys
 import unittest
 from pathlib import Path
@@ -148,6 +155,80 @@ class TestCausalResidualConfigValidation(unittest.TestCase):
         self.assertEqual(back.min_history, cfg.min_history)
 
 
+class TestFromKey(unittest.TestCase):
+    def _assert_roundtrip(self, cfg):
+        key = cfg.key
+        back = CausalResidualConfig.from_key(key)
+        self.assertEqual(back.key, key)
+
+    def test_roundtrip_decay_expanding_multiplier(self):
+        self._assert_roundtrip(_decay(hl=504, min_lb_type_dec_exp=AbsOrMult.MULTIPLIER, min_lb_dec_exp=2))
+
+    def test_roundtrip_decay_expanding_absolute(self):
+        self._assert_roundtrip(
+            _decay(hl=126, min_lb_type_dec_exp=AbsOrMult.ABSOLUTE, min_lb_dec_exp=600, subtract_risk_free=False)
+        )
+
+    def test_roundtrip_decay_expanding_with_pcs(self):
+        self._assert_roundtrip(_decay(remove_residual_pcs=3))
+
+    def test_roundtrip_eq_expanding(self):
+        self._assert_roundtrip(
+            CausalResidualConfig(mode=ResidualMode.EQ_EXPANDING, subtract_risk_free=True, min_lb_eq_exp=252)
+        )
+        self._assert_roundtrip(
+            CausalResidualConfig(
+                mode=ResidualMode.EQ_EXPANDING, subtract_risk_free=False,
+                min_lb_eq_exp=800, remove_residual_pcs=1,
+            )
+        )
+
+    def test_roundtrip_eq_rolling(self):
+        self._assert_roundtrip(CausalResidualConfig(mode=ResidualMode.EQ_ROLLING, subtract_risk_free=False, lb=21))
+        self._assert_roundtrip(
+            CausalResidualConfig(mode=ResidualMode.EQ_ROLLING, subtract_risk_free=True, lb=63, remove_residual_pcs=5)
+        )
+
+    def test_decay_expanding_reconstructs_as_absolute(self):
+        """Key format can't distinguish MULTIPLIER from ABSOLUTE — from_key must
+        always reconstruct as ABSOLUTE with the resolved min_history."""
+        cfg = CausalResidualConfig.from_key("exp_hl504_mh1008_rf")
+        self.assertEqual(cfg.min_lb_type_dec_exp, AbsOrMult.ABSOLUTE)
+        self.assertEqual(cfg.min_lb_dec_exp, 1008)
+        self.assertEqual(cfg.min_history, 1008)
+
+    def test_eq_rolling_mh_mismatch_raises(self):
+        with self.assertRaises(ValueError):
+            CausalResidualConfig.from_key("rol_lb21_mh40")
+
+    def test_eq_rolling_mh_matching_lb_is_ok(self):
+        cfg = CausalResidualConfig.from_key("rol_lb21_mh21")
+        self.assertEqual(cfg.lb, 21)
+        self.assertEqual(cfg.min_history, 21)
+
+    def test_malformed_keys_raise(self):
+        for bad in ["garbage", "exp_", "rol_", "exp_hlXX_mh10", "", "rol_lb", "exp_mhXX"]:
+            with self.assertRaises(ValueError):
+                CausalResidualConfig.from_key(bad)
+
+    def test_roundtrip_against_real_persisted_meta_json(self):
+        """Every current-format residual_cfg found under fixtures/ and artifacts/
+        must round-trip through from_key."""
+        paths = list(REPO_ROOT.glob("fixtures/**/*.meta.json")) + list(REPO_ROOT.glob("artifacts/**/*.meta.json"))
+        checked = 0
+        for p in paths:
+            d = json.loads(p.read_text())
+            raw = d.get("residual_cfg")
+            if raw is None or "mode" not in raw:
+                continue  # not the current CausalResidualConfig format
+            cfg = CausalResidualConfig.from_dict(raw)
+            key = cfg.key
+            back = CausalResidualConfig.from_key(key)
+            self.assertEqual(back.key, key, msg=f"round-trip mismatch for {p}: {key!r}")
+            checked += 1
+        self.assertGreater(checked, 0, "expected at least one current-format meta.json to check")
+
+
 class TestPanelBatchConfigValidation(unittest.TestCase):
     def test_empty_residual_configs_raises(self):
         with self.assertRaises(ValueError):
@@ -175,6 +256,40 @@ class TestPanelBatchConfigValidation(unittest.TestCase):
     def test_single_config_scalar_windows_ok(self):
         cfg = PanelBatchConfig(residual_configs=[_decay()], hedge_ratio_lb=252, mr_diag_lb=252)
         self.assertEqual(cfg.resolved_windows(), [(252, 252)])
+
+    def test_residual_configs_accepts_str_keys(self):
+        cfg = PanelBatchConfig(
+            residual_configs=["exp_hl504_mh1008_rf"], hedge_ratio_lb=252, mr_diag_lb=252,
+        )
+        self.assertEqual(len(cfg.residual_configs), 1)
+        self.assertIsInstance(cfg.residual_configs[0], CausalResidualConfig)
+        self.assertEqual(cfg.residual_configs[0].key, "exp_hl504_mh1008_rf")
+
+    def test_residual_configs_str_keys_multiple(self):
+        cfg = PanelBatchConfig(
+            residual_configs=["rol_lb21", "exp_mh252"], hedge_ratio_lb=[21, 42], mr_diag_lb=252,
+        )
+        self.assertEqual([rc.key for rc in cfg.residual_configs], ["rol_lb21", "exp_mh252"])
+
+    def test_residual_configs_rejects_mixed_str_and_config(self):
+        with self.assertRaises(ValueError):
+            PanelBatchConfig(
+                residual_configs=["exp_hl504_mh1008_rf", _decay()],
+                hedge_ratio_lb=252, mr_diag_lb=252,
+            )
+
+    def test_residual_configs_malformed_str_key_fails_fast(self):
+        with self.assertRaises(ValueError):
+            PanelBatchConfig(residual_configs=["not_a_real_key"], hedge_ratio_lb=252, mr_diag_lb=252)
+
+    def test_str_key_resolution_precedes_window_length_check(self):
+        """A malformed key must be reported even when the window-length
+        validation would also fail — str resolution happens first."""
+        with self.assertRaises(ValueError) as ctx:
+            PanelBatchConfig(
+                residual_configs=["garbage"], hedge_ratio_lb=[1, 2, 3], mr_diag_lb=252,
+            )
+        self.assertIn("Unrecognized residual key format", str(ctx.exception))
 
 
 if __name__ == "__main__":

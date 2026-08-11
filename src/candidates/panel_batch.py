@@ -107,13 +107,19 @@ class PanelBatchConfig:
     no mirrored mode/validation logic; that lives exactly once, in
     CausalResidualConfig.__post_init__.
 
+    residual_configs may also be given as list[str] of residual_key strings
+    (e.g. "exp_hl504_mh1008_rf") — each is resolved via
+    CausalResidualConfig.from_key at construction time, fail-fast on a
+    malformed key. Mixed lists (some str, some CausalResidualConfig) are
+    rejected.
+
     hedge_ratio_lb / mr_diag_lb are the two independent candidate-scoring
     windows (hedge-ratio fit vs mean-reversion diagnostics), applied to every
     panel in residual_configs — each may be a scalar (broadcast) or a list of
     matching length (one value per residual config).
     """
 
-    residual_configs: list[CausalResidualConfig]
+    residual_configs: list[CausalResidualConfig] | list[str]
     hedge_ratio_lb: int | list[int]
     mr_diag_lb: int | list[int]
 
@@ -157,6 +163,17 @@ class PanelBatchConfig:
     def __post_init__(self) -> None:
         if not self.residual_configs:
             raise ValueError("residual_configs must be non-empty.")
+
+        is_str = [isinstance(rc, str) for rc in self.residual_configs]
+        if any(is_str) and not all(is_str):
+            raise ValueError(
+                "residual_configs must not mix str keys and CausalResidualConfig "
+                "instances — pass either list[str] or list[CausalResidualConfig]."
+            )
+        if all(is_str):
+            self.residual_configs = [
+                CausalResidualConfig.from_key(rc) for rc in self.residual_configs
+            ]
 
         n = len(self.residual_configs)
         for name in ("hedge_ratio_lb", "mr_diag_lb"):

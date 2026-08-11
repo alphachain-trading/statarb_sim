@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Literal
@@ -135,6 +136,71 @@ class CausalResidualConfig:
             min_lb_dec_exp=d.get("min_lb_dec_exp"),
             min_lb_eq_exp=d.get("min_lb_eq_exp"),
         )
+
+    _KEY_RE_ROLLING = re.compile(
+        r"rol_lb(?P<lb>\d+)(?:_mh(?P<mh>\d+))?(?:_pc(?P<pc>\d+))?(?P<rf>_rf)?$"
+    )
+    _KEY_RE_DECAY_EXPANDING = re.compile(
+        r"exp_hl(?P<hl>\d+)_mh(?P<mh>\d+)(?:_pc(?P<pc>\d+))?(?P<rf>_rf)?$"
+    )
+    _KEY_RE_EQ_EXPANDING = re.compile(
+        r"exp_mh(?P<mh>\d+)(?:_pc(?P<pc>\d+))?(?P<rf>_rf)?$"
+    )
+
+    @classmethod
+    def from_key(cls, key: str) -> "CausalResidualConfig":
+        """
+        Parse a residual_key string (as produced by .key) back into a
+        CausalResidualConfig.
+
+        The round-trip guarantee is on .key only, not full field equality:
+        DECAY_EXPANDING always reconstructs with min_lb_type_dec_exp=ABSOLUTE
+        (the key format can't distinguish MULTIPLIER from ABSOLUTE, and
+        ABSOLUTE with the resolved min_history is always exactly correct
+        either way).
+        """
+        if key.startswith("rol_lb"):
+            m = cls._KEY_RE_ROLLING.fullmatch(key)
+            if not m:
+                raise ValueError(f"Malformed EQ_ROLLING residual key: {key!r}")
+            lb = int(m.group("lb"))
+            mh = m.group("mh")
+            if mh is not None and int(mh) != lb:
+                raise ValueError(
+                    f"EQ_ROLLING residual key {key!r} has min_history={mh} != lb={lb}; "
+                    "this combination cannot arise from any real CausalResidualConfig "
+                    "(min_history is always forced equal to lb)."
+                )
+            return cls(
+                mode=ResidualMode.EQ_ROLLING,
+                subtract_risk_free=m.group("rf") is not None,
+                remove_residual_pcs=int(m.group("pc")) if m.group("pc") else 0,
+                lb=lb,
+            )
+        elif key.startswith("exp_hl"):
+            m = cls._KEY_RE_DECAY_EXPANDING.fullmatch(key)
+            if not m:
+                raise ValueError(f"Malformed DECAY_EXPANDING residual key: {key!r}")
+            return cls(
+                mode=ResidualMode.DECAY_EXPANDING,
+                subtract_risk_free=m.group("rf") is not None,
+                remove_residual_pcs=int(m.group("pc")) if m.group("pc") else 0,
+                hl=int(m.group("hl")),
+                min_lb_type_dec_exp=AbsOrMult.ABSOLUTE,
+                min_lb_dec_exp=int(m.group("mh")),
+            )
+        elif key.startswith("exp_mh"):
+            m = cls._KEY_RE_EQ_EXPANDING.fullmatch(key)
+            if not m:
+                raise ValueError(f"Malformed EQ_EXPANDING residual key: {key!r}")
+            return cls(
+                mode=ResidualMode.EQ_EXPANDING,
+                subtract_risk_free=m.group("rf") is not None,
+                remove_residual_pcs=int(m.group("pc")) if m.group("pc") else 0,
+                min_lb_eq_exp=int(m.group("mh")),
+            )
+        else:
+            raise ValueError(f"Unrecognized residual key format: {key!r}")
 
     @property
     def key(self) -> str:
