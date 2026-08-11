@@ -8,6 +8,7 @@ import yfinance as yf
 
 from src.data.universe_config import UniverseConfig
 from src.data.universe_marketdata import UniverseMarketData
+from src.settings import CONFIG_UNIVERSE, DATA_UNIVERSES
 
 
 class UniverseDataLoader:
@@ -35,9 +36,11 @@ class UniverseDataLoader:
     def load(self, force_download: bool = False, check_for_corruptions=True, start_after_nan: bool = True) -> UniverseMarketData:
         print(f"Loading universe {self.config.universe_name}...")
         if force_download or not self._cache_exists():
+            print(f"  cache miss — downloading fresh data for {self.config.universe_name}...")
             umd = self._download_and_build()
             self._persist(umd)
         else:
+            print(f"  cache hit — loading {self.config.universe_name} from disk ({self.prices_path})")
             umd = self._load_from_disk()
 
             # Synchronize with config
@@ -446,3 +449,29 @@ class UniverseDataLoader:
 
         if self.progress:
             print(f"\nPool update complete. Summary report: {report_path.name}")
+
+
+def ensure_universe_data(
+    sectors: list[str],
+    *,
+    universe_dir: str | Path | None = None,
+    data_path: str | Path | None = None,
+    force_download: bool = False,
+    progress: bool = True,
+) -> None:
+    """
+    Ensure market data is present on disk for each sector, downloading only
+    what's missing. Resolves each sector's universe yaml the same way
+    run_me.py's download stage does, then calls UniverseDataLoader.load() —
+    which already skips re-downloading whatever is cached.
+    """
+    universe_dir = Path(universe_dir) if universe_dir else CONFIG_UNIVERSE
+    data_path = Path(data_path) if data_path else DATA_UNIVERSES
+
+    for sector in sectors:
+        yaml_path = universe_dir / f"universe.{sector}_only.v1.yaml"
+        if not yaml_path.exists():
+            raise FileNotFoundError(f"missing universe config for sector '{sector}': {yaml_path}")
+
+        config = UniverseConfig.from_yaml(yaml_path)
+        UniverseDataLoader(config, data_path=data_path, progress=progress).load(force_download=force_download)
