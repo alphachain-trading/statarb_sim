@@ -321,10 +321,10 @@ def _build_pair_candidate_rows_for_date(
                 "spread_return_std": diagnostics["spread_return_std"],
                 "level_std": diagnostics["level_std"],
                 "is_valid": bool(diagnostics["is_valid"]),
+                "why_invalid": str(diagnostics["failure_reason"]),
             }
 
             if debug:
-                row["failure_reason"] = str(diagnostics["failure_reason"])
                 row["hedge_beta"] = float(-weights[right])
 
             rows.append(row)
