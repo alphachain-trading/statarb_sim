@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -7,6 +8,7 @@ from typing import Any, Literal
 
 import numpy as np
 import pandas as pd
+from tqdm.auto import tqdm
 
 try:
     from statsmodels.tsa.stattools import adfuller
@@ -39,6 +41,8 @@ from src.settings import CANDIDATE_PANELS_ROOT
 
 
 HedgeRatioMethodList = list[HedgeRatioMethod]
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -202,6 +206,7 @@ def _build_pair_candidate_rows_for_date(
     mr_diag_lb: int | None,
     debug: bool,
     fitted_model: FittedCausalResidualModel | None = None,
+    progress: bool = True,
 ) -> list[dict[str, Any]]:
     dt = pd.Timestamp(asof_datetime)
 
@@ -235,47 +240,86 @@ def _build_pair_candidate_rows_for_date(
         rr_hedge = rr_hedge[available]
         rr_diag = rr_diag[[t for t in available if t in rr_diag.columns]]
 
-    # Pre-clean each window once (independent NaN handling per window).
-    rr_hedge_clean = rr_hedge.replace([np.inf, -np.inf], np.nan).dropna(axis=0, how="any").dropna(axis=1, how="any")
-    rr_diag_clean = rr_diag.replace([np.inf, -np.inf], np.nan).dropna(axis=0, how="any").dropna(axis=1, how="any")
+    # inf -> NaN once, up front; NaN handling from here on is per pair, not
+    # a shared matrix (B_window_admission.md item 1 / B_spec.md §6). A gap in
+    # one ticker's history no longer removes every other pair that doesn't
+    # touch it.
+    rr_hedge = rr_hedge.replace([np.inf, -np.inf], np.nan)
+    rr_diag = rr_diag.replace([np.inf, -np.inf], np.nan)
 
-    hedge_cols = set(rr_hedge_clean.columns)
-    diag_numpy = rr_diag_clean.to_numpy(dtype=float)
-    diag_col_index = {t: i for i, t in enumerate(rr_diag_clean.columns)}
+    diag_members = set(rr_diag.columns)
 
-    # Candidate universe: pairs are formed from tickers present in the hedge
-    # window (the weight source); each pair is skipped if either leg is absent
-    # from either cleaned window.
+    # Candidate universe: every two-ticker combination among the members
+    # present in the (un-cleaned) hedge window. Each pair fitted on its own
+    # retained rows below.
     pair_ids = generate_spread_ids(
-        tickers=list(rr_hedge_clean.columns),
+        tickers=list(rr_hedge.columns),
         n_legs=2,
     )
 
     rows: list[dict[str, Any]] = []
 
     for method in pair_cfg.hedge_ratio_methods:
-        for sid in pair_ids:
+        pair_iter = tqdm(
+            pair_ids,
+            desc=f"{bundle.group_id} {dt.date()} pairs",
+            unit="pair",
+            leave=False,
+            disable=not progress,
+        )
+        for sid in pair_iter:
             left, right = spread_members(sid)
 
-            if left not in hedge_cols or right not in hedge_cols:
+            if left not in diag_members or right not in diag_members:
+                # Structural: a leg present in the hedge window has no
+                # counterpart in the diagnostics window at all — the pair is
+                # never attempted. Distinct from a weight-fit failure below
+                # (B_spec.md §6 correction: the two must not be logged as one
+                # stream, or it reproduces the coverage-hole this logging is
+                # meant to expose).
+                logger.debug(
+                    "structural_skip date=%s group=%s pair=%s reason=leg_missing_from_diag_window",
+                    dt.date(), bundle.group_id, sid,
+                )
                 continue
-            if left not in diag_col_index or right not in diag_col_index:
-                continue
+
+            pair_hedge = rr_hedge[[left, right]].dropna(axis=0, how="any")
+            pair_diag = rr_diag[[left, right]].dropna(axis=0, how="any")
+
+            n_dropped_hedge = len(rr_hedge) - len(pair_hedge)
+            n_dropped_diag = len(rr_diag) - len(pair_diag)
+            if n_dropped_hedge or n_dropped_diag:
+                logger.debug(
+                    "pairwise_dropna date=%s group=%s pair=%s hedge_dropped=%d/%d diag_dropped=%d/%d",
+                    dt.date(), bundle.group_id, sid,
+                    n_dropped_hedge, len(rr_hedge), n_dropped_diag, len(rr_diag),
+                )
 
             try:
                 weights = _compute_pair_weights(
-                    residual_returns=rr_hedge_clean,
+                    residual_returns=pair_hedge,
                     left=left,
                     right=right,
                     method=method,
                 )
-            except (ValueError, np.linalg.LinAlgError):
+            except (ValueError, np.linalg.LinAlgError) as exc:
+                # Weight-computation failure (e.g. a degenerate PCA
+                # eigenvector, or an OLS denominator too close to zero) — a
+                # pair that was attempted, not a structural skip. Logged
+                # separately from the structural_skip case above.
+                logger.debug(
+                    "weight_fit_failed date=%s group=%s pair=%s method=%s error=%s",
+                    dt.date(), bundle.group_id, sid, method, exc,
+                )
                 continue
 
-            # Spread built on the (independent) diagnostics window.
+            # Spread built on the pair's own (independent) diagnostics rows.
             w_left = float(weights[left])
             w_right = float(weights[right])
-            spread_return = diag_numpy[:, diag_col_index[left]] * w_left + diag_numpy[:, diag_col_index[right]] * w_right
+            spread_return = (
+                pair_diag[left].to_numpy(dtype=float) * w_left
+                + pair_diag[right].to_numpy(dtype=float) * w_right
+            )
 
             diagnostics = _fast_pair_diagnostics(
                 spread_return=spread_return,
@@ -448,6 +492,7 @@ def create_pair_candidates_for_date(
     hedge_ratio_lb: int | None = None,
     mr_diag_lb: int | None = None,
     debug: bool = False,
+    progress: bool = True,
 ) -> CandidatePanelResult:
     """
     Create pair spread candidates for one exact as-of date.
@@ -489,6 +534,7 @@ def create_pair_candidates_for_date(
         hedge_ratio_lb=hedge_ratio_lb,
         mr_diag_lb=mr_diag_lb,
         debug=debug,
+        progress=progress,
     )
 
     panel = pd.DataFrame(rows)
@@ -705,6 +751,7 @@ def create_pair_candidate_panel(
                     mr_diag_lb=mr_diag_lb,
                     debug=debug,
                     fitted_model=model,
+                    progress=progress,
                 )
             )
 
