@@ -382,7 +382,7 @@ def _fast_pair_diagnostics(
     dx = np.diff(x)
 
     if len(dx) < 10:
-        return invalid(f"dx_length_{len(dx)}_lt_10")
+        return invalid("dx_too_short")
 
     X = np.column_stack([np.ones_like(x_lag), x_lag])
     beta, *_ = np.linalg.lstsq(X, dx, rcond=None)
@@ -404,15 +404,15 @@ def _fast_pair_diagnostics(
     if residual_std <= 0.0:
         return invalid("residual_std_le_0")
     if kappa < min_kappa:
-        return invalid(f"kappa_lt_min:{kappa}")
+        return invalid("kappa_lt_min")
 
     half_life = float(np.log(2.0) / kappa)
     if not np.isfinite(half_life):
         return invalid("half_life_not_finite")
     if half_life <= 0.0:
-        return invalid(f"half_life_le_0:{half_life}")
+        return invalid("half_life_le_0")
     if half_life > max_half_life:
-        return invalid(f"half_life_gt_max:{half_life}")
+        return invalid("half_life_gt_max")
 
     mr_score = float(kappa / residual_std)
 
