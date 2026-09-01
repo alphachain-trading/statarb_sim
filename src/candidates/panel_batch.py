@@ -123,10 +123,17 @@ class PanelBatchConfig:
     hedge_ratio_lb: int | list[int]
     mr_diag_lb: int | list[int]
 
-    # Pair spread config (shared across all sectors/residual configs)
+    # Pair spread config (shared across all sectors/residual configs).
+    # min_obs=10 matches the existing dx_too_short floor in
+    # _fast_pair_diagnostics (pair_candidate_panel_creator.py) — the same
+    # "10 observations" minimum already used for the diagnostics side,
+    # applied here to the hedge-ratio fit. PairSpreadConfig.min_obs itself
+    # carries no default (Track B); this is PanelBatchConfig choosing one
+    # for its own default pair_cfg.
     pair_cfg: PairSpreadConfig = field(
         default_factory=lambda: PairSpreadConfig(
             hedge_ratio_methods=["pca"],
+            min_obs=10,
         ),
     )
 

@@ -70,6 +70,15 @@ class PairSpreadConfig:
         Maximum acceptable half-life in days.
     tiny_weight_threshold
         Below this absolute weight, a leg is considered inactive.
+    min_obs
+        Minimum number of observations a pair must retain, after its own
+        pairwise dropna, before a hedge ratio is fit. Mandatory — no
+        default — because an unstated floor is exactly how a pair used to
+        get a hedge ratio fit on a handful of observations and returned as
+        if it were a full-lookback estimate (B_window_admission.md items
+        4/5). Absolute, not a fraction of hedge_ratio_lb: counted on the
+        pair's own retained rows post pairwise-dropna, not on the window's
+        nominal length.
     """
 
     hedge_ratio_methods: HedgeRatioMethodList = field(
@@ -82,10 +91,13 @@ class PairSpreadConfig:
     max_half_life: float = 126.0
     tiny_weight_threshold: float = 1e-6
     skip_adf: bool = True
+    min_obs: int = field(kw_only=True)
 
     def __post_init__(self) -> None:
         if not self.hedge_ratio_methods:
             raise ValueError("At least one hedge_ratio_method is required.")
+        if self.min_obs < 2:
+            raise ValueError(f"min_obs must be >= 2 (need at least 2 rows to fit a pair), got {self.min_obs}.")
         for m in self.hedge_ratio_methods:
             if m not in ("unit", "ols", "pca"):
                 raise ValueError(f"Unsupported hedge_ratio_method: {m!r}")
@@ -267,6 +279,7 @@ def _build_pair_candidate_rows_for_date(
             leave=False,
             disable=not progress,
         )
+        n_min_obs_dropped = 0
         for sid in pair_iter:
             left, right = spread_members(sid)
 
@@ -294,6 +307,19 @@ def _build_pair_candidate_rows_for_date(
                     dt.date(), bundle.group_id, sid,
                     n_dropped_hedge, len(rr_hedge), n_dropped_diag, len(rr_diag),
                 )
+
+            if len(pair_hedge) < pair_cfg.min_obs:
+                # The fix for items 4/5: a pair with too few retained
+                # observations gets no hedge ratio at all, rather than one
+                # silently fit on a handful of rows and returned as if it
+                # were a full-lookback estimate. No forward-fill — that
+                # manufactures zero returns and biases kappa upward.
+                n_min_obs_dropped += 1
+                logger.debug(
+                    "min_obs_dropped date=%s group=%s pair=%s retained=%d min_obs=%d",
+                    dt.date(), bundle.group_id, sid, len(pair_hedge), pair_cfg.min_obs,
+                )
+                continue
 
             try:
                 weights = _compute_pair_weights(
@@ -371,6 +397,15 @@ def _build_pair_candidate_rows_for_date(
                 row["hedge_beta"] = float(-weights[right])
 
             rows.append(row)
+
+        if n_min_obs_dropped:
+            # Aggregate, per (date, method): how much of the baseline taint
+            # this date carries. INFO, not DEBUG — the brief wants this
+            # visible without opting into per-pair logging.
+            logger.info(
+                "min_obs date=%s group=%s method=%s pairs_dropped=%d",
+                dt.date(), bundle.group_id, method, n_min_obs_dropped,
+            )
 
     return rows
 

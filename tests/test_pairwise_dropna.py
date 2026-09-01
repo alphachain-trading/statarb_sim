@@ -89,6 +89,7 @@ class TestPairwiseDropna(unittest.TestCase):
         pair_cfg = pcpc.PairSpreadConfig(
             hedge_ratio_methods=["ols"],
             skip_adf=True,
+            min_obs=2,
             min_return_std=0.0,
             min_level_std=0.0,
             min_kappa=-1e9,
