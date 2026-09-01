@@ -3,6 +3,9 @@
 Read-only verification pass over `docs/refactor/A_diagnostics_and_guards.md`. No code
 changed. `statarb_sim_refactor_handover.md` was not consulted.
 
+Amended after review. Amendments are marked **[amended]** and supersede the
+verification session's original conclusions.
+
 ## Scope note: two implementations of the candidate row builder
 
 There are two structurally near-identical diagnostics functions:
@@ -16,14 +19,22 @@ There are two structurally near-identical diagnostics functions:
   the repo (confirmed by repo-wide grep). Dead code.
 
 All nine claims below were verified against the **live** function
-(`_fast_pair_diagnostics` + its caller's row construction). Where the dead function
-disagrees, it is noted — this matters because it shows the defects are not structural
-to the diagnostics logic itself, only to the live copy and its caller.
+(`_fast_pair_diagnostics` + its caller's row construction).
+
+**[amended] `compute_candidate_diagnostics` is deleted in this branch.** It is dead
+*and* already free of two of the defects A fixes (claims 6 and 7), which makes it a
+trap: anyone later grepping for the intercept fix finds it in the wrong function and
+concludes the fix landed. Same failure class as `candidate_max_age_days` — code that
+looks live and isn't. Remove its import at `pair_candidate_panel_creator.py:18` in the
+same commit.
+
+Before deleting, confirm it is not re-exported as public surface from
+`src/candidates/__init__.py`. If it is, the deletion is still correct but the export
+must go with it.
 
 A third, unrelated hardcode of `n_legs=2` exists in `src/residuals/spreads.py:289`
-(`build_spread_returns`), which also has zero callers anywhere in the repo. Out of
-scope for the nine claims (different function, also dead) but noted so it isn't
-mistaken for a second live call site.
+(`build_spread_returns`), which also has zero callers. **Out of scope** — different
+function, and deleting it is not part of this track. Record it in `found.md` instead.
 
 ## Verify first — results
 
@@ -35,217 +46,223 @@ passed every validity gate, and does not feed `is_valid`.
     if not skip_adf and adfuller is not None:
         try:
 ```
-This sits after the last gate (`half_life_gt_max`, line 410-411) and before the
-`return` at line 422, which already has `"is_valid": True` fixed. "Read by nothing in
-current production configuration" is the corollary of claim 3 (below) — no config sets
-`adf_pvalue_max`, so `candidate_selector.py`'s mask never reads the column.
+This sits after the last gate (`half_life_gt_max`, `:410-411`) and before the `return`
+at `:422`, which already has `"is_valid": True` fixed. "Read by nothing in current
+production configuration" is the corollary of claim 3 — no config sets
+`adf_pvalue_max`, so the selector's mask never reads the column.
 
-**2. CONFIRMED.** `pair_candidate_panel_creator.py:81`:
-```python
-    skip_adf: bool = False
-```
-On `PairSpreadConfig`, consumed at `pair_candidate_panel_creator.py:290` and read at
-`:416`. (The dead `compute_candidate_diagnostics` also has its own `skip_adf` param,
-`candidate_panel.py:119`.)
+**2. CONFIRMED.** `pair_candidate_panel_creator.py:81` — `skip_adf: bool = False` on
+`PairSpreadConfig`, consumed at `:290`, read at `:416`.
 
-**3. CONFIRMED.** `candidate_selector.py:69`:
-```python
-    adf_pvalue_max: float | None = None
-```
-Mask application, `candidate_selector.py:258-260`:
+**3. CONFIRMED.** `candidate_selector.py:69` — `adf_pvalue_max: float | None = None`.
+Mask application at `:258-260`:
 ```python
     if cfg.adf_pvalue_max is not None:
         mask &= panel["adf_pvalue"].notna()
         mask &= panel["adf_pvalue"] <= cfg.adf_pvalue_max
 ```
-Repo-wide grep for `adf_pvalue_max` finds only its definition, its `__post_init__`
-range check (`:76-78`), and this mask block — no config, sweep, or notebook sets it.
-Confirmed empty also across `DEFAULT_CONFIGS` and all three howto notebooks (see Q11).
+Repo-wide grep finds only the definition, its `__post_init__` range check (`:76-78`),
+and this block. No config, sweep, or notebook sets it.
 
-**4. CONFIRMED.** `pair_candidate_panel_creator.py:393-394`:
+**4. CONFIRMED, but the prescribed fix is wrong — see below.**
+`pair_candidate_panel_creator.py:393-394`:
 ```python
     residual_std = float(np.std(resid, ddof=1))
     kappa = float(-slope)
 ```
-Gate order, `:396-399`:
+Gate order at `:396-399`:
 ```python
     if not np.isfinite(kappa):
         return invalid("kappa_not_finite")
     if not np.isfinite(residual_std):
 ```
-`residual_std` is assigned one line before `kappa`, but `kappa`'s finiteness gate runs
-first — so a `kappa`-driven failure cannot be misattributed to `residual_std`, but a
-`residual_std`-driven failure currently can never surface either, since `kappa`'s gate
-runs first and both derive from the same regression; not actually reachable as a
-distinct misattribution today, but the ordering is exactly as claimed.
+
+**[amended] Do not swap the gates.** The brief's rationale — report the upstream
+failure rather than a misattribution — does not hold. `residual_std` and `kappa` are
+**siblings**, both derived from the same regression: `residual_std = std(resid)` and
+`kappa = -slope`. Neither is upstream of the other, so swapping the order changes which
+of two equally-arbitrary labels is reported and fixes nothing. The verification session
+reached the same conclusion from the other direction, noting the misattribution is not
+actually reachable today.
+
+Replace the swap with a **single combined gate that reports what was actually
+non-finite**: check both, and emit a reason naming whichever failed, or both. This
+removes the ordering question rather than relitigating it, and keeps `why_invalid`
+truthful — which is the point of the gate work.
+
+Keep the reason strings static per the gate-4 rule below: `kappa_not_finite`,
+`residual_std_not_finite`, `kappa_and_residual_std_not_finite`. Three fixed values, no
+interpolation.
 
 **5. CONFIRMED.** `pair_candidate_panel_creator.py:384-385`:
 ```python
     if len(dx) < 10:
         return invalid(f"dx_length_{len(dx)}_lt_10")
 ```
-Dynamic — embeds `len(dx)`.
+Dynamic — embeds `len(dx)`. Normalize to a static `dx_too_short`.
 
-**6. CONFIRMED.** Row construction hardcodes `n_legs`, `pair_candidate_panel_creator.py:310`:
-```python
-                "n_legs": 2,
-```
-while `_fast_pair_diagnostics` computes and returns a real value,
-`pair_candidate_panel_creator.py:356` (assignment) and `:369`/`:432` (returned):
+Note that three further reasons are also dynamic and were not in the brief's claim:
+`kappa_lt_min:...`, `half_life_le_0:...`, `half_life_gt_max:...`. **[amended] Normalize
+these too.** The rule is category-wide, not specific to gate 4: values never go in
+reason strings — the offending value is already in its own typed column and the
+threshold is in the run config. Leaving three of four dynamic defeats the purpose,
+since any groupby on `why_invalid` still shatters.
+
+**6. CONFIRMED, with a semantic correction — see below.** Row construction hardcodes
+`n_legs` at `pair_candidate_panel_creator.py:310`, while `_fast_pair_diagnostics`
+computes a real value at `:356`:
 ```python
     n_legs = int(abs(w_left) >= tiny_weight_threshold) + int(abs(w_right) >= tiny_weight_threshold)
 ```
-`diagnostics["n_legs"]` is never read when building the row (row dict at
-`:301-323` pulls `adf_pvalue`, `mr_score`, `kappa`, `half_life`, `residual_std`,
-`spread_return_std`, `level_std`, `is_valid` from `diagnostics`, but not `n_legs`).
-Note: the dead `compute_candidate_diagnostics` has no equivalent hardcode — it has no
-caller that could hardcode `n_legs` since it has no caller at all.
+`diagnostics["n_legs"]` is never read when building the row.
 
-**7. CONFIRMED.** `pair_candidate_panel_creator.py:389`:
-```python
-    intercept, slope = beta
-```
-`intercept` is never referenced again in the function, and the row dict (`:301-323`)
-does not include it. **Disagreement**: the dead `compute_candidate_diagnostics`
-already persists it, `candidate_panel.py:221-222`:
-```python
-        "intercept": float(intercept),
-        "slope": float(slope),
-```
-so the fix pattern already exists in the unused sibling function.
+**[amended] `n_legs` is not a leg count — it is a count of legs whose absolute weight
+clears `tiny_weight_threshold`.** It can therefore be 0 or 1 for a two-ticker spread.
+Those rows fail the `too_few_active_legs` gate and are marked invalid, but per Q12 they
+**still appear in the table**, currently showing `n_legs=2` when the true value is 1 or
+0.
 
-**8. CONFIRMED.** Diagnostics dict always carries the field
-(`pair_candidate_panel_creator.py:361` in the `invalid()` closure and `:424` on the
-valid path). Row promotion is debug-gated, `:325-326`:
-```python
-            if debug:
-                row["failure_reason"] = str(diagnostics["failure_reason"])
-```
+So wiring it through changes stored values on invalid rows. Still result-neutral —
+invalid rows are never traded — but it is an artifact change, not a pure cleanup. Say so
+in the commit message.
 
-**9. CONFIRMED.** `src/simulator/config.py:295`:
-```python
-    candidate_max_age_days: int | None = None
-```
-Sole hit for `candidate_max_age_days` in a repo-wide grep (`.py` files) — defined on
-`ActivationConfig`, never read anywhere else.
+**7. CONFIRMED.** `pair_candidate_panel_creator.py:389` — `intercept, slope = beta`;
+`intercept` never referenced again, absent from the row dict (`:301-323`). The dead
+`compute_candidate_diagnostics` already persists it (`candidate_panel.py:221-222`), so
+the fix pattern exists in the sibling being deleted — copy it before deleting.
 
-No claim required a "NOT FOUND" — all nine matched the live code as stated, modulo the
-call-site note on claims 6 and 7.
+**8. CONFIRMED.** The diagnostics dict always carries `failure_reason` (the `invalid()`
+closure at `:361`, and `:424` on the valid path). Row promotion is debug-gated at
+`:325-326`.
 
-## 10. Guard placement and existing validation entry points
+**9. CONFIRMED.** `src/simulator/config.py:295` —
+`candidate_max_age_days: int | None = None` on `ActivationConfig`. Sole hit repo-wide.
+Never read.
 
-**Guard 1 — `adf_pvalue_max` with an all-NaN column.**
-Existing entry points: `CandidateSelectionConfig.__post_init__`
-(`candidate_selector.py:76-78`, range check only — `0 < x <= 1`) and
-`_build_candidate_selection_mask` (`candidate_selector.py:243-276`, panel-level
-application at `:258-260`).
-Correct place to raise: **point of use**, inside `_build_candidate_selection_mask` (or
-`select_candidates` immediately before it) right where `:258-260` runs. Config
-validation alone cannot know whether the panel's `adf_pvalue` column is all-NaN —
-that depends on whether the panel was built with `skip_adf=True`, a fact
-`CandidateSelectionConfig` has no visibility into. The check needs both the config
-(`cfg.adf_pvalue_max is not None`) and the actual panel column, both already in scope
-at `:258`.
+No claim required a `NOT FOUND`.
 
-**Guard 2 — `EQ_ROLLING` residual config.**
-Existing entry point: `CausalResidualConfig.__post_init__`
-(`causal_residuals.py:70-99`), specifically the `case ResidualMode.EQ_ROLLING:` branch
-(`:74-79`).
-Correct place to raise: **config validation**, in that same branch. This is a pure
-property of the mode — no panel or run data is needed to know that `EQ_ROLLING` was
-selected — and `__post_init__` is already the single place `PanelBatchConfig`'s
-docstring (`panel_batch.py:104-108`) says all residual mode/validation logic lives.
+## 10. Guard placement
 
-**Guard 3 — multi-sleeve occupancy.**
-This guard has two independent parts that need two different entry points, since the
-brief's "z-lookback" half is config-only and the "hedge config" half is data-dependent.
+**Guard 1 — `adf_pvalue_max` with an all-NaN column. Point of use.**
+Inside `_build_candidate_selection_mask` (`candidate_selector.py:243-276`), at the
+`:258-260` block. Config validation cannot know whether the panel's `adf_pvalue` column
+is all-NaN — that depends on whether the panel was built with `skip_adf=True`, which
+`CandidateSelectionConfig` has no visibility into. Both the config flag and the panel
+column are already in scope at `:258`.
 
-- Multiple z-lookbacks under one `residual_key`: existing entry point
-  `SimulatorConfig.__post_init__` (`config.py:849-880`), which already de-duplicates on
-  `timescale_label` (`:875-880`) and already has the grouping helper needed,
-  `z_score_configs_by_rkey()` (`config.py:903-907`). Correct place to raise:
-  **config validation**, extending `__post_init__` — this is pure `SimulatorConfig`
-  state, no panel needed.
-- Multiple hedge configs (`weight_model`) contending under one `(spread_id,
-  residual_key)`: this is a property of the *loaded candidate panel*, not of any single
-  config object — `SimulatorConfig` carries no list of hedge configs. Existing entry
-  point: `_load_panels` (`simulator_factory.py:293-376`), which already assembles the
-  merged panel with a `residual_key` column and already computes a comparable groupby
-  for logging (`group_counts = merged.groupby(["group_id", "residual_key"]).size()`,
-  `:363`). Correct place to raise: **point of use**, right after the merge
-  (`:361`), grouping by `(spread_id, residual_key, weight_model)` instead.
+**Guard 2 — `EQ_ROLLING` residual config. `SimulatorConfig.__post_init__`.**
 
-## 11. DEFAULT_CONFIGS and howto-notebook audit
+**[amended]** The verification session proposed `CausalResidualConfig.__post_init__`.
+That placement is wrong. The defect requires **both** an `EQ_ROLLING` residual config
+**and** a z-score computation: the z-score's EWM history span is inherited from
+whichever path supplied the series, and a rolling residual config truncates that
+series. Raising in the residual config's `__post_init__` fires on the first condition
+alone, blocking residual-only work — panel construction, residual diagnostics, anything
+that never reaches a z-score — which is correct today.
 
-**`adf_pvalue_max`**: zero hits. `DEFAULT_CONFIGS["standard_v1"]`
-(`sweep_defaults.py:41-43`) sets `CandidateSelectionConfig(allowed_candidate_subtypes=("pca",),
-require_is_valid=True)` — `adf_pvalue_max` left at its `None` default. No notebook sets
-it (grep for `adf_pvalue_max` across all three `.ipynb` files: no matches).
+`EQ_ROLLING` must remain constructible. Raise in `SimulatorConfig.__post_init__`
+(`config.py:849-880`), where both conditions are visible, alongside guard 3's config
+half.
 
-**`EQ_ROLLING`**: zero *active* hits. `DEFAULT_CONFIGS` carries no residual-shaped
-field at all (by design — its docstring says so, `sweep_defaults.py:4-9`). Notebook 01
-(`01_create_candidate_panel.ipynb`, cell 5) sets
-`RESIDUAL_MODE = ResidualMode.DECAY_EXPANDING` as the committed value, with `EQ_ROLLING`
-offered only as an inline comment ("try: EQ_ROLLING, EQ_EXPANDING") and as one branch
-of a `match` statement (cell 6) that is not selected. As committed, no notebook runs
-`EQ_ROLLING`. Notebooks 02/03 don't touch residual mode at all — they consume an
-already-built panel by `residual_key` string.
+Sanity check: if any existing test constructs an `EQ_ROLLING` config, a
+`CausalResidualConfig.__post_init__` raise breaks the suite. That is the signal, not an
+argument.
 
-**Multiple z-lookbacks per `residual_key` / multiple hedge configs in one run**: zero
-hits. `DEFAULT_CONFIGS` carries no z-score or hedge-related field. Notebook 02 and 03
-each construct exactly one `ZScoreConfig` (`ZScoreConfig(lookback=Z_LOOKBACK,
-method=Z_METHOD, residual_key=RESIDUAL_KEY)`, one scalar `lookback`). Notebook 01 uses
-`PanelBatchConfig`'s default `pair_cfg` (`hedge_ratio_methods=["pca"]`,
-`panel_batch.py:129`), not overridden — a single hedge method. No notebook or
-`DEFAULT_CONFIGS` entry constructs a `z_score` list or multiple `hedge_ratio_methods`.
+**Guard 3 — multi-sleeve occupancy. Two parts, two entry points.**
 
-**Consequence for `found.md`**: the guard-3 placeholder entry
-("Occupancy guard fired on a config in use") should be deleted, not filled in — the
-guard does not fire on anything actually in use today. This session did not edit
-`found.md`; the implementation session should remove the placeholder once guard 3 is
-built and confirmed silent against these configs.
+- **Multiple z-lookbacks under one `residual_key` — config validation.**
+  `SimulatorConfig.__post_init__` (`config.py:849-880`) already de-duplicates on
+  `timescale_label` (`:875-880`) and has the grouping helper
+  `z_score_configs_by_rkey()` (`:903-907`). Pure `SimulatorConfig` state.
+- **Multiple hedge configs contending under one `(spread_id, residual_key)` — point of
+  use.** `SimulatorConfig` carries no list of hedge configs; this is a property of the
+  loaded panel. Raise in `_load_panels` (`simulator_factory.py:293-376`) right after
+  the merge at `:361`, grouping by `(spread_id, residual_key, weight_model)`. A
+  comparable groupby already exists for logging at `:363`.
 
-## 12. Can an early-gate failure still produce a candidates row?
+## 11. DEFAULT_CONFIGS and howto-notebook audit — zero hits
 
-Both answers are correct depending on which gate — the brief's "early gate" is
-ambiguous between two different mechanisms in `_build_pair_candidate_rows_for_date`:
+- **`adf_pvalue_max`**: never set. `DEFAULT_CONFIGS["standard_v1"]`
+  (`sweep_defaults.py:41-43`) leaves it at `None`. No notebook sets it.
+- **`EQ_ROLLING`**: no active use. `DEFAULT_CONFIGS` carries no residual-shaped field
+  by design (`sweep_defaults.py:4-9`). Notebook 01 commits
+  `RESIDUAL_MODE = ResidualMode.DECAY_EXPANDING`; `EQ_ROLLING` appears only in a comment
+  and an unselected `match` branch. Notebooks 02/03 consume a built panel by
+  `residual_key` string.
+- **Multiple z-lookbacks or hedge configs per run**: never. Notebooks 02/03 each
+  construct one `ZScoreConfig` with a scalar `lookback`. Notebook 01 uses
+  `PanelBatchConfig`'s default `hedge_ratio_methods=["pca"]` (`panel_batch.py:129`).
 
-**Structural pre-checks skip the pair entirely — no row.** Three points in the loop
-`continue` without appending anything:
-- `pair_candidate_panel_creator.py:261-264` — either leg missing from the cleaned
-  hedge or diagnostics window:
-  ```python
-              if left not in hedge_cols or right not in hedge_cols:
-                  continue
-  ```
-- `pair_candidate_panel_creator.py:266-274` — weight computation raises
-  (`ValueError`/`LinAlgError`, e.g. degenerate PCA eigenvector):
-  ```python
-              except (ValueError, np.linalg.LinAlgError):
-                  continue
-  ```
+**Consequence: track H stays deferred.** No config in use trips guard 3. Delete the
+placeholder entry from `found.md` rather than filling it in.
+
+## 12. Two distinct absence classes in the candidates table
+
+The brief's "early gate" was ambiguous between two mechanisms.
+
+**Structural pre-checks skip the pair entirely — no row.**
+- `:261-264` — either leg missing from the cleaned hedge or diagnostics window.
+- `:266-274` — weight computation raises (`ValueError` / `LinAlgError`, e.g. a
+  degenerate PCA eigenvector).
 - Implicitly, `pair_ids` (`:250-253`) is built only from tickers surviving the
-  hedge-window dropna (`:240`), so a ticker dropped for NaNs never enters the loop for
-  that date at all.
+  hedge-window dropna (`:240`), so a dropped ticker never enters the loop for that date.
 
-**Diagnostic validity gates inside `_fast_pair_diagnostics` still produce a row.**
-The row is appended unconditionally at `pair_candidate_panel_creator.py:329`
-(`rows.append(row)`), outside any validity check, and every failure branch of
-`_fast_pair_diagnostics` (`too_few_active_legs`, `spread_return_std_too_small`,
-`spread_level_std_too_small`, `dx_length_..._lt_10`, `kappa_not_finite`,
-`residual_std_not_finite`, `residual_std_le_0`, `kappa_lt_min:...`,
-`half_life_not_finite`, `half_life_le_0:...`, `half_life_gt_max:...`) returns a
-same-shaped dict via the `invalid()` closure (`:358-370`), which is then unpacked into
-the row exactly like the valid case — just with `is_valid=False` and NaN diagnostic
-fields. So: a pair that fails one of these gates **does** get a candidates row, marked
-invalid; a pair that fails a structural precondition (missing from the cleaned window,
-or a weight-computation exception) **does not** — the loop skips it and the panel has
-no record it was ever considered on that date.
+**Diagnostic validity gates still produce a row.** The row is appended unconditionally
+at `:329`, outside any validity check, and every failure branch returns a same-shaped
+dict via the `invalid()` closure (`:358-370`), unpacked into the row exactly like the
+valid case with `is_valid=False` and NaN diagnostics.
 
-## Things the brief asks for that this session could not do
+So the table has **two absence classes**: rows marked invalid with a reason, and pairs
+with no record that they were ever considered on that date.
 
-Nothing in the "Verify first" or Q10-12 sections was unconfirmable — no `NOT FOUND`,
-no contradiction between two live call sites (only a live-vs-dead-code difference, on
-claims 6 and 7, noted above since it's relevant to how the fix should read: the dead
-`compute_candidate_diagnostics` already does the right thing for claim 7, and never
-had the claim-6 defect in the first place since it has no caller).
+## Consequences for other tracks
+
+Recorded here because they were found here; the corresponding briefs are amended
+separately.
+
+**Track B — the coverage hole is wider than the brief states.** `why_invalid` covers
+gate failures only. Structurally skipped pairs have no row and therefore no reason, so
+B's ticker-drop logging captures only part of the second class — the exception path at
+`:266-274` is not a ticker drop at all. Any breadth or rejection-rate denominator needs
+both counted. B must log pre-check skips separately from ticker drops.
+
+**Track F — `n_legs` cannot be dropped as a groupby size.** Earlier advice said it
+could, on the assumption it counts legs. Per claim 6 it counts legs *above
+`tiny_weight_threshold`*, so it disagrees with `weights.parquet` row count whenever a
+tiny weight is stored. Either keep `n_legs` as a real column with its threshold
+semantics documented, or store only active legs in `weights.parquet` and accept that
+the artifact then cannot reproduce the raw fit. Decide in F; do not drop it silently.
+
+## two corrections applied
+
+Both incorporated above: `compute_candidate_diagnostics` deleted, guard 2 placed in
+`SimulatorConfig.__post_init__`.
+
+## Implementation verification
+
+- Full suite green: `python -m unittest discover -s tests` — 75 tests, OK (11 new in
+  `tests/test_track_a_guards.py`: one raise + one non-firing case per guard, plus
+  n_legs/gate consistency at 0/1/2 active legs).
+- Guard audit against `DEFAULT_CONFIGS["standard_v1"]` and all three howto notebooks:
+  silent on all of them, confirming section 11's static findings hold against the live
+  guard code, not just the pre-implementation analysis.
+  - Guard 1 (`adf_pvalue_max` vs all-NaN column): structurally cannot fire — no config
+    or notebook sets `adf_pvalue_max`.
+  - Guard 2 (`EQ_ROLLING` + z-score): `residual=` is never passed into `SimulatorConfig`
+    by `sweep_runner._build_sim_config` or notebook 02 — it stays `None`, so the guard
+    can't reach a `window_mode == "rolling"` check regardless of `ResidualMode`.
+    Notebook 01 builds panels via `PanelBatchConfig`, never a `SimulatorConfig`, and
+    commits `RESIDUAL_MODE = ResidualMode.DECAY_EXPANDING`.
+  - Guard 3 (multi-sleeve occupancy): verified directly by constructing a
+    notebook-02-shaped `SimulatorConfig` and a notebook-03-shaped `SweepConfig` — both
+    single-timescale, single-residual_key, no raise.
+  - None fire on anything in use today; Track H stays deferred (no `found.md` entry
+    needed).
+- Re-timed panel build (materials sector, `DECAY_EXPANDING hl=504/mh1008/rf`, PCA
+  hedge ratio, `hedge_ratio_lb=mr_diag_lb=252`, `W-FRI`, 400 weekly steps -> 31200
+  rows), before/after `skip_adf`:
+  - `skip_adf=False`: **96.0s**
+  - `skip_adf=True`: **25.4s**
+
+  Matches the brief's cited baseline (~96s) and expectation (~27s) almost exactly —
+  this was very likely the original benchmark's configuration.
