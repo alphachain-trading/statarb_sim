@@ -1,8 +1,8 @@
 # Track B baseline harness output
 # sectors=['energy', 'materials'] max_steps=40 hedge_ratio_lb=252 mr_diag_lb=252 min_obs=252 residual=exp_mh20_rf
 # active_sectors=['energy']
-# panel build time: 7.63s
-# simulate time: 5.25s
+# panel build time: 7.71s
+# simulate time: 5.55s
 
 ## panels
 energy / exp_mh20_rf: 1541/2145 valid candidates

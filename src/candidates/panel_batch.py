@@ -4,6 +4,7 @@ Batch candidate-panel creation over a list of residual configs.
 Usage (notebook):
 
     from src.candidates.panel_batch import PanelBatchConfig, run_panel_batch
+    from src.candidates.pair_candidate_panel_creator import PairSpreadConfig
     from src.residuals.causal_residuals import CausalResidualConfig, ResidualMode, AbsOrMult
 
     cfg = PanelBatchConfig(
@@ -19,6 +20,7 @@ Usage (notebook):
         hedge_ratio_lb=252,
         mr_diag_lb=252,
         selected_sectors=["materials"],
+        pair_cfg=PairSpreadConfig(hedge_ratio_methods=["pca"], min_obs=252),
     )
     results = run_panel_batch(cfg)
 
@@ -30,7 +32,7 @@ when residual_configs has length 1.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -123,19 +125,14 @@ class PanelBatchConfig:
     hedge_ratio_lb: int | list[int]
     mr_diag_lb: int | list[int]
 
-    # Pair spread config (shared across all sectors/residual configs).
-    # min_obs=10 matches the existing dx_too_short floor in
-    # _fast_pair_diagnostics (pair_candidate_panel_creator.py) — the same
-    # "10 observations" minimum already used for the diagnostics side,
-    # applied here to the hedge-ratio fit. PairSpreadConfig.min_obs itself
-    # carries no default (Track B); this is PanelBatchConfig choosing one
-    # for its own default pair_cfg.
-    pair_cfg: PairSpreadConfig = field(
-        default_factory=lambda: PairSpreadConfig(
-            hedge_ratio_methods=["pca"],
-            min_obs=10,
-        ),
-    )
+    # Pair spread config (shared across all sectors/residual configs). No
+    # default: PairSpreadConfig.min_obs is itself mandatory with no default
+    # (Track B), and a dataclass default here would just be a second place
+    # for the same result-affecting number to silently live. Callers must
+    # state it explicitly — see D_config_hygiene.md's "no numeric defaults
+    # in dataclasses" principle, which this field was the one exception to
+    # until now.
+    pair_cfg: PairSpreadConfig
 
     # Panel frequency
     frequency: str = "W-FRI"
