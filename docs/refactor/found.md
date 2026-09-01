@@ -10,11 +10,14 @@
   is out of scope here. Track A only fixed the live path
   (`_fast_pair_diagnostics` / `_build_pair_candidate_rows_for_date`).
 
-- **`src/candidates/panel_batch.py:127-131`** — `PanelBatchConfig.pair_cfg`'s
-  `default_factory` explicitly pins `skip_adf=False`, overriding the new
-  `PairSpreadConfig.skip_adf=True` default (see A_diagnostics_and_guards.md).
-  Anyone building a panel via `PanelBatchConfig` (e.g. howto notebook 01)
-  keeps paying the ADF cost by default; only direct `PairSpreadConfig()`
-  construction picks up the speedup. Not fixed here — Track A's scope is
-  the candidate row builder and the config validation path, not
-  `PanelBatchConfig`.
+## Port notes
+
+- **Deleting `ActivationConfig.candidate_max_age_days` changed `config_hash`.**
+  `hash_config()` (`src/simulator/simulation_persistence.py:32-44`) hashes the
+  full serialized `SimulatorConfig`, which includes `ActivationConfig`. Removing
+  the field changes the serialized dict for every config, hence the hash.
+  Harmless in `statarb_sim` — no persisted run dirs keyed by hash exist yet —
+  but when this fix is ported to `hierarchical-arb`, it will orphan any
+  existing persisted run directories keyed by the old `config_hash`. Port as a
+  separate atomic commit and flag the hash change to whoever owns those run
+  dirs before landing it.
