@@ -78,7 +78,7 @@ class PairSpreadConfig:
     min_kappa: float = 1e-6
     max_half_life: float = 126.0
     tiny_weight_threshold: float = 1e-6
-    skip_adf: bool = False
+    skip_adf: bool = True
 
     def __post_init__(self) -> None:
         if not self.hedge_ratio_methods:
