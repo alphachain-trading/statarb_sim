@@ -15,7 +15,6 @@ except Exception:  # pragma: no cover
 
 from src.candidates.candidate_panel import (
     CandidatePanelResult,
-    compute_candidate_diagnostics,
     finalize_candidate_panel,
     make_candidate_id,
     save_candidate_panel_result,
@@ -347,8 +346,8 @@ def _fast_pair_diagnostics(
     """
     Pair-specific diagnostics operating directly on numpy arrays.
 
-    Avoids the overhead of compute_candidate_diagnostics (DataFrame copy,
-    reindex, dropna) since we already have clean spread returns.
+    Avoids DataFrame copy/reindex/dropna overhead since we already have
+    clean spread returns.
     """
     spread_level = np.cumsum(spread_return)
 

@@ -6,13 +6,7 @@ from dataclasses import asdict, dataclass, is_dataclass
 from pathlib import Path
 from typing import Any, Literal
 
-import numpy as np
 import pandas as pd
-
-try:
-    from statsmodels.tsa.stattools import adfuller
-except Exception:  # pragma: no cover
-    adfuller = None
 
 
 CandidateType = Literal["pair", "portfolio"]
@@ -104,123 +98,6 @@ def serialize_weights_for_spread_id(
         raise ValueError(f"Missing weights for tickers: {missing}")
 
     return w.to_json(double_precision=12)
-
-
-def compute_candidate_diagnostics(
-    residual_returns: pd.DataFrame,
-    weights: pd.Series | np.ndarray,
-    *,
-    tiny_weight_threshold: float,
-    min_active_legs: int,
-    min_return_std: float,
-    min_level_std: float,
-    min_kappa: float,
-    max_half_life: float,
-    skip_adf: bool = False,
-) -> dict[str, Any]:
-    """
-    Compute common diagnostics for a candidate from residual returns and weights.
-    """
-    rr = residual_returns.copy()
-    rr = rr.replace([np.inf, -np.inf], np.nan).dropna(axis=0, how="any").dropna(axis=1, how="any")
-
-    if rr.empty:
-        raise ValueError("Residual return window is empty after dropping NaNs.")
-
-    if isinstance(weights, pd.Series):
-        w = weights.reindex(rr.columns).fillna(0.0).to_numpy(dtype=float)
-    else:
-        w = np.asarray(weights, dtype=float)
-        if len(w) != rr.shape[1]:
-            raise ValueError(
-                f"Weight length mismatch: len(weights)={len(w)}, n_cols={rr.shape[1]}."
-            )
-
-    spread_return = rr.to_numpy(dtype=float) @ w
-    spread_level = np.cumsum(spread_return)
-
-    spread_return_std = float(np.std(spread_return, ddof=1))
-    level_std = float(np.std(spread_level, ddof=1))
-    n_legs = int(np.sum(np.abs(w) >= tiny_weight_threshold))
-
-    def invalid(reason: str) -> dict[str, Any]:
-        return {
-            "is_valid": False,
-            "failure_reason": reason,
-            "adf_pvalue": np.nan,
-            "mr_score": np.nan,
-            "kappa": np.nan,
-            "half_life": np.nan,
-            "residual_std": np.nan,
-            "spread_return_std": spread_return_std,
-            "level_std": level_std,
-            "n_legs": n_legs,
-        }
-
-    if n_legs < min_active_legs:
-        return invalid("too_few_active_legs")
-    if spread_return_std < min_return_std:
-        return invalid("spread_return_std_too_small")
-    if level_std < min_level_std:
-        return invalid("spread_level_std_too_small")
-
-    x_raw = np.asarray(spread_level, dtype=float)
-    x = x_raw - np.mean(x_raw)
-    x_lag = x[:-1]
-    dx = np.diff(x)
-
-    if len(dx) < 10:
-        return invalid(f"dx_length_{len(dx)}_lt_10")
-
-    X = np.column_stack([np.ones_like(x_lag), x_lag])
-    beta, *_ = np.linalg.lstsq(X, dx, rcond=None)
-    intercept, slope = beta
-
-    fitted = X @ beta
-    resid = dx - fitted
-    residual_std = float(np.std(resid, ddof=1))
-    kappa = float(-slope)
-
-    if not np.isfinite(kappa):
-        return invalid("kappa_not_finite")
-    if not np.isfinite(residual_std):
-        return invalid("residual_std_not_finite")
-    if residual_std <= 0.0:
-        return invalid("residual_std_le_0")
-    if kappa < min_kappa:
-        return invalid(f"kappa_lt_min:{kappa}")
-
-    half_life = float(np.log(2.0) / kappa)
-    if not np.isfinite(half_life):
-        return invalid("half_life_not_finite")
-    if half_life <= 0.0:
-        return invalid(f"half_life_le_0:{half_life}")
-    if half_life > max_half_life:
-        return invalid(f"half_life_gt_max:{half_life}")
-
-    mr_score = float(kappa / residual_std)
-
-    adf_pvalue = np.nan
-    if not skip_adf and adfuller is not None:
-        try:
-            adf_pvalue = float(adfuller(x_raw, autolag="AIC")[1])
-        except Exception:
-            adf_pvalue = np.nan
-
-    return {
-        "is_valid": True,
-        "failure_reason": "",
-        "adf_pvalue": adf_pvalue,
-        "mr_score": mr_score,
-        "kappa": kappa,
-        "half_life": half_life,
-        "residual_std": residual_std,
-        "spread_return_std": spread_return_std,
-        "level_std": level_std,
-        "n_legs": n_legs,
-        "intercept": float(intercept),
-        "slope": float(slope),
-    }
 
 
 def _json_default(obj: Any) -> Any:
