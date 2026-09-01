@@ -307,7 +307,7 @@ def _build_pair_candidate_rows_for_date(
                 "weight_model": method,
                 "spread_id": sid,
                 "group_id": bundle.group_id,
-                "n_legs": 2,
+                "n_legs": diagnostics["n_legs"],
                 "weights": serialize_weights_for_spread_id(
                     weights=weights,
                     spread_id=sid,
