@@ -271,11 +271,68 @@ against (G is unimplemented); this is carried forward as-is from the brief.
 
 ## Corrected claims
 
-None of the five "verify first" claims required correction — all five confirmed
-as stated. The one correction is process-level, carried in from Track A (§6 above):
-the brief's logging item needs pre-check skips and ticker drops logged as two
-distinct things, not one stream, or it inherits Track A's coverage-hole finding
-instead of fixing it.
+**Claim 1 is wrong as stated — corrected below (post-implementation).** Four of
+the five "verify first" claims required no correction. The process-level
+correction — the brief's logging item needs pre-check skips and ticker drops
+logged as two distinct things, not one stream, or it inherits Track A's
+coverage-hole finding instead of fixing it — still stands, carried in from
+Track A (§6 above).
+
+## Post-implementation correction to claim 1: contamination, not column loss
+
+Claim 1, as verified and confirmed in the spec session, reads: "a ticker with a
+single NaN anywhere in the window is dropped from all columns for that window,
+and the pair loop then skips every pair involving it. No row is produced, so
+the candidates table does not contain 'all pairs at date *t*'." The code quote
+(`:239-240`) is accurate; the description of what it *does* is not, and the spec
+session did not catch this because it verified the code's existence and
+location, not its pandas semantics under a concrete scenario.
+
+**The second `.dropna(axis=1, how="any")` is a no-op.** A preceding
+`.dropna(axis=0, how="any")` removes every row containing a NaN in *any*
+column, so whatever remains is fully dense in every column, by construction.
+There is therefore nothing left for a following `.dropna(axis=1, how="any")`
+to find — checked directly, not inferred:
+
+```python
+>>> df = pd.DataFrame({"A": [1,2,3,4,5], "B": [1,2,3,4,5], "C": [1,2,np.nan,4,5]})
+>>> df.dropna(axis=0, how="any").dropna(axis=1, how="any").columns.tolist()
+['A', 'B', 'C']   # C survives; only row 2 (the NaN row) was dropped, for every column
+```
+
+This holds even when a column is NaN in *every* row of the window (`.dropna(axis=0)`
+then empties to zero rows; `.dropna(axis=1)` on a zero-row frame vacuously keeps
+every column, since "any NaN" is false over zero values). Column elimination
+via this exact two-call chain cannot happen, for any input.
+
+**What the code actually does: contamination via shared row-dropping.** A
+single NaN in *any one* member ticker's window silently drops that *date* from
+*every* pair's fit that date — including pairs whose own two legs never had a
+gap. Not "no row is produced" (a row is produced, for every pair) — the row's
+inputs are silently different depending on an unrelated ticker's data
+availability. Confirmed empirically (`git stash` of the pre-pairwise-dropna
+code, synthetic 3-ticker bundle, `_build_pair_candidate_rows_for_date` called
+directly): with tickers AAA, BBB, CCC and no gap anywhere, AAA|BBB's OLS beta
+was `-0.12019669124`. Adding a single NaN to CCC on one date within the shared
+window — AAA and BBB's own values held bit-for-bit fixed — changed AAA|BBB's
+beta to `-0.12701531995`. Same two legs, same requested window, different
+answer, solely because a ticker neither leg trades gained a gap.
+
+The all-rows-eliminated case (a ticker NaN across the *entire* window) is the
+one scenario where claim 1's "no row is produced" becomes literally true — but
+even then it is every pair for that date, not selectively "every pair involving
+[the gapped ticker]" as claim 1 states; `_compute_pair_weights` on a zero-row
+frame raises for every pair, gapped-ticker or not, once the shared `dropna`
+empties the frame.
+
+**Consequence for the fix.** Track B commit 2 (pairwise dropna) is unaffected
+by this correction — building each pair's fit input from its own two legs
+eliminates cross-ticker contamination regardless of which mechanism produced
+it. `tests/test_pairwise_dropna.py` and `tests/test_gap_injection.py` (the
+latter through the real `fit_causal_residual_model` /
+`apply_causal_residual_model` path, not mocked) both assert the corrected
+claim directly: a clean pair's fit is bit-identical whether or not an
+unrelated ticker has a gap.
 
 ## What the brief asks for that cannot be done as described
 
