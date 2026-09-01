@@ -360,6 +360,19 @@ def _load_panels(
 
     merged = pd.concat(panels, ignore_index=True) if len(panels) > 1 else panels[0]
 
+    weight_models_by_key = merged.groupby(["spread_id", "residual_key"])["weight_model"].nunique()
+    contending = weight_models_by_key[weight_models_by_key > 1]
+    if not contending.empty:
+        examples = contending.index.tolist()[:5]
+        raise ValueError(
+            "Multiple weight_model (hedge config) values found under the same "
+            f"(spread_id, residual_key), e.g. {examples}. The trader's "
+            "open-position dedup key is (spread_id, residual_key), which does "
+            "not include weight_model, so these sleeves would silently contend "
+            "for the same position slot — arrival order would decide which one "
+            "trades. Run them as separate runs for now."
+        )
+
     group_counts = merged.groupby(["group_id", "residual_key"]).size()
     total = len(merged)
     n_panels = len(panels)

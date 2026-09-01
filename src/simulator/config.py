@@ -861,6 +861,15 @@ class SimulatorConfig:
                     f"diagnostics.lookback ({self.diagnostics.lookback}) must be "
                     f"<= residual.lookback ({self.residual.lookback})."
                 )
+            raise ValueError(
+                "SimulatorConfig.residual uses an EQ_ROLLING (window_mode='rolling') "
+                "residual config. The z-score's EWM history span is inherited from "
+                "whichever upstream path supplied the residual series — full history "
+                "on the disk-backed path, truncated to the residual lookback on the "
+                "recompute path — so the same (spread_id, date) can yield a different "
+                "z-score depending on whether a cache existed. The explicit span "
+                "parameter needed to make this deterministic is not yet implemented."
+            )
 
         if isinstance(self.z_score, list):
             if len(self.z_score) == 0:
@@ -877,6 +886,17 @@ class SimulatorConfig:
                 if key in seen:
                     raise ValueError(f"Duplicate z_score config timescale_label: {key!r}")
                 seen.add(key)
+
+        for rkey, zcs in self.z_score_configs_by_rkey().items():
+            if len(zcs) > 1:
+                raise ValueError(
+                    f"{len(zcs)} z_score configs share residual_key={rkey!r}. "
+                    "The trader's open-position dedup key is (spread_id, "
+                    "residual_key), which does not include the z-score config, so "
+                    "these sleeves would silently contend for the same position "
+                    "slot — arrival order would decide which one trades. Run them "
+                    "as separate runs for now."
+                )
 
     def resolved_z_score_configs(self) -> list[ZScoreConfig]:
         if isinstance(self.z_score, list):

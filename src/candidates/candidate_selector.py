@@ -256,6 +256,14 @@ def _build_candidate_selection_mask(
         mask &= panel["success"].fillna(False)
 
     if cfg.adf_pvalue_max is not None:
+        if panel["adf_pvalue"].notna().sum() == 0:
+            raise ValueError(
+                "CandidateSelectionConfig.adf_pvalue_max is set "
+                f"({cfg.adf_pvalue_max!r}) but panel['adf_pvalue'] is entirely "
+                "NaN — the panel was built with skip_adf=True (or every row "
+                "failed before ADF was computed), so this threshold would "
+                "silently select nothing."
+            )
         mask &= panel["adf_pvalue"].notna()
         mask &= panel["adf_pvalue"] <= cfg.adf_pvalue_max
 
