@@ -127,7 +127,6 @@ class PanelBatchConfig:
     pair_cfg: PairSpreadConfig = field(
         default_factory=lambda: PairSpreadConfig(
             hedge_ratio_methods=["pca"],
-            skip_adf=False,
         ),
     )
 

@@ -36,7 +36,12 @@ from src.simulator.sweep_runner import SweepConfig, dedup_key
 # Hash of a canonical SweepConfig recorded before the registry existed. The
 # hash covers SimulatorConfig, not SweepConfig, so extracting the defaults
 # into standard_v1 must leave it byte-identical.
-_PRE_REGISTRY_HASH = "73aabb33b874e0527d2b4a018d1bcc39"
+#
+# Updated once (73aabb33... -> 4d36adb0...) when Track A deleted
+# ActivationConfig.candidate_max_age_days: an unenforced field that shrunk
+# the hashed SimulatorConfig shape, not a registry-introduced behaviour
+# change.
+_PRE_REGISTRY_HASH = "4d36adb0ab6d1290240f5b655f29ba11"
 
 
 class TestSweepDefaults(unittest.TestCase):

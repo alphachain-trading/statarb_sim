@@ -15,7 +15,6 @@ except Exception:  # pragma: no cover
 
 from src.candidates.candidate_panel import (
     CandidatePanelResult,
-    compute_candidate_diagnostics,
     finalize_candidate_panel,
     make_candidate_id,
     save_candidate_panel_result,
@@ -78,7 +77,7 @@ class PairSpreadConfig:
     min_kappa: float = 1e-6
     max_half_life: float = 126.0
     tiny_weight_threshold: float = 1e-6
-    skip_adf: bool = False
+    skip_adf: bool = True
 
     def __post_init__(self) -> None:
         if not self.hedge_ratio_methods:
@@ -307,7 +306,7 @@ def _build_pair_candidate_rows_for_date(
                 "weight_model": method,
                 "spread_id": sid,
                 "group_id": bundle.group_id,
-                "n_legs": 2,
+                "n_legs": diagnostics["n_legs"],
                 "weights": serialize_weights_for_spread_id(
                     weights=weights,
                     spread_id=sid,
@@ -317,13 +316,14 @@ def _build_pair_candidate_rows_for_date(
                 "kappa": diagnostics["kappa"],
                 "half_life": diagnostics["half_life"],
                 "residual_std": diagnostics["residual_std"],
+                "intercept": diagnostics["intercept"],
                 "spread_return_std": diagnostics["spread_return_std"],
                 "level_std": diagnostics["level_std"],
                 "is_valid": bool(diagnostics["is_valid"]),
+                "why_invalid": str(diagnostics["failure_reason"]),
             }
 
             if debug:
-                row["failure_reason"] = str(diagnostics["failure_reason"])
                 row["hedge_beta"] = float(-weights[right])
 
             rows.append(row)
@@ -346,8 +346,8 @@ def _fast_pair_diagnostics(
     """
     Pair-specific diagnostics operating directly on numpy arrays.
 
-    Avoids the overhead of compute_candidate_diagnostics (DataFrame copy,
-    reindex, dropna) since we already have clean spread returns.
+    Avoids DataFrame copy/reindex/dropna overhead since we already have
+    clean spread returns.
     """
     spread_level = np.cumsum(spread_return)
 
@@ -364,6 +364,7 @@ def _fast_pair_diagnostics(
             "kappa": np.nan,
             "half_life": np.nan,
             "residual_std": np.nan,
+            "intercept": np.nan,
             "spread_return_std": spread_return_std,
             "level_std": level_std,
             "n_legs": n_legs,
@@ -382,7 +383,7 @@ def _fast_pair_diagnostics(
     dx = np.diff(x)
 
     if len(dx) < 10:
-        return invalid(f"dx_length_{len(dx)}_lt_10")
+        return invalid("dx_too_short")
 
     X = np.column_stack([np.ones_like(x_lag), x_lag])
     beta, *_ = np.linalg.lstsq(X, dx, rcond=None)
@@ -393,22 +394,26 @@ def _fast_pair_diagnostics(
     residual_std = float(np.std(resid, ddof=1))
     kappa = float(-slope)
 
-    if not np.isfinite(kappa):
-        return invalid("kappa_not_finite")
-    if not np.isfinite(residual_std):
+    kappa_finite = np.isfinite(kappa)
+    residual_std_finite = np.isfinite(residual_std)
+    if not kappa_finite or not residual_std_finite:
+        if not kappa_finite and not residual_std_finite:
+            return invalid("kappa_and_residual_std_not_finite")
+        if not kappa_finite:
+            return invalid("kappa_not_finite")
         return invalid("residual_std_not_finite")
     if residual_std <= 0.0:
         return invalid("residual_std_le_0")
     if kappa < min_kappa:
-        return invalid(f"kappa_lt_min:{kappa}")
+        return invalid("kappa_lt_min")
 
     half_life = float(np.log(2.0) / kappa)
     if not np.isfinite(half_life):
         return invalid("half_life_not_finite")
     if half_life <= 0.0:
-        return invalid(f"half_life_le_0:{half_life}")
+        return invalid("half_life_le_0")
     if half_life > max_half_life:
-        return invalid(f"half_life_gt_max:{half_life}")
+        return invalid("half_life_gt_max")
 
     mr_score = float(kappa / residual_std)
 
@@ -427,6 +432,7 @@ def _fast_pair_diagnostics(
         "kappa": kappa,
         "half_life": half_life,
         "residual_std": residual_std,
+        "intercept": float(intercept),
         "spread_return_std": spread_return_std,
         "level_std": level_std,
         "n_legs": n_legs,
