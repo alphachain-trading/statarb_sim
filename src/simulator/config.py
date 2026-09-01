@@ -292,7 +292,6 @@ class CapitalConfig:
 class ActivationConfig:
     one_active_per_group: bool = True
     switch_only_when_flat: bool = True
-    candidate_max_age_days: int | None = None
 
 
 @dataclass
