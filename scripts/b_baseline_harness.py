@@ -33,6 +33,7 @@ from pathlib import Path
 from src.settings import CANDIDATE_PANELS_ROOT, CONFIG_UNIVERSE, DATA_UNIVERSES, PROJECT_ROOT
 from src.candidates.panel_batch import PanelBatchConfig, run_panel_batch
 from src.candidates.candidate_panel import load_candidate_panel_result
+from src.candidates.pair_candidate_panel_creator import PairSpreadConfig
 from src.residuals.causal_residuals import CausalResidualConfig, ResidualMode
 from src.residuals.series import compute_and_persist_series
 from src.simulator.config import (
@@ -57,6 +58,11 @@ PANEL_SUBDIR = "refactor_b_harness"
 MAX_STEPS = 40
 HEDGE_RATIO_LB = 252
 MR_DIAG_LB = 252
+# No default anywhere (PairSpreadConfig.min_obs is mandatory; PanelBatchConfig
+# no longer supplies one either) — the harness states it explicitly, matching
+# the requested lookback: a rolling 252-day fit that ran on 40 observations is
+# not a 252-day fit. min_obs=hedge_ratio_lb is the fully-binding choice.
+MIN_OBS = 252
 # Common start for both sectors' panel walk, chosen near materials' own
 # history start (2005-08-11) so the two candidate windows land in the same
 # calendar span — energy has ample history there (no min_obs defect for it),
@@ -93,6 +99,7 @@ def _build_panels() -> tuple[float, dict]:
         frequency="W-FRI",
         start_date=PANEL_START_DATE,
         max_steps=MAX_STEPS,
+        pair_cfg=PairSpreadConfig(hedge_ratio_methods=["pca"], min_obs=MIN_OBS),
         persist_result=True,
         persist_residual_params=True,
         persist_dir_template=PANEL_SUBDIR,
@@ -103,7 +110,7 @@ def _build_panels() -> tuple[float, dict]:
     return build_time, results
 
 
-def _persist_series(sim_config: SimulatorConfig) -> None:
+def _persist_series(sim_config: SimulatorConfig, active_sectors: list[str]) -> None:
     """Mirror run_me.py's _persist_series_multi for this harness's panel dir."""
     panel_dir = Path(CANDIDATE_PANELS_ROOT) / PANEL_SUBDIR
     umd = _load_umd(sim_config.data)
@@ -111,12 +118,19 @@ def _persist_series(sim_config: SimulatorConfig) -> None:
     sources = discover_sector_data_sources(
         panel_dir=panel_dir,
         universe_dir=CONFIG_UNIVERSE,
-        selected_sectors=SECTORS,
+        selected_sectors=active_sectors,
     )
 
     for src in sources:
         result = load_candidate_panel_result(out_dir=panel_dir, stem=src.candidate_panel_stem)
         panel = result.panel
+
+        if panel.empty:
+            # A sector can legitimately produce zero candidate rows (e.g.
+            # min_obs rejecting every pair on every date) — nothing to
+            # persist series for. Excluded from active_sectors below too,
+            # so run_from_config never tries to load it.
+            continue
 
         if src.residual_params_stem is None:
             print(f"[harness] no residual params for {src.candidate_panel_stem}; skipping series")
@@ -139,11 +153,11 @@ def _persist_series(sim_config: SimulatorConfig) -> None:
         )
 
 
-def _build_sim_config() -> SimulatorConfig:
+def _build_sim_config(active_sectors: list[str]) -> SimulatorConfig:
     sweep_derived = {
         "data": DataConfig(
             candidate_panel_subdir=PANEL_SUBDIR,
-            selected_sectors=SECTORS,
+            selected_sectors=active_sectors,
             data_path=str(DATA_UNIVERSES),
         ),
         "z_score": ZScoreConfig(lookback=21, method="ewm", residual_key=_residual_cfg().key),
@@ -176,23 +190,37 @@ def _build_sim_config() -> SimulatorConfig:
 def main() -> None:
     panel_build_time, panel_results = _build_panels()
 
-    sim_config = _build_sim_config()
-    _persist_series(sim_config)
+    active_sectors = sorted({
+        group_id for (group_id, _residual_key), pr in panel_results.items()
+        if len(pr.panel) > 0
+    })
 
-    t0 = time.perf_counter()
-    result = run_from_config(sim_config)
-    sim_time = time.perf_counter() - t0
+    sim_time: float | None = None
+    trades_df = None
+    metrics: dict = {}
 
-    trades_df = result.closed_trades_df()
-    metrics = result.performance.metrics
+    if active_sectors:
+        # A sector can legitimately produce zero candidate rows (e.g. min_obs
+        # rejecting every pair on every date) — excluded here so
+        # run_from_config never tries to load it.
+        sim_config = _build_sim_config(active_sectors)
+        _persist_series(sim_config, active_sectors)
+
+        t0 = time.perf_counter()
+        result = run_from_config(sim_config)
+        sim_time = time.perf_counter() - t0
+
+        trades_df = result.closed_trades_df()
+        metrics = result.performance.metrics
 
     lines: list[str] = []
     lines.append("# Track B baseline harness output")
     lines.append(f"# sectors={SECTORS} max_steps={MAX_STEPS} "
                   f"hedge_ratio_lb={HEDGE_RATIO_LB} mr_diag_lb={MR_DIAG_LB} "
-                  f"residual={_residual_cfg().key}")
+                  f"min_obs={MIN_OBS} residual={_residual_cfg().key}")
+    lines.append(f"# active_sectors={active_sectors}")
     lines.append(f"# panel build time: {panel_build_time:.2f}s")
-    lines.append(f"# simulate time: {sim_time:.2f}s")
+    lines.append(f"# simulate time: {'n/a (no active sectors)' if sim_time is None else f'{sim_time:.2f}s'}")
     lines.append("")
 
     lines.append("## panels")
@@ -203,21 +231,24 @@ def main() -> None:
     lines.append("")
 
     lines.append("## metrics")
+    if not active_sectors:
+        lines.append("(no active sectors — simulate stage skipped)")
     for key, label, fmt in _METRICS_ORDER:
         if key not in metrics:
             continue
         lines.append(f"{label:<38} {_fmt_value(metrics[key], fmt):>10}")
     lines.append("")
 
-    lines.append(f"## trades ({len(trades_df)})")
-    if not trades_df.empty:
+    n_trades = 0 if trades_df is None else len(trades_df)
+    lines.append(f"## trades ({n_trades})")
+    if trades_df is not None and not trades_df.empty:
         present_cols = [c for c in TRADE_COLS if c in trades_df.columns]
         df = trades_df[present_cols].sort_values(["entry_date", "trade_id"]).reset_index(drop=True)
         lines.append(df.to_string(index=False))
     lines.append("")
 
     OUT_PATH.write_text("\n".join(lines) + "\n")
-    print(f"[harness] wrote {OUT_PATH} ({len(trades_df)} trades)")
+    print(f"[harness] wrote {OUT_PATH} ({n_trades} trades)")
 
 
 if __name__ == "__main__":
