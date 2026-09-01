@@ -393,9 +393,13 @@ def _fast_pair_diagnostics(
     residual_std = float(np.std(resid, ddof=1))
     kappa = float(-slope)
 
-    if not np.isfinite(kappa):
-        return invalid("kappa_not_finite")
-    if not np.isfinite(residual_std):
+    kappa_finite = np.isfinite(kappa)
+    residual_std_finite = np.isfinite(residual_std)
+    if not kappa_finite or not residual_std_finite:
+        if not kappa_finite and not residual_std_finite:
+            return invalid("kappa_and_residual_std_not_finite")
+        if not kappa_finite:
+            return invalid("kappa_not_finite")
         return invalid("residual_std_not_finite")
     if residual_std <= 0.0:
         return invalid("residual_std_le_0")
