@@ -15,11 +15,17 @@ metrics summary. No new runner, no new metrics code.
 
 Config is fixed and small on purpose: two of the smallest committed sector
 universes (energy, 11 equities; materials, 13 equities — B_spec.md §9), an
-EQ_EXPANDING residual with a low min_history (20) so the run starts at the
-very beginning of each sector's history, and explicit hedge/diagnostics
-windows (252) that are wider than what's available that early. That is
-deliberate: it is exactly the min_obs defect (B_window_admission.md items
-4/5) the baseline is meant to capture before it is fixed.
+EQ_EXPANDING residual with a low min_history (20), and explicit hedge/
+diagnostics windows (252) stated via min_obs (Track B removed the
+PanelBatchConfig default — B_window_admission.md items 4/5). PANEL_START_DATE
+is chosen so BOTH sectors already clear a full 252-day trailing window on the
+first panel date (materials' binding constraint is CF, whose price history
+starts 2005-08-11 — see the comment at PANEL_START_DATE below); an earlier
+start starves materials of history and produces a 0/0-candidate sector,
+which is a fixture artifact, not a finding. This baseline's job is to move
+when, and only when, a later change should move it — a counting question,
+answered by the ## counts section (candidate/trade counts), not by the
+## performance metrics section (noise at this trade count).
 
 Usage:
     python scripts/b_baseline_harness.py
@@ -63,14 +69,17 @@ MR_DIAG_LB = 252
 # the requested lookback: a rolling 252-day fit that ran on 40 observations is
 # not a 252-day fit. min_obs=hedge_ratio_lb is the fully-binding choice.
 MIN_OBS = 252
-# Common start for both sectors' panel walk, chosen near materials' own
-# history start (2005-08-11) so the two candidate windows land in the same
-# calendar span — energy has ample history there (no min_obs defect for it),
-# materials has almost none (the defect this baseline is meant to capture).
-# A shared, calendar-close window also keeps the simulate stage's trading-day
-# span small instead of spanning the multi-year gap between the two sectors'
-# own history starts.
-PANEL_START_DATE = "2005-08-15"
+# Common start for both sectors' panel walk. materials' binding constraint is
+# CF, whose price history starts 2005-08-11 — the 252nd return available from
+# CF lands 2006-08-11 (a return needs day n and day n-1, so 252 returns need
+# 253 price obs). PANEL_START_DATE sits ~3 weeks past that (2006-09-08), so
+# CF already clears a full 252-day trailing window on the first panel date
+# rather than at min_obs=252 arriving mid-walk. energy has ample history
+# (from 1990) regardless of where this is set. This is a fixture choice, not
+# a finding: an earlier start (e.g. 2005-08-15, one of this harness's earlier
+# revisions) makes materials' 0/0 an artifact of CF not existing yet, not
+# evidence about min_obs itself.
+PANEL_START_DATE = "2006-09-08"
 
 OUT_PATH = PROJECT_ROOT / "docs" / "refactor" / "B_baseline.txt"
 
