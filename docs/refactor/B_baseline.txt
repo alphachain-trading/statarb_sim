@@ -1,50 +1,14 @@
 # Track B baseline harness output
 # sectors=['energy', 'materials'] max_steps=40 hedge_ratio_lb=252 mr_diag_lb=252 min_obs=252 residual=exp_mh20_rf
 # active_sectors=['energy', 'materials']
-# panel build time: 10.48s
-# simulate time: 13.39s
+# panel build time: 11.11s
+# simulate time: 14.85s
 
-## panels
+## counts
 energy / exp_mh20_rf: 1698/2145 valid candidates
 materials / exp_mh20_rf: 2869/3042 valid candidates
-
-## metrics
-Total Return (Net)                         19.61%
-Total Return (Gross)                       20.26%
-Annual Return (Net)                        27.29%
-Annual Return (Gross)                      28.22%
-Sharpe Ratio (Net)                          1.372
-Sortino Ratio (Net)                         1.323
-Sortino Ratio (Gross)                       1.371
-Calmar Ratio (Net)                          3.082
-Max Drawdown (Net)                         -8.85%
-Max Drawdown (Gross)                       -8.75%
 # Trades                                       97
 # Groups Traded                                 2
-# Trading Days                                187
-Avg Concurrent Positions                    29.78
-Avg Holding Period (days)                    38.9
-Avg Holding — Wins (days)                    33.4
-Avg Holding — Losses (days)                  50.5
-Win Rate (Net)                              68.0%
-Loss Rate (Net)                             32.0%
-Win Rate (Gross)                            68.0%
-Profit Factor (Net)                         2.283
-Mean Gain / Win (Net $)                   6891.52
-Mean Loss / Loss (Net $)                 -6426.74
-Mean Gain / Win (Gross $)                 6943.90
-Mean Loss / Loss (Gross $)               -6372.38
-Avg |Entry Z-Score|                         2.009
-Avg Entry Z-Score                           0.054
-Avg Exit Z-Score                           -0.005
-Total Gross PnL ($)                     260753.86
-Total Net PnL ($)                       255611.04
-Total Transaction Costs ($)               2272.86
-Total Borrow Costs ($)                    2869.96
-Total Costs ($)                           5142.82
-Cost Drag (bps)                              66.4
-Avg Cost / Trade ($)                        53.02
-Avg Daily Borrow Cost ($)                 21.6389
 
 ## trades (97)
          trade_id  group_id spread_id entry_date  exit_date  days_open  direction  pair_notional  entry_z_score  exit_z_score  realized_pnl_gross  realized_pnl_net
@@ -145,4 +109,42 @@ Avg Daily Borrow Cost ($)                 21.6389
 20070511:35f095ff    energy   APA|SLB 2007-05-11 2007-06-08         19         -1  122577.764057       1.853887     -0.435265        12245.237457      12191.868597
 20070511:eb5038ff    energy   HAL|WMB 2007-05-11 2007-05-22          7         -1        20000.0       1.921255     -0.209291         1930.944227       1907.649443
 20070517:dfa6df59 materials    IP|LIN 2007-05-17 2007-05-31          9          1   30797.407581      -1.878526      0.107316            71.23782          63.34782
+
+## performance metrics (noise at this trade count — see counts above)
+Total Return (Net)                         19.61%
+Total Return (Gross)                       20.26%
+Annual Return (Net)                        27.29%
+Annual Return (Gross)                      28.22%
+Sharpe Ratio (Net)                          1.372
+Sortino Ratio (Net)                         1.323
+Sortino Ratio (Gross)                       1.371
+Calmar Ratio (Net)                          3.082
+Max Drawdown (Net)                         -8.85%
+Max Drawdown (Gross)                       -8.75%
+# Trades                                       97
+# Groups Traded                                 2
+# Trading Days                                187
+Avg Concurrent Positions                    29.78
+Avg Holding Period (days)                    38.9
+Avg Holding — Wins (days)                    33.4
+Avg Holding — Losses (days)                  50.5
+Win Rate (Net)                              68.0%
+Loss Rate (Net)                             32.0%
+Win Rate (Gross)                            68.0%
+Profit Factor (Net)                         2.283
+Mean Gain / Win (Net $)                   6891.52
+Mean Loss / Loss (Net $)                 -6426.74
+Mean Gain / Win (Gross $)                 6943.90
+Mean Loss / Loss (Gross $)               -6372.38
+Avg |Entry Z-Score|                         2.009
+Avg Entry Z-Score                           0.054
+Avg Exit Z-Score                           -0.005
+Total Gross PnL ($)                     260753.86
+Total Net PnL ($)                       255611.04
+Total Transaction Costs ($)               2272.86
+Total Borrow Costs ($)                    2869.96
+Total Costs ($)                           5142.82
+Cost Drag (bps)                              66.4
+Avg Cost / Trade ($)                        53.02
+Avg Daily Borrow Cost ($)                 21.6389
 

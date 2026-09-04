@@ -232,28 +232,41 @@ def main() -> None:
     lines.append(f"# simulate time: {'n/a (no active sectors)' if sim_time is None else f'{sim_time:.2f}s'}")
     lines.append("")
 
-    lines.append("## panels")
+    # Counts first: at a few dozen trades the performance numbers are noise
+    # and invite misreading, while candidate/trade counts are directly
+    # interpretable. This harness's job for the rest of the refactor is
+    # detecting whether a change moved something it should not have — a
+    # counting question, not a performance one.
+    n_trades = 0 if trades_df is None else len(trades_df)
+
+    lines.append("## counts")
     for (group_id, residual_key), pr in sorted(panel_results.items()):
         n_rows = len(pr.panel)
         n_valid = int(pr.panel["is_valid"].sum()) if n_rows else 0
         lines.append(f"{group_id} / {residual_key}: {n_valid}/{n_rows} valid candidates")
+    # Positions-opened / positions-rejected counts are not tracked anywhere
+    # in the simulator today (grepped, NOT FOUND) — n_trades and
+    # n_groups_traded are the trade-side counts that are available.
+    for key, label, fmt in _METRICS_ORDER:
+        if key not in metrics or key not in ("n_trades", "n_groups_traded"):
+            continue
+        lines.append(f"{label:<38} {_fmt_value(metrics[key], fmt):>10}")
     lines.append("")
 
-    lines.append("## metrics")
+    lines.append(f"## trades ({n_trades})")
+    if trades_df is not None and not trades_df.empty:
+        present_cols = [c for c in TRADE_COLS if c in trades_df.columns]
+        df = trades_df[present_cols].sort_values(["entry_date", "trade_id"]).reset_index(drop=True)
+        lines.append(df.to_string(index=False))
+    lines.append("")
+
+    lines.append("## performance metrics (noise at this trade count — see counts above)")
     if not active_sectors:
         lines.append("(no active sectors — simulate stage skipped)")
     for key, label, fmt in _METRICS_ORDER:
         if key not in metrics:
             continue
         lines.append(f"{label:<38} {_fmt_value(metrics[key], fmt):>10}")
-    lines.append("")
-
-    n_trades = 0 if trades_df is None else len(trades_df)
-    lines.append(f"## trades ({n_trades})")
-    if trades_df is not None and not trades_df.empty:
-        present_cols = [c for c in TRADE_COLS if c in trades_df.columns]
-        df = trades_df[present_cols].sort_values(["entry_date", "trade_id"]).reset_index(drop=True)
-        lines.append(df.to_string(index=False))
     lines.append("")
 
     OUT_PATH.write_text("\n".join(lines) + "\n")
