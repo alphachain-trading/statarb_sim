@@ -65,3 +65,64 @@ against before deciding severity.
 Out of scope for B, which does not touch the residual fit's window handling.
 Severity: result-affecting, magnitude unknown
 Suggested track: new — sequence after B, since B's logging sizes the problem
+
+## ExecutionConfig cost-field values are unreviewed
+Found during: track D
+Location: `src/simulator/config.py` (`ExecutionConfig`), values pinned in
+`src/simulator/sweep_defaults.py`'s `_STANDARD_V1["execution"]` and
+`run_me.py`'s `ExecutionConfig(...)` call.
+What: Track D relocated `commission_per_share` (0.005), `commission_per_order`
+(0.0), `min_commission_per_order` (1.0), `max_commission_per_order` (9.79),
+`max_commission_pct_of_trade` (0.01), `short_borrow_rate_annual_bps` (30.0),
+and `min_abs_units` (0.5) from class defaults into explicit call sites/bundle
+entries. D only relocates; it does not validate. These are the numbers that
+feed directly into reported PnL (commissions and borrow), and nobody has
+reviewed whether they are still the right numbers — only that they are now
+visible and version-tracked rather than implicit.
+Severity: result-affecting (values, not mechanism)
+Suggested track: new — a research review of the cost model, after D
+
+## demo_materials.yaml does not expose ExecutionConfig's cost fields
+Found during: track D
+Location: `config/demo_materials.yaml`; `run_me.py`'s `ExecutionConfig(...)`
+construction (`_build_sim_config`)
+What: run_me.py sources most SimulatorConfig fields from
+`config/demo_materials.yaml` (risk manager, sizing, trader, run), but the
+seven ExecutionConfig cost fields are now literals in run_me.py itself,
+not YAML keys — same gap that already existed for these fields as invisible
+class defaults, just relocated rather than closed. A reader of the public
+demo cannot see the transaction cost assumptions the demo actually runs
+under.
+Severity: cosmetic (presentation only; run_me.py still runs under the same
+values as before)
+Suggested track: revisit after F, alongside the run_me.py config-sourcing
+decision noted below
+
+## run_me.py's fixture-bootstrap path is stale, and download is C's integration point
+Found during: track D
+Location: `run_me.py:366-388` (`_bootstrap_panel_from_fixtures`), `run_me.py:534-537`
+(called from `stage_simulate`), `config/demo_materials.yaml:16-17`
+What: `stage_download` (`run_me.py:102`) and `stage_residuals` (`run_me.py:316`)
+both do real work today (real caching/download via `UniverseDataLoader.load`,
+real panel building via `run_panel_batch`) — not fixture copies. But
+`stage_simulate`'s single-sector path falls back to
+`_bootstrap_panel_from_fixtures`, which copies a panel triple from
+`cfg["panels"]["fixtures_dir"]` when the residuals stage hasn't produced one
+yet. `demo_materials.yaml`'s own comment (`:17`) calls this "bootstrap source
+until the residuals stage exists" — stale, since `stage_residuals` already
+exists and is wired into `STAGES`/`main()`'s default `--stage all` order
+(`run_me.py:562-588`). Worse: the committed fixture stem
+(`fixtures/materials_v1/mat_pairs_pca_W-FRI_exp_hl504_20260530_1400.*`) no
+longer matches `demo_materials.yaml`'s current `panels.stem`
+(`..._20260713_1531`, `:15`) — so the fallback would not find its fixture file
+if it were ever actually invoked against today's committed config. Currently
+masked because a matching panel already exists locally under
+`artifacts/candidate_panels/materials_v1/` from a prior real run.
+Separately: `stage_download` is the natural integration point for Track C's
+snapshot/manifest layer (C_market_snapshot.md) — it currently calls
+`UniverseDataLoader.load` directly with no snapshot id or manifest, which is
+exactly the gap C's scope describes.
+Severity: cosmetic today (masked by a locally-built panel); would surface as
+a confusing failure for a fresh clone with no `download`/`residuals` state
+Suggested track: new (fixture staleness) — new for the comment; C for the
+download-stage integration

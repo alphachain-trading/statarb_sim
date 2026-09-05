@@ -768,16 +768,25 @@ class RunConfig:
 
 @dataclass(slots=True, frozen=True)
 class ExecutionConfig:
+    """
+    Execution and cost model.
+
+    min_abs_units, and every commission/borrow field below, are mandatory —
+    no default. These feed straight into reported PnL and were previously
+    inherited silently from a class default that no caller ever stated
+    (Track D). Pin them explicitly (or via a versioned bundle) rather than
+    reintroducing a magic number.
+    """
     allow_fractional_shares: bool = False
     share_rounding: str = "nearest"   # nearest | floor | ceil
-    min_abs_units: float = 0.5        # ignored if fractional=True
+    min_abs_units: float = field(kw_only=True)        # ignored if fractional=True
 
-    commission_per_share: float = 0.005
-    commission_per_order: float = 0.0
-    min_commission_per_order: float = 1.0
-    max_commission_per_order: float = 9.79
-    max_commission_pct_of_trade: float = 0.01
-    short_borrow_rate_annual_bps: float = 30.0
+    commission_per_share: float = field(kw_only=True)
+    commission_per_order: float = field(kw_only=True)
+    min_commission_per_order: float = field(kw_only=True)
+    max_commission_per_order: float = field(kw_only=True)
+    max_commission_pct_of_trade: float = field(kw_only=True)
+    short_borrow_rate_annual_bps: float = field(kw_only=True)
 
 
 @dataclass(slots=True, frozen=True)

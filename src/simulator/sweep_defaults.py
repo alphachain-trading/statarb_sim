@@ -46,7 +46,15 @@ _STANDARD_V1: Mapping[str, Any] = MappingProxyType({
     ),
     "diagnostics": MRDiagnosticsConfig(lookback=252, compute_frequency="off"),
     "execution": ExecutionConfig(
-        allow_fractional_shares=False, share_rounding="nearest",
+        allow_fractional_shares=False,
+        share_rounding="nearest",
+        min_abs_units=0.5,
+        commission_per_share=0.005,
+        commission_per_order=0.0,
+        min_commission_per_order=1.0,
+        max_commission_per_order=9.79,
+        max_commission_pct_of_trade=0.01,
+        short_borrow_rate_annual_bps=30.0,
     ),
     "performance": PerformanceConfig(
         enabled=True,
