@@ -208,6 +208,7 @@ def _update_panel_stem(cfg: dict, stem: str) -> None:
 def _make_panel_batch_cfg(cfg: dict):
     """Build the PanelBatchConfig shared by the single- and multi-sector paths."""
     from src.candidates.panel_batch import PanelBatchConfig
+    from src.candidates.pair_candidate_panel_creator import PairSpreadConfig
     from src.residuals.causal_residuals import CausalResidualConfig, ResidualMode, AbsOrMult
 
     # decay_expanding, hl=504, min_history = 504 * 2 = 1008, subtract RF.
@@ -228,6 +229,10 @@ def _make_panel_batch_cfg(cfg: dict):
         data_path=DATA_UNIVERSES,
         persist_dir_template=cfg["panels"]["subdir"],
         frequency="W-FRI",
+        # No default (Track B): fully-binding at the requested hedge_ratio_lb
+        # — a pair only gets a hedge ratio if it retained the full 252-day
+        # window, matching the demo's own hedge_ratio_lb above.
+        pair_cfg=PairSpreadConfig(hedge_ratio_methods=["pca"], min_obs=252),
     )
 
 

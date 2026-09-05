@@ -28,6 +28,13 @@ sys.path.insert(0, str(REPO_ROOT))
 
 from src.residuals.causal_residuals import CausalResidualConfig, ResidualMode, AbsOrMult
 from src.candidates.panel_batch import PanelBatchConfig
+from src.candidates.pair_candidate_panel_creator import PairSpreadConfig
+
+# TestPanelBatchConfigValidation below tests residual_configs/hedge_ratio_lb/
+# mr_diag_lb validation only — pair_cfg is irrelevant to what's asserted, so
+# one shared, permissive instance is reused rather than restated per call
+# (pair_cfg carries no default; see panel_batch.py).
+_PAIR_CFG = PairSpreadConfig(hedge_ratio_methods=["pca"], min_obs=2)
 
 
 def _decay(**overrides):
@@ -232,34 +239,34 @@ class TestFromKey(unittest.TestCase):
 class TestPanelBatchConfigValidation(unittest.TestCase):
     def test_empty_residual_configs_raises(self):
         with self.assertRaises(ValueError):
-            PanelBatchConfig(residual_configs=[], hedge_ratio_lb=252, mr_diag_lb=252)
+            PanelBatchConfig(residual_configs=[], hedge_ratio_lb=252, mr_diag_lb=252, pair_cfg=_PAIR_CFG)
 
     def test_single_config_list_window_raises(self):
         with self.assertRaises(ValueError):
-            PanelBatchConfig(residual_configs=[_decay()], hedge_ratio_lb=[252], mr_diag_lb=252)
+            PanelBatchConfig(residual_configs=[_decay()], hedge_ratio_lb=[252], mr_diag_lb=252, pair_cfg=_PAIR_CFG)
 
     def test_mismatched_list_length_raises(self):
         rcs = [_decay(hl=h) for h in (126, 252, 504)]
         with self.assertRaises(ValueError):
-            PanelBatchConfig(residual_configs=rcs, hedge_ratio_lb=[21, 42], mr_diag_lb=252)
+            PanelBatchConfig(residual_configs=rcs, hedge_ratio_lb=[21, 42], mr_diag_lb=252, pair_cfg=_PAIR_CFG)
 
     def test_scalar_broadcasts_across_sweep(self):
         rcs = [_decay(hl=h) for h in (126, 252, 504)]
-        cfg = PanelBatchConfig(residual_configs=rcs, hedge_ratio_lb=252, mr_diag_lb=63)
+        cfg = PanelBatchConfig(residual_configs=rcs, hedge_ratio_lb=252, mr_diag_lb=63, pair_cfg=_PAIR_CFG)
         self.assertEqual(cfg.resolved_windows(), [(252, 63), (252, 63), (252, 63)])
 
     def test_list_windows_pair_by_index(self):
         rcs = [_decay(hl=h) for h in (126, 252, 504)]
-        cfg = PanelBatchConfig(residual_configs=rcs, hedge_ratio_lb=[21, 42, 63], mr_diag_lb=252)
+        cfg = PanelBatchConfig(residual_configs=rcs, hedge_ratio_lb=[21, 42, 63], mr_diag_lb=252, pair_cfg=_PAIR_CFG)
         self.assertEqual(cfg.resolved_windows(), [(21, 252), (42, 252), (63, 252)])
 
     def test_single_config_scalar_windows_ok(self):
-        cfg = PanelBatchConfig(residual_configs=[_decay()], hedge_ratio_lb=252, mr_diag_lb=252)
+        cfg = PanelBatchConfig(residual_configs=[_decay()], hedge_ratio_lb=252, mr_diag_lb=252, pair_cfg=_PAIR_CFG)
         self.assertEqual(cfg.resolved_windows(), [(252, 252)])
 
     def test_residual_configs_accepts_str_keys(self):
         cfg = PanelBatchConfig(
-            residual_configs=["exp_hl504_mh1008_rf"], hedge_ratio_lb=252, mr_diag_lb=252,
+            residual_configs=["exp_hl504_mh1008_rf"], hedge_ratio_lb=252, mr_diag_lb=252, pair_cfg=_PAIR_CFG,
         )
         self.assertEqual(len(cfg.residual_configs), 1)
         self.assertIsInstance(cfg.residual_configs[0], CausalResidualConfig)
@@ -267,7 +274,7 @@ class TestPanelBatchConfigValidation(unittest.TestCase):
 
     def test_residual_configs_str_keys_multiple(self):
         cfg = PanelBatchConfig(
-            residual_configs=["rol_lb21", "exp_mh252"], hedge_ratio_lb=[21, 42], mr_diag_lb=252,
+            residual_configs=["rol_lb21", "exp_mh252"], hedge_ratio_lb=[21, 42], mr_diag_lb=252, pair_cfg=_PAIR_CFG,
         )
         self.assertEqual([rc.key for rc in cfg.residual_configs], ["rol_lb21", "exp_mh252"])
 
@@ -275,21 +282,30 @@ class TestPanelBatchConfigValidation(unittest.TestCase):
         with self.assertRaises(ValueError):
             PanelBatchConfig(
                 residual_configs=["exp_hl504_mh1008_rf", _decay()],
-                hedge_ratio_lb=252, mr_diag_lb=252,
+                hedge_ratio_lb=252, mr_diag_lb=252, pair_cfg=_PAIR_CFG,
             )
 
     def test_residual_configs_malformed_str_key_fails_fast(self):
         with self.assertRaises(ValueError):
-            PanelBatchConfig(residual_configs=["not_a_real_key"], hedge_ratio_lb=252, mr_diag_lb=252)
+            PanelBatchConfig(
+                residual_configs=["not_a_real_key"], hedge_ratio_lb=252, mr_diag_lb=252, pair_cfg=_PAIR_CFG,
+            )
 
     def test_str_key_resolution_precedes_window_length_check(self):
         """A malformed key must be reported even when the window-length
         validation would also fail — str resolution happens first."""
         with self.assertRaises(ValueError) as ctx:
             PanelBatchConfig(
-                residual_configs=["garbage"], hedge_ratio_lb=[1, 2, 3], mr_diag_lb=252,
+                residual_configs=["garbage"], hedge_ratio_lb=[1, 2, 3], mr_diag_lb=252, pair_cfg=_PAIR_CFG,
             )
         self.assertIn("Unrecognized residual key format", str(ctx.exception))
+
+    def test_pair_cfg_has_no_default(self):
+        """min_obs must be stated, not inherited from a PanelBatchConfig
+        default — a numeric default here would just be a second place for
+        the same result-affecting number to silently live."""
+        with self.assertRaises(TypeError):
+            PanelBatchConfig(residual_configs=[_decay()], hedge_ratio_lb=252, mr_diag_lb=252)
 
 
 if __name__ == "__main__":

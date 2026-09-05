@@ -22,11 +22,16 @@ sys.path.insert(0, str(REPO_ROOT))
 
 from src.settings import DATA_UNIVERSES
 from src.candidates.panel_batch import PanelBatchConfig, run_panel_batch
+from src.candidates.pair_candidate_panel_creator import PairSpreadConfig
 from src.residuals.causal_residuals import CausalResidualConfig, ResidualMode
 import src.residuals.causal_residuals as cr
 import src.candidates.pair_candidate_panel_creator as pcpc
 
 _MATERIALS_DATA = Path(DATA_UNIVERSES) / "materials_only_v1"
+# pair_cfg carries no default (Track B) — min_obs=2 is the loosest legal
+# value, chosen because these tests are about window slicing/weighting, not
+# about min_obs, and must not reject candidates their assertions rely on.
+_PAIR_CFG = PairSpreadConfig(hedge_ratio_methods=["pca"], min_obs=2)
 
 
 @unittest.skipUnless(_MATERIALS_DATA.exists(), "materials market data not present")
@@ -49,6 +54,7 @@ class TestEqualWeightFitting(unittest.TestCase):
             mr_diag_lb=21,
             selected_sectors=["materials"],
             max_steps=5,
+            pair_cfg=_PAIR_CFG,
             persist_result=False,
             persist_residual_params=False,
         )
@@ -90,6 +96,7 @@ class TestIndependentWindows(unittest.TestCase):
             mr_diag_lb=diag_lb,
             selected_sectors=["materials"],
             max_steps=3,
+            pair_cfg=_PAIR_CFG,
             persist_result=False,
             persist_residual_params=False,
         )
