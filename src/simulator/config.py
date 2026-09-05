@@ -851,6 +851,14 @@ class SimulatorConfig:
     execution: ExecutionConfig
     capital: CapitalConfig
     sizing: SizingConfig
+    # None is deliberate, not a silent fallback (Track D investigation): it
+    # means "resolve per-residual_key CausalResidualConfig from the
+    # persisted candidate-panel metadata instead" (see
+    # simulator_factory._resolve_residual_configs). Sourced from neither
+    # SweepConfig nor a DEFAULT_CONFIGS bundle — metadata absence raises
+    # loudly (ValueError) rather than defaulting to a value, so the gap in
+    # the config surface's three-way partition (sweep-derived / bundle /
+    # this field) does not need a guard.
     residual: CausalResidualConfig | None = None
     performance: PerformanceConfig = field(default_factory=PerformanceConfig)
     persistence: PersistenceConfig = field(default_factory=PersistenceConfig)
