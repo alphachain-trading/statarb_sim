@@ -545,3 +545,136 @@ Each commit re-runs `python -m unittest discover -s tests` and
 the brief's acceptance criteria (full suite green; baseline's `## counts`
 section unchanged; the removed-default test added per commit rather than
 batched at the end).
+
+## SweepConfig relationship
+
+Follow-up session, still read-only. No edits, no branch, no commit beyond
+this file.
+
+### 1. Construction site and value sources
+
+`sweep_runner.py:463-559` (`run_sweep`) is the sweep loop. Per row it calls
+`_build_sim_config(sweep, index=i)` (`sweep_runner.py:482`), which is the
+single construction site:
+
+```python
+sim_config = _build_sim_config(sweep, index=i)   # sweep_runner.py:482
+```
+
+`_build_sim_config` (`sweep_runner.py:262-317`) draws from **both** sources.
+Eight fields come from `SweepConfig`'s own field values, assembled into a
+local `sweep_derived` dict (`sweep_runner.py:289-312`: `data`, `z_score`,
+`trader`, `sizing`, `risk_manager`, `run`, `spectrum`, `entry_features`).
+The other seven come from the named bundle:
+
+```python
+bundle = get_default_bundle(sweep.defaults)              # :315
+kwargs = merge_defaults(sweep_derived, bundle, sweep.defaults)  # :316
+return SimulatorConfig(**kwargs)                          # :317
+```
+
+`get_default_bundle` (`sweep_defaults.py:68-76`) looks up
+`sweep.defaults` (default `"standard_v1"`, `sweep_runner.py:110`) in
+`DEFAULT_CONFIGS` (`sweep_defaults.py:63-65`), returning
+`_STANDARD_V1`'s 7 keys: `capital`, `candidate_selection`, `activation`,
+`diagnostics`, `execution`, `performance`, `persistence`
+(`sweep_defaults.py:39-60`).
+
+**A 16th field is sourced from neither.** `SimulatorConfig.residual`
+(`config.py:841`) appears in neither `sweep_derived` nor the bundle; the
+comment at `sweep_runner.py:287-288` says so directly:
+```
+# ... residual
+# is left to its SimulatorConfig default, as before.
+```
+It falls through to `SimulatorConfig`'s own dataclass default (`None`,
+`config.py:841`) — a third, unstated source for one field.
+
+### 2. Which wins on overlap, and any disagreement today
+
+Neither wins, because the two sets are **disjoint by construction**, enforced
+loudly rather than left to silent precedence. `merge_defaults`
+(`sweep_defaults.py:79-99`) checks first:
+```python
+overlap = set(sweep_derived) & set(bundle)
+if overlap:
+    raise ValueError(...)   # :92-98
+return {**sweep_derived, **bundle}   # :99
+```
+If an overlap ever existed, the dict-unpacking on `:99` would let the
+*bundle* win syntactically (it's the second operand) — but that line is
+unreachable on overlap, since the `raise` on `:93` fires first. The
+docstring is explicit about why: "this raises rather than letting one
+silently win via dict-merge precedence" (`sweep_defaults.py:89-90`).
+
+Today's partition: `sweep_derived`'s 8 keys + the bundle's 7 keys + the
+unstated `residual` = 16, exactly `SimulatorConfig`'s field count
+(`config.py:830-846`). No field name appears in both sets, so **there is no
+field where a SweepConfig-derived value and a bundle value compete for the
+same `SimulatorConfig` slot today** — the question doesn't arise structurally,
+not because the values happen to agree.
+
+A related but distinct disagreement exists one level down, outside this
+question's scope but worth flagging: `RiskManagerConfig`'s own class
+defaults (`max_gross_exposure=10.0`, `max_ticker_exposure_pct=0.15`,
+`config.py:743-744`) are never read here — `risk_manager` is built from
+`sweep.max_gross_exposure`/`sweep.max_ticker_exposure_pct`
+(`sweep_runner.py:279-283`), themselves separate `SweepConfig` field
+defaults (`sweep_runner.py:93-94`) that happen to equal the same numbers.
+Coincidence of value, not a shared source — see `D_spec.md`'s Table 1 #10.
+
+### 3. Swept axes vs. fixed run settings on SweepConfig
+
+`SweepConfig` (`sweep_runner.py:63-114`) groups its 22 fields under its own
+section comments, which double as the evidence for this split:
+
+**Swept axes** — the parameters a grid varies to test a hypothesis, all
+folded into `.alias` (`sweep_runner.py:120-222`) so every distinct
+combination gets a distinct label: `entry_z`, `exit_z`, `z_lookback`,
+`z_method` (`:68-71`, "# Signal"), `z_score_overrides` (`:74`, "# Multi-
+timescale override"), `cross_ts` (`:77`), `max_holding_days` (`:80`, "# Time
+stop"), `exit_rule` (`:83`, "# 2D exit rule"), `base_pair_notional`,
+`vol_normalize`, `kelly`, `entry_features`, `interval_scoring` (`:86-90`,
+"# Sizing"), `max_ticker_exposure_pct`, `max_gross_exposure`,
+`timescale_risk` (`:93-95`, "# Risk constraints"), `spectrum` (`:98`).
+
+**Fixed run settings that live on the same class** — batch-level settings
+that select *what universe/window/bundle* the whole `RUNS` list runs
+against, not a hypothesis being compared row-to-row: `excluded_sectors`
+(`:101`, "# Universe"), `candidate_panel_subdir` (`:103-105`, own comment:
+"required... Single source of truth; no run_sweep-level override"),
+`defaults` (`:107-110`, own comment: "Which named bundle of *non-swept*
+SimulatorConfig defaults to use"), `start_date`/`end_date` (`:112-114`,
+"# Date range"). Evidence these are settings, not axes: none of them feeds
+`.alias` at all except indirectly (`excluded_sectors`/`start_date`/
+`end_date` do appear in the alias, `:212-220`, for run identification, but
+`candidate_panel_subdir` and `defaults` — the two most "fixed" of the four —
+do not appear in `.alias` anywhere, since a sweep is defined against one
+panel and one bundle at a time by convention, not compared across bundles).
+
+### 4. A SimulatorConfig without SweepConfig
+
+Yes. `run_from_config(config: SimulatorConfig)` (`simulator_factory.py:132`)
+is the actual run entry point and takes an already-built `SimulatorConfig`
+directly — it has no `SweepConfig` parameter at all. Two production callers
+build one by hand and pass it straight in:
+
+- `scripts/b_baseline_harness.py:165-194` (`_build_sim_config`) — **does**
+  read the bundle: `bundle = dict(get_default_bundle("standard_v1"))`
+  (`:187`), then overrides only `performance`/`persistence` before calling
+  `merge_defaults(sweep_derived, bundle, "standard_v1")` (`:193`).
+- `run_me.py:383-465` (a same-named but distinct `_build_sim_config(cfg:
+  dict)`) — **does not** read the bundle at all. Grepped: zero references
+  to `get_default_bundle`, `merge_defaults`, or `DEFAULT_CONFIGS` anywhere
+  in `run_me.py`. It constructs all 16 `SimulatorConfig` fields itself,
+  by hand, from a mix of YAML (`config/demo_materials.yaml`, via
+  `cfg["..."]` lookups) and literals in the `.py` file (e.g.
+  `activation=ActivationConfig(one_active_per_group=False,
+  switch_only_when_flat=False)`, `:426-429`) — reimplementing, rather than
+  reusing, the same "non-swept defaults" the bundle exists to hold in one
+  place. `residual` is again unset here too, falling to `SimulatorConfig`'s
+  own `None` default, same as the `SweepConfig` path.
+
+Both callers then call `run_from_config(sim_config)` directly
+(`b_baseline_harness.py:219`, `run_me.py:528`) — `SweepConfig` is nowhere on
+this path.
