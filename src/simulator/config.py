@@ -467,11 +467,13 @@ class VolSizingConfig:
     ----------
     floor_multiplier
         Minimum vol-norm size multiplier (prevents over-shrinking low-vol pairs).
+        Mandatory — no default (Track D).
     cap_multiplier
         Maximum vol-norm size multiplier (prevents over-sizing high-vol pairs).
+        Mandatory — no default (Track D).
     """
-    floor_multiplier: float = 0.2
-    cap_multiplier: float = 5.0
+    floor_multiplier: float
+    cap_multiplier: float
 
     def __post_init__(self) -> None:
         if self.floor_multiplier <= 0.0:

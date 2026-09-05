@@ -181,7 +181,7 @@ def _build_sim_config(active_sectors: list[str]) -> SimulatorConfig:
         "trader": PairSpreadTraderConfig(entry_z=1.75, exit_z=0.0),
         "sizing": SizingConfig(
             base_pair_notional=100_000.0,
-            vol_normalize=VolSizingConfig(),
+            vol_normalize=VolSizingConfig(floor_multiplier=0.2, cap_multiplier=5.0),
         ),
         "risk_manager": RiskManagerConfig(
             max_gross_exposure=10.0,

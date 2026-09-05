@@ -452,7 +452,10 @@ def _build_sim_config(cfg: dict):
         ),
         sizing=SizingConfig(
             base_pair_notional=szg["base_pair_notional"],
-            vol_normalize=VolSizingConfig() if szg.get("vol_normalize", True) else None,
+            vol_normalize=(
+                VolSizingConfig(floor_multiplier=0.2, cap_multiplier=5.0)
+                if szg.get("vol_normalize", True) else None
+            ),
         ),
         risk_manager=RiskManagerConfig(
             max_gross_exposure=rsk["max_gross_exposure"],

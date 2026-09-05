@@ -271,7 +271,7 @@ def _build_sim_config(sweep: SweepConfig, *, index: int | None = None) -> Simula
 
     sizing = SizingConfig(
         base_pair_notional=sweep.base_pair_notional,
-        vol_normalize=VolSizingConfig() if sweep.vol_normalize else None,
+        vol_normalize=VolSizingConfig(floor_multiplier=0.2, cap_multiplier=5.0) if sweep.vol_normalize else None,
         kelly=sweep.kelly,
         interval_scoring=sweep.interval_scoring,
     )
