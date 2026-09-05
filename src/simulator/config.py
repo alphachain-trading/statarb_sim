@@ -848,7 +848,7 @@ class SimulatorConfig:
     run: RunConfig
     execution: ExecutionConfig
     capital: CapitalConfig
-    sizing: SizingConfig = field(default_factory=lambda: SizingConfig(base_pair_notional=100_000.0))
+    sizing: SizingConfig
     residual: CausalResidualConfig | None = None
     performance: PerformanceConfig = field(default_factory=PerformanceConfig)
     persistence: PersistenceConfig = field(default_factory=PersistenceConfig)

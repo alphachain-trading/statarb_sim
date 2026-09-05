@@ -30,6 +30,7 @@ from src.simulator.config import (
     RunConfig,
     SectorDataSource,
     SimulatorConfig,
+    SizingConfig,
     ZScoreConfig,
 )
 from src.simulator.simulator_factory import _load_panels
@@ -53,6 +54,7 @@ def _minimal_sim_kwargs():
             short_borrow_rate_annual_bps=30.0,
         ),
         capital=CapitalConfig(total_capital=1_000_000.0),
+        sizing=SizingConfig(base_pair_notional=100_000.0),
     )
 
 
