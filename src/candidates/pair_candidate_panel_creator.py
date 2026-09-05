@@ -524,22 +524,16 @@ def create_pair_candidates_for_date(
     residual_cfg: CausalResidualConfig,
     pair_cfg: PairSpreadConfig,
     *,
-    hedge_ratio_lb: int | None = None,
-    mr_diag_lb: int | None = None,
+    hedge_ratio_lb: int,
+    mr_diag_lb: int,
     debug: bool = False,
     progress: bool = True,
 ) -> CandidatePanelResult:
     """
     Create pair spread candidates for one exact as-of date.
 
-    hedge_ratio_lb / mr_diag_lb are the (independent) candidate-scoring windows;
-    when omitted they fall back to residual_cfg.lookback (single shared window).
+    hedge_ratio_lb / mr_diag_lb are the (independent) candidate-scoring windows.
     """
-    if hedge_ratio_lb is None:
-        hedge_ratio_lb = residual_cfg.lookback
-    if mr_diag_lb is None:
-        mr_diag_lb = residual_cfg.lookback
-
     dt = pd.Timestamp(asof_date)
     aligned_index = bundle.aligned_returns.index
 
@@ -624,8 +618,8 @@ def create_pair_candidate_panel(
     pair_cfg: PairSpreadConfig,
     frequency: str | None = None,
     *,
-    hedge_ratio_lb: int | None = None,
-    mr_diag_lb: int | None = None,
+    hedge_ratio_lb: int,
+    mr_diag_lb: int,
     dates: list[str | pd.Timestamp] | None = None,
     debug: bool = False,
     start_date: str | None = None,
@@ -641,16 +635,10 @@ def create_pair_candidate_panel(
     Create a pair spread CandidatePanel at the requested as-of dates.
 
     hedge_ratio_lb / mr_diag_lb are the two independent candidate-scoring
-    windows (hedge-ratio fit vs mean-reversion diagnostics). When omitted they
-    fall back to residual_cfg.lookback (single shared window).
+    windows (hedge-ratio fit vs mean-reversion diagnostics).
 
     Same walkforward interface as create_portfolio_candidate_panel.
     """
-    if hedge_ratio_lb is None:
-        hedge_ratio_lb = residual_cfg.lookback
-    if mr_diag_lb is None:
-        mr_diag_lb = residual_cfg.lookback
-
     aligned_index = bundle.aligned_returns.index
 
     # ── resolve as-of datetimes ──────────────────────────────────────
