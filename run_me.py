@@ -232,7 +232,15 @@ def _make_panel_batch_cfg(cfg: dict):
         # No default (Track B): fully-binding at the requested hedge_ratio_lb
         # — a pair only gets a hedge ratio if it retained the full 252-day
         # window, matching the demo's own hedge_ratio_lb above.
-        pair_cfg=PairSpreadConfig(hedge_ratio_methods=["pca"], min_obs=252),
+        pair_cfg=PairSpreadConfig(
+            hedge_ratio_methods=["pca"],
+            min_obs=252,
+            min_return_std=1e-8,
+            min_level_std=1e-8,
+            min_kappa=1e-6,
+            max_half_life=126.0,
+            tiny_weight_threshold=1e-6,
+        ),
     )
 
 
