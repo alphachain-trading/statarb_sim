@@ -50,7 +50,7 @@ class TestSweepDefaults(unittest.TestCase):
         b = DEFAULT_CONFIGS["standard_v1"]
         self.assertEqual(b["capital"], CapitalConfig(total_capital=1_000_000.0))
         self.assertEqual(b["candidate_selection"], CandidateSelectionConfig(
-            allowed_candidate_subtypes=("pca",), require_is_valid=True,
+            allowed_candidate_subtypes=("pca",), require_is_valid=True, require_success=True,
         ))
         self.assertEqual(b["activation"], ActivationConfig(
             one_active_per_group=False, switch_only_when_flat=False,

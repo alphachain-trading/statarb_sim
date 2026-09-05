@@ -39,7 +39,7 @@ from src.simulator.simulator_factory import _load_panels
 def _minimal_sim_kwargs():
     return dict(
         data=DataConfig(),
-        candidate_selection=CandidateSelectionConfig(),
+        candidate_selection=CandidateSelectionConfig(require_success=True),
         activation=ActivationConfig(),
         diagnostics=MRDiagnosticsConfig(lookback=21, compute_frequency="off"),
         trader=PairSpreadTraderConfig(),
@@ -70,7 +70,7 @@ class TestGuard1AdfPvalueMaxAllNaN(unittest.TestCase):
             "candidate_type": ["pair", "pair"],
             "spread_id": ["A|B", "C|D"],
         })
-        cfg = CandidateSelectionConfig(adf_pvalue_max=0.05)
+        cfg = CandidateSelectionConfig(adf_pvalue_max=0.05, require_success=True)
 
         with self.assertRaises(ValueError) as cm:
             select_candidates(panel, cfg)
@@ -92,7 +92,7 @@ class TestGuard1AdfPvalueMaxAllNaN(unittest.TestCase):
             "spread_id": ["A|B", "C|D"],
             "asof_date": pd.to_datetime(["2020-01-01", "2020-01-01"]),
         })
-        cfg = CandidateSelectionConfig(adf_pvalue_max=0.05)
+        cfg = CandidateSelectionConfig(adf_pvalue_max=0.05, require_success=True)
 
         result = select_candidates(panel, cfg)
         self.assertEqual(len(result.panel), 1)
