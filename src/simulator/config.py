@@ -734,16 +734,18 @@ class RiskManagerConfig:
     max_gross_exposure
         Maximum total gross notional as a multiple of CapitalConfig.total_capital.
         E.g. 10.0 = allow up to 10× total_capital deployed simultaneously.
+        Mandatory — no default (Track D).
     max_ticker_exposure_pct
         Maximum net notional per ticker as a fraction of total_capital.
-        E.g. 0.15 = no single ticker can exceed 15% of total_capital as net exposure.
+        E.g. 0.15 = no single ticker can exceed 15% of total_capital as net
+        exposure. Mandatory — no default (Track D).
     max_concurrent_positions
         Hard cap on simultaneous open positions. None = uncapped.
     timescale_risk
         Timescale selection and concentration policy. None = approve all.
     """
-    max_gross_exposure: float = 10.0
-    max_ticker_exposure_pct: float = 0.15
+    max_gross_exposure: float = field(kw_only=True)
+    max_ticker_exposure_pct: float = field(kw_only=True)
     max_concurrent_positions: int | None = None
     timescale_risk: TimescaleRiskConfig | None = None
 

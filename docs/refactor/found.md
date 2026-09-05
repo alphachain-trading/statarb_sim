@@ -126,3 +126,21 @@ Severity: cosmetic today (masked by a locally-built panel); would surface as
 a confusing failure for a fresh clone with no `download`/`residuals` state
 Suggested track: new (fixture staleness) — new for the comment; C for the
 download-stage integration
+
+## SimulatorConfig.risk_manager: RiskManagerConfig | None = None
+Found during: track D
+Location: `src/simulator/config.py:844` (field default); consumed at
+`src/simulator/simulator_factory.py:107-110` (`if config.risk_manager is not
+None: risk_manager = RiskManager(...)`, else `risk_manager = None`)
+What: Result-affecting (an omitted risk_manager means portfolio gross/ticker
+exposure runs uncapped) but not a numeric default, so D's "remove default,
+pin value in bundle" mechanism does not apply -- there is no value to pin,
+only a subsystem to require-or-not. This is a Track A style guard question
+or an explicit-mode question, not a config-hygiene one, and it is the same
+defect shape H will examine (a portfolio-level policy silently absent rather
+than explicitly stated). Left as-is; RiskManagerConfig's own two numeric
+fields (max_gross_exposure, max_ticker_exposure_pct) lost their class
+defaults this track (D_spec.md Table 1 #10) -- only the None-sentinel on
+SimulatorConfig itself is deferred.
+Severity: result-affecting
+Suggested track: new (Track A style guard) or H
