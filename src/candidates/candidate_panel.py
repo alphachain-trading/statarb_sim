@@ -118,6 +118,11 @@ def finalize_candidate_panel(panel: pd.DataFrame) -> pd.DataFrame:
     - flat DataFrame
     - no ambiguous index/column duplication
     - asof_date and candidate_id remain normal columns
+
+    asof_date is the date this candidate's weights (and residual model) were
+    fitted — an outer refit date, not the daily residual-fit grid. Distinct
+    from a residual model's own fit_date (see src.residuals.series), which
+    the two used to share under one column name.
     """
     if panel.empty:
         return panel.copy()

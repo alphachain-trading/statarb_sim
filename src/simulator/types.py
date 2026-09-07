@@ -6,6 +6,12 @@ import pandas as pd
 
 @dataclass(slots=True, frozen=True)
 class CandidateRef:
+    """Identifies one candidate: a spread's weights, frozen at asof_date.
+
+    asof_date is the date this candidate's weights were fitted (an outer
+    refit date) — not to be confused with a residual model's fit_date (the
+    daily grid the residual model itself is fitted on).
+    """
     candidate_id: str
     spread_id: str
     group_id: str
