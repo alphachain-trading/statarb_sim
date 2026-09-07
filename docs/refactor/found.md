@@ -144,3 +144,19 @@ defaults this track (D_spec.md Table 1 #10) -- only the None-sentinel on
 SimulatorConfig itself is deferred.
 Severity: result-affecting
 Suggested track: new (Track A style guard) or H
+
+ActivationConfig carries defaults that are wrong for production
+
+Found during: track D (spec session, flagged "doubtful"; not amended into scope) Location: ActivationConfig in src/simulator/config.py What: The class carries its own field defaults which the spec session judged inappropriate for production use. Left untouched in D because the amendment list did not cover it and "doubtful" was not treated as in scope.
+
+The spec session was instructed to place doubtful cases in the RESULT-AFFECTING table precisely so they would not fall through. That instruction worked at the enumeration stage but the handover to the implementation session did not carry it. Worth noting as a process gap, not only a code one.
+
+Note that run_me.py:_build_sim_config sets one_active_per_group=False and switch_only_when_flat=False explicitly, so at least those two are stated at the demo call site — check whether the defaults disagree with what production actually wants before changing anything. Severity: result-affecting, unmeasured Suggested track: new — a second D pass, or fold into F's config work
+
+start_after_nan / check_for_corruptions disagree between two config classes
+
+Found during: track D (spec session, flagged "doubtful"; not amended into scope) Location: two config classes in src/simulator/config.py — identify both when picking this up What: The same field is pre-set to different values on two different config classes. Behaviour therefore depends on which class a run is constructed through.
+
+This is the defect D exists to remove, one level more abstract: not one default too many, but two defaults that contradict each other. Unlike a plain default, no bundle value can fix it — the two classes have to agree on what the field means, or one of them should not carry it.
+
+Sequence note: E renames across both classes and F reshapes the config surface, so resolving this before F risks doing it twice. But it should not survive F. Severity: result-affecting, depends on construction path Suggested track: new — decide before or during F
