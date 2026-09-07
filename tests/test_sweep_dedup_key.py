@@ -30,9 +30,13 @@ def _scoring(weight: float) -> IntervalScoringConfig:
                 feature="x_area_asymmetry_ewm",
                 interval_limits=(float("-inf"), 0.0, float("inf")),
                 interval_weights=(1.0, weight),
+                missing_weight=1.0,
             ),
         ),
         feature_weights={"x_area_asymmetry_ewm": 1.0},
+        floor_multiplier=0.25,
+        cap_multiplier=2.0,
+        floor_mode="clamp",
     )
 
 

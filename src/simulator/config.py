@@ -615,13 +615,16 @@ class FeatureIntervalSpec:
     interval_names
         Optional labels for intervals, for logging and diagnostics.
     missing_weight
-        Weight when feature value is missing. Default 1.0 = neutral.
+        Weight when feature value is missing. Mandatory -- no default
+        (Track D follow-up). Unused by every call site in the repo today
+        (opt-in via SizingConfig.interval_scoring:
+        IntervalScoringConfig | None = None) -- zero blast radius.
     """
     feature: str
     interval_limits: tuple[float, ...]
     interval_weights: tuple[float, ...]
     interval_names: tuple[str, ...] | None = None
-    missing_weight: float = 1.0
+    missing_weight: float = field(kw_only=True)
 
     def __post_init__(self) -> None:
         n_intervals = len(self.interval_limits) - 1
@@ -683,15 +686,21 @@ class IntervalScoringConfig:
         would promote an intentionally-zeroed feature to full weight and skew
         every trade's size.
     floor_multiplier
-        Minimum output multiplier. Default 0.25.
+        Minimum output multiplier. Mandatory -- no default (Track D
+        follow-up).
     cap_multiplier
-        Maximum output multiplier. Default 2.0.
+        Maximum output multiplier. Mandatory -- no default (Track D
+        follow-up).
+
+    floor_multiplier, cap_multiplier, and floor_mode are unused by every
+    call site in the repo today (opt-in via SizingConfig.interval_scoring:
+    IntervalScoringConfig | None = None) -- zero blast radius to fix now.
     """
     feature_specs: tuple[FeatureIntervalSpec, ...]
     feature_weights: dict[str, float] = field(default_factory=dict)
-    floor_multiplier: float = 0.25
-    cap_multiplier: float = 2.0
-    floor_mode: str = "clamp"   # "clamp" | "exclude"
+    floor_multiplier: float = field(kw_only=True)
+    cap_multiplier: float = field(kw_only=True)
+    floor_mode: str = field(kw_only=True)   # "clamp" | "exclude"
 
     def __post_init__(self) -> None:
         if not self.feature_specs:
