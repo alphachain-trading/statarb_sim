@@ -290,8 +290,14 @@ class CapitalConfig:
 
 @dataclass(slots=True, frozen=True)
 class ActivationConfig:
-    one_active_per_group: bool = True
-    switch_only_when_flat: bool = True
+    """
+    Trading-rule booleans. Mandatory -- no default (Track D follow-up): every
+    real call site already states both, and disagrees with the class default
+    that used to backstop them (run_me.py / sweep_defaults.py both set
+    False, False; the removed default was True, True).
+    """
+    one_active_per_group: bool
+    switch_only_when_flat: bool
 
 
 @dataclass

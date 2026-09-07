@@ -40,7 +40,7 @@ def _minimal_sim_kwargs():
     return dict(
         data=DataConfig(),
         candidate_selection=CandidateSelectionConfig(require_success=True),
-        activation=ActivationConfig(),
+        activation=ActivationConfig(one_active_per_group=True, switch_only_when_flat=True),
         diagnostics=MRDiagnosticsConfig(lookback=21, compute_frequency="off"),
         trader=PairSpreadTraderConfig(),
         run=RunConfig(),
