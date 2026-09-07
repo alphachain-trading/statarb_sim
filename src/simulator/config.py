@@ -71,11 +71,13 @@ class CrossTimescaleEntryConfig:
     mean_abs_z_min
         Mean of abs(z) across timescales must exceed this.
     same_sign_required
-        When True, all timescales must agree on direction.
+        When True, all timescales must agree on direction. Mandatory -- no
+        default (Track D follow-up). Unused by every call site in the repo
+        today -- zero blast radius.
     """
     min_abs_z_all: float | None = None
     mean_abs_z_min: float | None = None
-    same_sign_required: bool = True
+    same_sign_required: bool = field(kw_only=True)
 
 
 @dataclass(slots=True, frozen=True)
@@ -94,9 +96,13 @@ class TimescaleRiskConfig:
     max_pct_single_timescale
         Maximum fraction of total open positions sharing the same residual_key.
         None = uncapped.
+
+    selection is mandatory -- no default (Track D follow-up); only takes
+    effect once max_timescales_per_spread is also set. Unused by every call
+    site in the repo today -- zero blast radius.
     """
     max_timescales_per_spread: int | None = None
-    selection: str = "max_abs_z"
+    selection: str = field(kw_only=True)
     max_pct_single_timescale: float | None = None
 
     def __post_init__(self) -> None:
@@ -383,10 +389,16 @@ class MRDiagnosticsConfig:
 class SpreadMomentumConfig:
     """
     Spread momentum entry filter.
+
+    All fields mandatory -- no default (Track D follow-up). Unused by every
+    call site in the repo today (opt-in via
+    PortfolioMeanReversionConfig.spread_momentum: SpreadMomentumConfig |
+    None = None) -- zero blast radius to fix now, before a first caller
+    opts in and silently inherits a class default.
     """
-    lookback: int = 5
-    norm_window: int = 63
-    entry_threshold: float = 0.
+    lookback: int
+    norm_window: int
+    entry_threshold: float
 
     def __post_init__(self) -> None:
         if self.lookback < 1:
@@ -473,14 +485,20 @@ class KellyConfig:
         Maximum Kelly notional as multiple of base_pair_notional.
     per_sector
         If True, track stats and compute Kelly per group_id.
+
+    Every field but half_life is mandatory -- no default (Track D
+    follow-up). half_life keeps its None default: documented, legitimate
+    "equal-weighted expanding window" opt state, not a silent fallback.
+    Unused by every call site in the repo today (opt-in via
+    SizingConfig.kelly: KellyConfig | None = None) -- zero blast radius.
     """
     half_life: int | None = None
-    min_trades: int = 30
-    blend_target: int = 60
-    fraction: float = 0.5
-    floor_multiplier: float = 0.25
-    cap_multiplier: float = 2.0
-    per_sector: bool = True
+    min_trades: int = field(kw_only=True)
+    blend_target: int = field(kw_only=True)
+    fraction: float = field(kw_only=True)
+    floor_multiplier: float = field(kw_only=True)
+    cap_multiplier: float = field(kw_only=True)
+    per_sector: bool = field(kw_only=True)
 
 
 @dataclass(slots=True, frozen=True)
