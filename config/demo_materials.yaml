@@ -6,13 +6,13 @@
 # the project root) and model/strategy parameters are configured here.
 
 # --- what to trade -----------------------------------------------------------
-selected_sectors: [materials]
+selected_groups: [materials]
 residual_key: exp_hl504_mh1008_rf
 
 # --- candidate panel (produced by the residuals stage; see fixtures note) -----
 panels:
   subdir: materials_v1                                   # under settings.CANDIDATE_PANELS_ROOT
-  stem: mat_pairs_pca_W-FRI_exp_hl504_20260713_1531
+  stem: mat_pairs_pca_W-FRI_exp_hl504_20260907_1147
   fixtures_dir: fixtures/materials_v1                    # relative to project root; bootstrap
                                                          # source until the residuals stage exists
 

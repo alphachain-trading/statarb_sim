@@ -16,7 +16,7 @@ from src.simulator.candidate_signals import (
 )
 from src.simulator.config import SpectrumConfig, ZScoreConfig
 
-_SECTOR_ABBREV = {
+_GROUP_ABBREV = {
     "consumer_discretionary": "dsc",
     "consumer_staples": "stp",
     "energy": "nrg",
@@ -40,9 +40,9 @@ class ZSpectrumCapture:
     Captures z-score spectra at trade entry (and optionally exit) during simulation.
 
     For each opened trade, computes z-scores across all (rhl × zlb) combinations
-    and persists one parquet per (sector, rhl) at simulation end.
+    and persists one parquet per (group, rhl) at simulation end.
 
-    Files: z_spectra_{sector}__{rkey}__{entry|exit}.parquet
+    Files: z_spectra_{group_abbrev}__{rkey}__{entry|exit}.parquet
     Index: (spread_id, date)
     Columns: zlb values (int)
 
@@ -338,7 +338,7 @@ class ZSpectrumCapture:
                 continue
             df = pd.DataFrame(rows).set_index(["spread_id", "date"])
             df = df[sorted(df.columns, key=int)]
-            abbrev = _SECTOR_ABBREV.get(group_id, group_id)
+            abbrev = _GROUP_ABBREV.get(group_id, group_id)
             fname = f"z_spectra_{abbrev}__{rkey}__{suffix}.parquet"
             df.to_parquet(run_dir / fname)
             print(f"[ZSpectrumCapture] Saved {fname} ({len(df)} rows × {len(df.columns)} zlb)")
@@ -354,7 +354,7 @@ class ZSpectrumCapture:
                 continue
             df = pd.DataFrame(rows).set_index(["spread_id", "date"])
             df = df[sorted(df.columns, key=int)]
-            abbrev = _SECTOR_ABBREV.get(group_id, group_id)
+            abbrev = _GROUP_ABBREV.get(group_id, group_id)
             fname = f"z_spectra_{abbrev}__hybrid__{suffix}.parquet"
             df.to_parquet(run_dir / fname)
             print(f"[ZSpectrumCapture] Saved {fname} ({len(df)} rows × {len(df.columns)} zlb)")

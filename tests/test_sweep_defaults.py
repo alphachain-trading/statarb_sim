@@ -41,7 +41,12 @@ from src.simulator.sweep_runner import SweepConfig, dedup_key
 # ActivationConfig.candidate_max_age_days: an unenforced field that shrunk
 # the hashed SimulatorConfig shape, not a registry-introduced behaviour
 # change.
-_PRE_REGISTRY_HASH = "4d36adb0ab6d1290240f5b655f29ba11"
+#
+# Updated again (4d36adb0... -> 9daa71da...) when Track E renamed
+# DataConfig's sector-vocabulary fields (selected_sectors -> selected_groups,
+# excluded_sectors -> excluded_groups, sectors -> groups): a field-name
+# rename, not a value change, but the hash is computed over field names too.
+_PRE_REGISTRY_HASH = "9daa71da15c7a4803ddeba2ee6165d19"
 
 
 class TestSweepDefaults(unittest.TestCase):

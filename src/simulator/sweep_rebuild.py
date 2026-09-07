@@ -185,8 +185,8 @@ def _extract_config_fields(config: dict) -> dict:
 
     # Data config
     data = config.get("data", {})
-    out["excluded_sectors"] = data.get("excluded_sectors")
-    out["selected_sectors"] = data.get("selected_sectors")
+    out["excluded_groups"] = data.get("excluded_groups")
+    out["selected_groups"] = data.get("selected_groups")
 
     # Run config
     run = config.get("run", {})
@@ -337,7 +337,7 @@ def _build_alias_from_config(config: dict) -> str:
 
     # Sectors
     data = config.get("data", {})
-    excluded = data.get("excluded_sectors")
+    excluded = data.get("excluded_groups")
     if excluded:
         parts.append("ex-" + ",".join(sorted(excluded)))
     else:

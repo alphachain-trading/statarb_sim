@@ -9,7 +9,7 @@ import pandas as pd
 from src.candidates.candidate_selector import CandidateSelectionConfig
 from src.residuals.causal_residuals import CausalResidualConfig
 
-_SECTOR_ABBREV = {
+_GROUP_ABBREV = {
     "consumer_discretionary": "dsc",
     "consumer_staples": "stp",
     "energy": "nrg",
@@ -22,31 +22,31 @@ _SECTOR_ABBREV = {
     "utilities": "utl",
 }
 
-_SECTOR_ABBREV_REV = {v: k for k, v in _SECTOR_ABBREV.items()}
+_GROUP_ABBREV_REV = {v: k for k, v in _GROUP_ABBREV.items()}
 
 
-def sector_resolve(name: str) -> str:
-    """Resolve a sector name (full or abbreviated) to the canonical full group_id."""
+def group_resolve(name: str) -> str:
+    """Resolve a group name (full or abbreviated) to the canonical full group_id."""
     key = name.lower()
-    if key in _SECTOR_ABBREV:
+    if key in _GROUP_ABBREV:
         return key
-    if key in _SECTOR_ABBREV_REV:
-        return _SECTOR_ABBREV_REV[key]
-    raise KeyError(f"Unknown sector: {name!r}")
+    if key in _GROUP_ABBREV_REV:
+        return _GROUP_ABBREV_REV[key]
+    raise KeyError(f"Unknown group: {name!r}")
 
 
-def sector_abbrev(
-    sectors: str | list[str],
+def group_abbrev(
+    groups: str | list[str],
     to_string: bool = False,
     brackets: bool = False,
 ) -> str | list[str]:
-    """Convert sector name(s) to abbreviation(s). Accepts full or abbreviated input."""
-    if isinstance(sectors, str):
-        key = sector_resolve(sectors)
-        result = _SECTOR_ABBREV[key]
+    """Convert group name(s) to abbreviation(s). Accepts full or abbreviated input."""
+    if isinstance(groups, str):
+        key = group_resolve(groups)
+        result = _GROUP_ABBREV[key]
         return f"[{result}]" if to_string else result
 
-    result = [_SECTOR_ABBREV[sector_resolve(s)] for s in sectors]
+    result = [_GROUP_ABBREV[group_resolve(s)] for s in groups]
     lb = "[" if brackets else ""
     rb = "]" if brackets else ""
     return lb + ",".join(result) + rb if to_string else result
@@ -125,36 +125,36 @@ class TimescaleRiskConfig:
 
 
 @dataclass(frozen=True)
-class SectorDataSource:
-    """Per-sector data triplet: universe config, candidate panel, optional residual params."""
+class GroupDataSource:
+    """Per-group data triplet: universe config, candidate panel, optional residual params."""
     universe_config_name: str
     candidate_panel_stem: str
     residual_params_stem: str | None = None
     residual_key: str = ""  # from meta.json → CausalResidualConfig.key
 
 
-def discover_sector_data_sources(
+def discover_group_data_sources(
         panel_dir: str | Path,
         universe_dir: str | Path,
-        selected_sectors: list[str] | None = None,
-        excluded_sectors: list[str] | None = None,
-) -> list[SectorDataSource]:
+        selected_groups: list[str] | None = None,
+        excluded_groups: list[str] | None = None,
+) -> list[GroupDataSource]:
     """
-    Auto-discover SectorDataSource entries from a panel directory.
+    Auto-discover GroupDataSource entries from a panel directory.
 
-    Accepts both full (consumer_discretionary) and abbreviated (dsc) sector
-    names in stems, selected_sectors, and excluded_sectors.
+    Accepts both full (consumer_discretionary) and abbreviated (dsc) group
+    names in stems, selected_groups, and excluded_groups.
     """
-    if selected_sectors is not None and excluded_sectors is not None:
-        raise ValueError("Cannot specify both selected_sectors and excluded_sectors.")
+    if selected_groups is not None and excluded_groups is not None:
+        raise ValueError("Cannot specify both selected_groups and excluded_groups.")
 
     selected_resolved = (
-        {sector_resolve(s) for s in selected_sectors}
-        if selected_sectors is not None else None
+        {group_resolve(s) for s in selected_groups}
+        if selected_groups is not None else None
     )
     excluded_resolved = (
-        {sector_resolve(s) for s in excluded_sectors}
-        if excluded_sectors is not None else None
+        {group_resolve(s) for s in excluded_groups}
+        if excluded_groups is not None else None
     )
 
     panel_dir = Path(panel_dir)
@@ -163,9 +163,9 @@ def discover_sector_data_sources(
     # Several panel files can share the same (group_id, residual_key) — e.g. a
     # freshly built panel left alongside an older timestamped one. Keep only the
     # most recently built file per (group_id, residual_key) so discovery yields
-    # one source per sector/key rather than duplicates. Distinct timescales carry
+    # one source per group/key rather than duplicates. Distinct timescales carry
     # distinct residual_keys and are preserved.
-    best: dict[tuple[str, str], tuple[float, str, SectorDataSource]] = {}
+    best: dict[tuple[str, str], tuple[float, str, GroupDataSource]] = {}
 
     for parquet in sorted(panel_dir.glob("*.panel.parquet")):
         stem = parquet.name.replace(".panel.parquet", "")
@@ -175,7 +175,7 @@ def discover_sector_data_sources(
         raw_id = stem.split("_pairs_")[0]
 
         try:
-            group_id = sector_resolve(raw_id)
+            group_id = group_resolve(raw_id)
         except KeyError:
             continue
 
@@ -202,7 +202,7 @@ def discover_sector_data_sources(
             if residual_cfg_raw is not None:
                 residual_key = CausalResidualConfig.from_dict(residual_cfg_raw).key
 
-        source = SectorDataSource(
+        source = GroupDataSource(
             universe_config_name=yaml_path.name,
             candidate_panel_stem=stem,
             residual_params_stem=residual_stem,
@@ -221,12 +221,12 @@ def discover_sector_data_sources(
     )]
 
     if not sources:
-        missing = f" (selected: {selected_sectors})" if selected_sectors else ""
-        missing += f" (excluded: {excluded_sectors})" if excluded_sectors else ""
+        missing = f" (selected: {selected_groups})" if selected_groups else ""
+        missing += f" (excluded: {excluded_groups})" if excluded_groups else ""
         raise FileNotFoundError(f"No matching panels found in {panel_dir}{missing}")
 
     found = [s.candidate_panel_stem.split("_pairs_")[0] for s in sources]
-    print(f"[discover] Found {len(sources)} sectors: {found}")
+    print(f"[discover] Found {len(sources)} groups: {found}")
     return sources
 
 
@@ -235,17 +235,17 @@ class DataConfig:
     """
     Data source configuration.
 
-    Supports single-sector (backward compatible) and multi-sector modes.
+    Supports single-group (backward compatible) and multi-group modes.
     """
-    # Legacy single-sector fields (backward compatible)
+    # Legacy single-group fields (backward compatible)
     universe_config_name: str = ""
     candidate_panel_stem: str = ""
 
-    # Multi-sector field
-    sectors: list[SectorDataSource] | None = None
+    # Multi-group field
+    groups: list[GroupDataSource] | None = None
 
-    selected_sectors: list[str] | None = None
-    excluded_sectors: list[str] | None = None
+    selected_groups: list[str] | None = None
+    excluded_groups: list[str] | None = None
     candidate_panel_subdir: str = ""
     data_path: str = "data"
     price_field: str = "Close"
@@ -254,12 +254,12 @@ class DataConfig:
     check_for_corruptions: bool = True
     start_after_nan: bool = True
 
-    def resolved_sectors(self) -> list[SectorDataSource]:
-        """Return sector list, auto-discovering from panel directory if needed."""
-        if self.sectors is not None:
-            return self.sectors
+    def resolved_groups(self) -> list[GroupDataSource]:
+        """Return group list, auto-discovering from panel directory if needed."""
+        if self.groups is not None:
+            return self.groups
         if self.universe_config_name and self.candidate_panel_stem:
-            return [SectorDataSource(
+            return [GroupDataSource(
                 universe_config_name=self.universe_config_name,
                 candidate_panel_stem=self.candidate_panel_stem,
             )]
@@ -267,11 +267,11 @@ class DataConfig:
         panel_dir = Path(CANDIDATE_PANELS_ROOT)
         if self.candidate_panel_subdir:
             panel_dir = panel_dir / self.candidate_panel_subdir
-        return discover_sector_data_sources(
+        return discover_group_data_sources(
             panel_dir=panel_dir,
             universe_dir=Path(CONFIG_UNIVERSE),
-            selected_sectors=self.selected_sectors,
-            excluded_sectors=self.excluded_sectors,
+            selected_groups=self.selected_groups,
+            excluded_groups=self.excluded_groups,
         )
 
 
@@ -284,8 +284,8 @@ class CapitalConfig:
     checks (gross exposure, ticker concentration). It does not drive per-trade
     sizing — that is owned by SizingConfig.base_pair_notional.
 
-    Sector capital deployment is tracked as bookkeeping in the daily state log
-    (sum of |units × price| per group) but no fixed quota is allocated per sector.
+    Group capital deployment is tracked as bookkeeping in the daily state log
+    (sum of |units × price| per group) but no fixed quota is allocated per group.
     """
     total_capital: float
 
@@ -467,7 +467,7 @@ class KellyConfig:
     Kelly criterion sizing configuration.
 
     Derives base_pair_notional from expanding-window trade outcome statistics
-    instead of using a fixed value. Activates per-sector or globally.
+    instead of using a fixed value. Activates per-group or globally.
 
     Parameters
     ----------

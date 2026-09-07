@@ -6,7 +6,7 @@
 # the project root) and model/strategy parameters are configured here.
 
 # --- what to trade -----------------------------------------------------------
-selected_sectors: [materials, financials, utilities, consumer_discretionary, consumer_staples, energy, health_care, industrials, information_technology, real_estate]
+selected_groups: [materials, financials, utilities, consumer_discretionary, consumer_staples, energy, health_care, industrials, information_technology, real_estate]
 residual_key: exp_hl504_mh1008_rf
 
 # --- candidate panel (produced by the residuals stage; see fixtures note) -----

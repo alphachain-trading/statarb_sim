@@ -28,7 +28,7 @@ from src.simulator.config import (
     MRDiagnosticsConfig,
     PairSpreadTraderConfig,
     RunConfig,
-    SectorDataSource,
+    GroupDataSource,
     SimulatorConfig,
     SizingConfig,
     ZScoreConfig,
@@ -156,7 +156,7 @@ class TestGuard3MultiSleeveOccupancy(unittest.TestCase):
             "group_id": ["g", "g"],
         })
         data_cfg = DataConfig(
-            sectors=[SectorDataSource(universe_config_name="u", candidate_panel_stem="stem")],
+            groups=[GroupDataSource(universe_config_name="u", candidate_panel_stem="stem")],
         )
         with patch(
             "src.simulator.simulator_factory.load_candidate_panel_result",
@@ -175,7 +175,7 @@ class TestGuard3MultiSleeveOccupancy(unittest.TestCase):
             "group_id": ["g", "g"],
         })
         data_cfg = DataConfig(
-            sectors=[SectorDataSource(universe_config_name="u", candidate_panel_stem="stem")],
+            groups=[GroupDataSource(universe_config_name="u", candidate_panel_stem="stem")],
         )
         with patch(
             "src.simulator.simulator_factory.load_candidate_panel_result",

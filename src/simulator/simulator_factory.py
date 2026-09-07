@@ -18,11 +18,11 @@ from src.simulator.config import (
     PairSpreadTraderConfig,
     PortfolioMeanReversionConfig,
     RiskManagerConfig,
-    SectorDataSource,
+    GroupDataSource,
     SimulatorConfig,
     ZScoreConfig,
-    sector_resolve,
-    discover_sector_data_sources,
+    group_resolve,
+    discover_group_data_sources,
 )
 from src.simulator.entry_feature_engine import EntryFeatureEngine
 from src.simulator.execution import ExecutionEngine
@@ -135,7 +135,7 @@ def run_from_config(config: SimulatorConfig) -> SimulationResult:
     """
     One-call entry point: load data, run simulation.
 
-    Supports single-sector, multi-sector, and multi-timescale configurations.
+    Supports single-group, multi-group, and multi-timescale configurations.
     """
     import time as _time
 
@@ -178,24 +178,24 @@ def run_from_config(config: SimulatorConfig) -> SimulationResult:
 
 def _load_umd(data_cfg: DataConfig) -> UniverseMarketData:
     """
-    Load and merge UniverseMarketData from all sector sources.
+    Load and merge UniverseMarketData from all group sources.
 
     Deduplicates by universe_config_name — same universe loaded once even
     if multiple timescales reference it.
     """
-    sectors = data_cfg.resolved_sectors()
+    groups = data_cfg.resolved_groups()
 
     seen_universes: dict[str, UniverseMarketData] = {}
-    unique_sectors: list[SectorDataSource] = []
-    for src in sectors:
+    unique_groups: list[GroupDataSource] = []
+    for src in groups:
         if src.universe_config_name not in seen_universes:
-            unique_sectors.append(src)
+            unique_groups.append(src)
             seen_universes[src.universe_config_name] = None
 
-    print(f"[factory] Loading {len(unique_sectors)} universe(s)...")
+    print(f"[factory] Loading {len(unique_groups)} universe(s)...")
 
     umds: list[UniverseMarketData] = []
-    for src in unique_sectors:
+    for src in unique_groups:
         universe_path = Path(CONFIG_UNIVERSE) / src.universe_config_name
         if not universe_path.exists():
             raise FileNotFoundError(f"Universe config not found: {universe_path}")
@@ -219,7 +219,7 @@ def _load_umd(data_cfg: DataConfig) -> UniverseMarketData:
 
 def _merge_umds(umds: list[UniverseMarketData], validate_overlap: bool = False) -> UniverseMarketData:
     """
-    Merge multiple single-sector UniverseMarketData into one.
+    Merge multiple single-group UniverseMarketData into one.
 
     - prices: outer join on dates, overlapping tickers validated for consistency
     - ticker_info: concat + deduplicate (first occurrence wins)
@@ -275,6 +275,22 @@ def _merge_umds(umds: list[UniverseMarketData], validate_overlap: bool = False) 
     merged_membership = pd.concat([u.membership for u in umds], axis=0, ignore_index=True)
     merged_membership = merged_membership.drop_duplicates()
 
+    groups_per_ticker = merged_membership.groupby("ticker")["group_id"].nunique()
+    multi_group_tickers = groups_per_ticker[groups_per_ticker > 1]
+    if not multi_group_tickers.empty:
+        examples = {
+            ticker: sorted(
+                merged_membership.loc[merged_membership["ticker"] == ticker, "group_id"].unique()
+            )
+            for ticker in multi_group_tickers.index[:5]
+        }
+        raise ValueError(
+            f"{len(multi_group_tickers)} ticker(s) belong to more than one group: {examples}. "
+            "A ticker must belong to exactly one group: residual fits are group-scoped, so a "
+            "ticker in two groups would get two different residual series, and cross-group "
+            "analysis would have to pick one or double-count."
+        )
+
     merged = UniverseMarketData(
         prices=merged_prices,
         ticker_info=merged_ticker_info,
@@ -301,7 +317,7 @@ def _load_panels(
 
     Returns (merged_panel, metadata_by_residual_key).
     """
-    sectors = data_cfg.resolved_sectors()
+    groups = data_cfg.resolved_groups()
     requested_keys = {zc.residual_key for zc in z_score_configs}
     is_multi = any(k != "" for k in requested_keys)
 
@@ -313,7 +329,7 @@ def _load_panels(
     metadata_by_key: dict[str, dict[str, Any]] = {}
 
     if is_multi:
-        for src in sectors:
+        for src in groups:
             if src.residual_key not in requested_keys:
                 continue
 
@@ -330,21 +346,21 @@ def _load_panels(
         missing_keys = requested_keys - loaded_keys
         if missing_keys:
             available = sorted(
-                {src.residual_key for src in sectors if src.residual_key}
+                {src.residual_key for src in groups if src.residual_key}
             )
             raise FileNotFoundError(
                 f"No panels found for residual_keys: {sorted(missing_keys)}. "
                 f"Available residual_keys in {panel_dir}: {available}"
             )
     else:
-        unique_keys = {src.residual_key for src in sectors if src.residual_key}
+        unique_keys = {src.residual_key for src in groups if src.residual_key}
         if len(unique_keys) > 1:
             raise ValueError(
                 f"Multiple residual timescales found in panels: {sorted(unique_keys)}. "
                 f"Set residual_key explicitly on each ZScoreConfig to select which to use."
             )
 
-        for src in sectors:
+        for src in groups:
             result = load_candidate_panel_result(out_dir=panel_dir, stem=src.candidate_panel_stem)
             df = result.panel
             df["residual_key"] = src.residual_key or ""
@@ -356,7 +372,7 @@ def _load_panels(
     if not panels:
         raise FileNotFoundError(
             f"No candidate panels loaded from {panel_dir}. "
-            f"Sectors: {[s.candidate_panel_stem for s in sectors]}, "
+            f"Groups: {[s.candidate_panel_stem for s in groups]}, "
             f"requested_keys: {sorted(requested_keys)}"
         )
 
@@ -400,11 +416,11 @@ def _load_residual_params(
 
     Returns {(group_id, residual_key): {date: FittedCausalResidualModel}} or None.
     """
-    sectors = data_cfg.resolved_sectors()
+    groups = data_cfg.resolved_groups()
     requested_keys = {zc.residual_key for zc in z_score_configs}
     is_multi = any(k != "" for k in requested_keys)
 
-    has_any = any(s.residual_params_stem is not None for s in sectors)
+    has_any = any(s.residual_params_stem is not None for s in groups)
     if not has_any:
         return None
 
@@ -414,7 +430,7 @@ def _load_residual_params(
 
     merged: dict[tuple[str, str], dict[pd.Timestamp, FittedCausalResidualModel]] = {}
 
-    for src in sectors:
+    for src in groups:
         if src.residual_params_stem is None:
             continue
         if is_multi and src.residual_key not in requested_keys:
@@ -422,7 +438,7 @@ def _load_residual_params(
 
         raw_id = src.residual_params_stem.split("_pairs_")[0]
         try:
-            group_id = sector_resolve(raw_id)
+            group_id = group_resolve(raw_id)
         except KeyError:
             group_id = raw_id
 

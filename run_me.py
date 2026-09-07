@@ -85,14 +85,14 @@ def _panel_file(cfg: dict) -> Path:
     return _panel_dir(cfg) / f"{cfg['panels']['stem']}.panel.parquet"
 
 
-def _selected_sectors(cfg: dict) -> list[str]:
-    """Sectors to operate on, from demo_materials.yaml's `selected_sectors` list."""
-    return list(cfg["selected_sectors"])
+def _selected_groups(cfg: dict) -> list[str]:
+    """Sectors to operate on, from demo_materials.yaml's `selected_groups` list."""
+    return list(cfg["selected_groups"])
 
 
-def _universe_yaml_path(sector: str) -> Path:
-    """Resolve a sector's universe config yaml under CONFIG_UNIVERSE."""
-    return CONFIG_UNIVERSE / f"universe.{sector}_only.v1.yaml"
+def _universe_yaml_path(group_id: str) -> Path:
+    """Resolve a group's universe config yaml under CONFIG_UNIVERSE."""
+    return CONFIG_UNIVERSE / f"universe.{group_id}_only.v1.yaml"
 
 
 # ---------------------------------------------------------------------------
@@ -106,10 +106,10 @@ def stage_download(cfg: dict, force: bool) -> None:
     stage = "download"
     started = False
 
-    for sector in _selected_sectors(cfg):
-        yaml_path = _universe_yaml_path(sector)
+    for group_id in _selected_groups(cfg):
+        yaml_path = _universe_yaml_path(group_id)
         if not yaml_path.exists():
-            sys.exit(f"[download] missing universe config for sector '{sector}': {yaml_path}")
+            sys.exit(f"[download] missing universe config for group '{group_id}': {yaml_path}")
 
         config = UniverseConfig.from_yaml(yaml_path)
 
@@ -117,22 +117,22 @@ def stage_download(cfg: dict, force: bool) -> None:
         # price parquet is the artifact that gates the downstream stages.
         prices_path = DATA_UNIVERSES / config.universe_name / "prices_daily.parquet"
         if prices_path.exists() and not force:
-            _skip(stage, f"universe prices exist for '{sector}': {prices_path}")
+            _skip(stage, f"universe prices exist for '{group_id}': {prices_path}")
             continue
 
         if not started:
             _start(stage)
             started = True
 
-        print(f"[download] sector '{sector}': loading universe {config.universe_name} "
+        print(f"[download] group '{group_id}': loading universe {config.universe_name} "
               f"(force_download={force})")
         loader = UniverseDataLoader(config, data_path=DATA_UNIVERSES, progress=True)
         loader.load(force_download=force)
 
         # Fresh market data invalidates the downstream candidate panel; delete it
         # so the residuals stage rebuilds it from the newly downloaded data. Only
-        # applies to single-sector configs, which pin one panel via `stem`;
-        # multi-sector configs (no stem) are discovery-based, so skip silently.
+        # applies to single-group configs, which pin one panel via `stem`;
+        # multi-group configs (no stem) are discovery-based, so skip silently.
         if cfg["panels"].get("stem"):
             panel_file = _panel_file(cfg)
             if panel_file.exists():
@@ -153,13 +153,13 @@ def _extract_panel_stem(results: dict, panel_dir: Path) -> str:
 
     run_panel_batch names its outputs with a now()-timestamped stem it builds
     internally (no override hook), so we read it back rather than assume it.
-    This pipeline is single-sector/single-timescale, so exactly one panel is
+    This pipeline is single-group/single-timescale, so exactly one panel is
     expected. Prefer the stem embedded in the result metadata; fall back to the
     newest *.panel.parquet on disk.
     """
     if len(results) != 1:
         sys.exit(
-            f"[residuals] expected exactly one panel (single sector/timescale), "
+            f"[residuals] expected exactly one panel (single group/timescale), "
             f"got {len(results)}: {sorted(results.keys())}"
         )
 
@@ -206,7 +206,7 @@ def _update_panel_stem(cfg: dict, stem: str) -> None:
 
 
 def _make_panel_batch_cfg(cfg: dict):
-    """Build the PanelBatchConfig shared by the single- and multi-sector paths."""
+    """Build the PanelBatchConfig shared by the single- and multi-group paths."""
     from src.candidates.panel_batch import PanelBatchConfig
     from src.candidates.pair_candidate_panel_creator import PairSpreadConfig
     from src.residuals.causal_residuals import CausalResidualConfig, ResidualMode, AbsOrMult
@@ -224,7 +224,7 @@ def _make_panel_batch_cfg(cfg: dict):
         residual_configs=[residual_cfg],
         hedge_ratio_lb=252,
         mr_diag_lb=252,
-        selected_sectors=_selected_sectors(cfg),
+        selected_groups=_selected_groups(cfg),
         universe_dir=CONFIG_UNIVERSE,
         data_path=DATA_UNIVERSES,
         persist_dir_template=cfg["panels"]["subdir"],
@@ -244,19 +244,19 @@ def _make_panel_batch_cfg(cfg: dict):
     )
 
 
-def _all_sector_panels_exist(cfg: dict) -> bool:
-    """True when a candidate panel already exists for every selected sector.
+def _all_group_panels_exist(cfg: dict) -> bool:
+    """True when a candidate panel already exists for every selected group.
 
-    Multi-sector skip-check: there is no single canonical stem, so gate on the
-    per-sector panel files in the subdir (one ``{abbrev}_pairs_*`` each).
+    Multi-group skip-check: there is no single canonical stem, so gate on the
+    per-group panel files in the subdir (one ``{abbrev}_pairs_*`` each).
     """
-    from src.simulator.config import sector_abbrev, sector_resolve
+    from src.simulator.config import group_abbrev, group_resolve
 
     panel_dir = _panel_dir(cfg)
     if not panel_dir.exists():
         return False
-    for sector in _selected_sectors(cfg):
-        abbrev = sector_abbrev(sector_resolve(sector))
+    for group_id in _selected_groups(cfg):
+        abbrev = group_abbrev(group_resolve(group_id))
         if not list(panel_dir.glob(f"{abbrev}_pairs_*.panel.parquet")):
             return False
     return True
@@ -264,11 +264,11 @@ def _all_sector_panels_exist(cfg: dict) -> bool:
 
 def _persist_series_multi(cfg: dict, sim_config) -> None:
     """
-    Precompute + persist series for every sector panel in the subdir.
+    Precompute + persist series for every group panel in the subdir.
 
-    Discovery-based (via discover_sector_data_sources) so it scales to any number
-    of sectors: one panel triple per sector, each keyed by its own group_id. The
-    UMD is loaded once across all selected sectors; existing series files are
+    Discovery-based (via discover_group_data_sources) so it scales to any number
+    of groups: one panel triple per group, each keyed by its own group_id. The
+    UMD is loaded once across all selected groups; existing series files are
     skipped, so reruns are no-ops.
     """
     import pickle
@@ -276,15 +276,15 @@ def _persist_series_multi(cfg: dict, sim_config) -> None:
     from src.candidates.candidate_panel import load_candidate_panel_result
     from src.residuals.series import compute_and_persist_series
     from src.simulator.simulator_factory import _load_umd
-    from src.simulator.config import discover_sector_data_sources
+    from src.simulator.config import discover_group_data_sources
 
     panel_dir = _panel_dir(cfg)
     umd = _load_umd(sim_config.data)
 
-    sources = discover_sector_data_sources(
+    sources = discover_group_data_sources(
         panel_dir=panel_dir,
         universe_dir=CONFIG_UNIVERSE,
-        selected_sectors=_selected_sectors(cfg),
+        selected_groups=_selected_groups(cfg),
     )
 
     for src in sources:
@@ -315,28 +315,28 @@ def _persist_series_multi(cfg: dict, sim_config) -> None:
 
 def stage_residuals(cfg: dict, force: bool) -> None:
     stage = "residuals"
-    sectors = _selected_sectors(cfg)
+    groups = _selected_groups(cfg)
     panel_dir = _panel_dir(cfg)
 
     from src.candidates.panel_batch import run_panel_batch
 
-    # ── multi-sector: one panel per sector, no single canonical stem ──────
-    if len(sectors) > 1:
-        if not force and _all_sector_panels_exist(cfg):
-            _skip(stage, f"candidate panels exist for all {len(sectors)} sectors in {panel_dir}")
+    # ── multi-group: one panel per group, no single canonical stem ──────
+    if len(groups) > 1:
+        if not force and _all_group_panels_exist(cfg):
+            _skip(stage, f"candidate panels exist for all {len(groups)} groups in {panel_dir}")
             return
 
         _start(stage)
         run_panel_batch(_make_panel_batch_cfg(cfg))
 
-        # Precompute + persist series for every sector panel; the simulator
+        # Precompute + persist series for every group panel; the simulator
         # discovers all panels in the subdir at run time.
         sim_config = _build_sim_config(cfg)
         _persist_series_multi(cfg, sim_config)
         _done(stage)
         return
 
-    # ── single-sector: adopt the built panel's stem as the canonical stem ──
+    # ── single-group: adopt the built panel's stem as the canonical stem ──
     panel_file = _panel_file(cfg)
     if panel_file.exists() and not force:
         _skip(stage, f"candidate panel exists: {panel_file}")
@@ -389,7 +389,7 @@ def _bootstrap_panel_from_fixtures(cfg: dict) -> None:
 
 
 def _build_sim_config(cfg: dict):
-    """Assemble a SimulatorConfig from demo_materials.yaml for a single-sector,
+    """Assemble a SimulatorConfig from demo_materials.yaml for a single-group,
     single-timescale pair-spread run."""
     from src.simulator.config import (
         SimulatorConfig,
@@ -420,7 +420,7 @@ def _build_sim_config(cfg: dict):
     return SimulatorConfig(
         data=DataConfig(
             candidate_panel_subdir=cfg["panels"]["subdir"],
-            selected_sectors=_selected_sectors(cfg),
+            selected_groups=_selected_groups(cfg),
             data_path=str(DATA_UNIVERSES),
             price_field=data_cfg.get("price_field", "Close"),
             return_method=data_cfg.get("return_method", "log"),
@@ -508,7 +508,7 @@ def _persist_spread_series(cfg: dict, sim_config) -> None:
 
     params_path = panel_dir / f"{stem}_residual_params.pkl"
     with params_path.open("rb") as f:
-        raw_params = pickle.load(f)  # {asof_date: FittedCausalResidualModel}
+        raw_params = pickle.load(f)  # {fit_date: FittedCausalResidualModel}
 
     # Match the simulator's single-timescale keying: residual_key defaults to "".
     residual_params = {
@@ -533,9 +533,9 @@ def stage_simulate(cfg: dict, force: bool) -> None:
 
     sim_config = _build_sim_config(cfg)
 
-    if len(_selected_sectors(cfg)) > 1:
-        # Multi-sector: panels are produced by the residuals stage and discovered
-        # at run time; there are no single-sector fixtures to bootstrap from.
+    if len(_selected_groups(cfg)) > 1:
+        # Multi-group: panels are produced by the residuals stage and discovered
+        # at run time; there are no single-group fixtures to bootstrap from.
         _persist_series_multi(cfg, sim_config)
     else:
         _bootstrap_panel_from_fixtures(cfg)

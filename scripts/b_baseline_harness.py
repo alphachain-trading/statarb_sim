@@ -13,15 +13,15 @@ and notebook 01; compute_performance + _METRICS_ORDER (via
 result.performance, already computed by run_from_config) is the existing
 metrics summary. No new runner, no new metrics code.
 
-Config is fixed and small on purpose: two of the smallest committed sector
+Config is fixed and small on purpose: two of the smallest committed group
 universes (energy, 11 equities; materials, 13 equities — B_spec.md §9), an
 EQ_EXPANDING residual with a low min_history (20), and explicit hedge/
 diagnostics windows (252) stated via min_obs (Track B removed the
 PanelBatchConfig default — B_window_admission.md items 4/5). PANEL_START_DATE
-is chosen so BOTH sectors already clear a full 252-day trailing window on the
+is chosen so BOTH groups already clear a full 252-day trailing window on the
 first panel date (materials' binding constraint is CF, whose price history
 starts 2005-08-11 — see the comment at PANEL_START_DATE below); an earlier
-start starves materials of history and produces a 0/0-candidate sector,
+start starves materials of history and produces a 0/0-candidate group,
 which is a fixture artifact, not a finding. This baseline's job is to move
 when, and only when, a later change should move it — a counting question,
 answered by the ## counts section (candidate/trade counts), not by the
@@ -53,13 +53,13 @@ from src.simulator.config import (
     RunConfig,
     PerformanceConfig,
     PersistenceConfig,
-    discover_sector_data_sources,
+    discover_group_data_sources,
 )
 from src.simulator.simulator_factory import run_from_config, _load_umd
 from src.simulator.sweep_defaults import get_default_bundle, merge_defaults
 from src.simulator.performance.performance_report import _METRICS_ORDER, _fmt_value
 
-SECTORS = ["energy", "materials"]
+GROUPS = ["energy", "materials"]
 PANEL_SUBDIR = "refactor_b_harness"
 MAX_STEPS = 40
 HEDGE_RATIO_LB = 252
@@ -69,7 +69,7 @@ MR_DIAG_LB = 252
 # the requested lookback: a rolling 252-day fit that ran on 40 observations is
 # not a 252-day fit. min_obs=hedge_ratio_lb is the fully-binding choice.
 MIN_OBS = 252
-# Common start for both sectors' panel walk. materials' binding constraint is
+# Common start for both groups' panel walk. materials' binding constraint is
 # CF, whose price history starts 2005-08-11 — the 252nd return available from
 # CF lands 2006-08-11 (a return needs day n and day n-1, so 252 returns need
 # 253 price obs). PANEL_START_DATE sits ~3 weeks past that (2006-09-08), so
@@ -104,7 +104,7 @@ def _build_panels() -> tuple[float, dict]:
         residual_configs=[_residual_cfg()],
         hedge_ratio_lb=HEDGE_RATIO_LB,
         mr_diag_lb=MR_DIAG_LB,
-        selected_sectors=SECTORS,
+        selected_groups=GROUPS,
         frequency="W-FRI",
         start_date=PANEL_START_DATE,
         max_steps=MAX_STEPS,
@@ -127,15 +127,15 @@ def _build_panels() -> tuple[float, dict]:
     return build_time, results
 
 
-def _persist_series(sim_config: SimulatorConfig, active_sectors: list[str]) -> None:
+def _persist_series(sim_config: SimulatorConfig, active_groups: list[str]) -> None:
     """Mirror run_me.py's _persist_series_multi for this harness's panel dir."""
     panel_dir = Path(CANDIDATE_PANELS_ROOT) / PANEL_SUBDIR
     umd = _load_umd(sim_config.data)
 
-    sources = discover_sector_data_sources(
+    sources = discover_group_data_sources(
         panel_dir=panel_dir,
         universe_dir=CONFIG_UNIVERSE,
-        selected_sectors=active_sectors,
+        selected_groups=active_groups,
     )
 
     for src in sources:
@@ -143,9 +143,9 @@ def _persist_series(sim_config: SimulatorConfig, active_sectors: list[str]) -> N
         panel = result.panel
 
         if panel.empty:
-            # A sector can legitimately produce zero candidate rows (e.g.
+            # A group can legitimately produce zero candidate rows (e.g.
             # min_obs rejecting every pair on every date) — nothing to
-            # persist series for. Excluded from active_sectors below too,
+            # persist series for. Excluded from active_groups below too,
             # so run_from_config never tries to load it.
             continue
 
@@ -170,11 +170,11 @@ def _persist_series(sim_config: SimulatorConfig, active_sectors: list[str]) -> N
         )
 
 
-def _build_sim_config(active_sectors: list[str]) -> SimulatorConfig:
+def _build_sim_config(active_groups: list[str]) -> SimulatorConfig:
     sweep_derived = {
         "data": DataConfig(
             candidate_panel_subdir=PANEL_SUBDIR,
-            selected_sectors=active_sectors,
+            selected_groups=active_groups,
             data_path=str(DATA_UNIVERSES),
         ),
         "z_score": ZScoreConfig(lookback=21, ddof=1, method="ewm", residual_key=_residual_cfg().key),
@@ -207,7 +207,7 @@ def _build_sim_config(active_sectors: list[str]) -> SimulatorConfig:
 def main() -> None:
     panel_build_time, panel_results = _build_panels()
 
-    active_sectors = sorted({
+    active_groups = sorted({
         group_id for (group_id, _residual_key), pr in panel_results.items()
         if len(pr.panel) > 0
     })
@@ -216,12 +216,12 @@ def main() -> None:
     trades_df = None
     metrics: dict = {}
 
-    if active_sectors:
-        # A sector can legitimately produce zero candidate rows (e.g. min_obs
+    if active_groups:
+        # A group can legitimately produce zero candidate rows (e.g. min_obs
         # rejecting every pair on every date) — excluded here so
         # run_from_config never tries to load it.
-        sim_config = _build_sim_config(active_sectors)
-        _persist_series(sim_config, active_sectors)
+        sim_config = _build_sim_config(active_groups)
+        _persist_series(sim_config, active_groups)
 
         t0 = time.perf_counter()
         result = run_from_config(sim_config)
@@ -232,12 +232,12 @@ def main() -> None:
 
     lines: list[str] = []
     lines.append("# Track B baseline harness output")
-    lines.append(f"# sectors={SECTORS} max_steps={MAX_STEPS} "
+    lines.append(f"# groups={GROUPS} max_steps={MAX_STEPS} "
                   f"hedge_ratio_lb={HEDGE_RATIO_LB} mr_diag_lb={MR_DIAG_LB} "
                   f"min_obs={MIN_OBS} residual={_residual_cfg().key}")
-    lines.append(f"# active_sectors={active_sectors}")
+    lines.append(f"# active_groups={active_groups}")
     lines.append(f"# panel build time: {panel_build_time:.2f}s")
-    lines.append(f"# simulate time: {'n/a (no active sectors)' if sim_time is None else f'{sim_time:.2f}s'}")
+    lines.append(f"# simulate time: {'n/a (no active groups)' if sim_time is None else f'{sim_time:.2f}s'}")
     lines.append("")
 
     # Counts first: at a few dozen trades the performance numbers are noise
@@ -269,8 +269,8 @@ def main() -> None:
     lines.append("")
 
     lines.append("## performance metrics (noise at this trade count — see counts above)")
-    if not active_sectors:
-        lines.append("(no active sectors — simulate stage skipped)")
+    if not active_groups:
+        lines.append("(no active groups — simulate stage skipped)")
     for key, label, fmt in _METRICS_ORDER:
         if key not in metrics:
             continue
