@@ -392,8 +392,13 @@ class SpreadMomentumConfig:
 
 @dataclass(slots=True, frozen=True)
 class PortfolioMeanReversionConfig:
+    """
+    exit_z is mandatory -- no default (Track D follow-up), same treatment as
+    entry_z (already required from the original Track D pass). Dormant on
+    B's baseline -- see tests/test_portfolio_mean_reversion_trader.py.
+    """
     entry_z: float
-    exit_z: float = 0.0
+    exit_z: float
     allow_long: bool = True
     allow_short: bool = True
     time_stop_half_life_multiplier: float | None = None
@@ -409,9 +414,14 @@ class PairSpreadTraderConfig:
 
     Deliberately minimal: entry on z-threshold, exit on z-cross.
     Sizing is handled by SizingEngine. Risk constraints by RiskManager.
+
+    entry_z and exit_z are mandatory -- no default (Track D follow-up).
+    This is the live trader on B's baseline; b_baseline_harness.py already
+    states entry_z=1.75 against the removed class default of 2.0, evidence
+    the default was already stale before this fix.
     """
-    entry_z: float = 2.0
-    exit_z: float = 0.0
+    entry_z: float
+    exit_z: float
     allow_long: bool = True
     allow_short: bool = True
     cross_ts: CrossTimescaleEntryConfig | None = None

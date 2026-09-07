@@ -21,12 +21,12 @@ class TestDefaultAbsTargetGroupExposureIsMandatory(unittest.TestCase):
     def test_omitting_it_raises(self):
         with self.assertRaises(TypeError):
             PortfolioMeanReversionTrader(
-                config=PortfolioMeanReversionConfig(entry_z=2.0),
+                config=PortfolioMeanReversionConfig(entry_z=2.0, exit_z=0.0),
             )
 
     def test_stating_it_succeeds(self):
         trader = PortfolioMeanReversionTrader(
-            config=PortfolioMeanReversionConfig(entry_z=2.0),
+            config=PortfolioMeanReversionConfig(entry_z=2.0, exit_z=0.0),
             default_abs_target_group_exposure=1.0,
         )
         self.assertEqual(trader.default_abs_target_group_exposure, 1.0)

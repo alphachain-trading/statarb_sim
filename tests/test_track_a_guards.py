@@ -42,7 +42,7 @@ def _minimal_sim_kwargs():
         candidate_selection=CandidateSelectionConfig(require_success=True),
         activation=ActivationConfig(one_active_per_group=True, switch_only_when_flat=True),
         diagnostics=MRDiagnosticsConfig(lookback=21, compute_frequency="off"),
-        trader=PairSpreadTraderConfig(),
+        trader=PairSpreadTraderConfig(entry_z=2.0, exit_z=0.0),
         run=RunConfig(),
         execution=ExecutionConfig(
             min_abs_units=0.5,
