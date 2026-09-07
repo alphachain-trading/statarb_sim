@@ -18,9 +18,9 @@ Usage from Jupyter:
     from src.simulator.config import ZScoreConfig
     RUNS = [
         SweepConfig(z_score_overrides=[
-            ZScoreConfig(lookback=10, method="ewm", residual_key="exp_hl63_mh126"),
-            ZScoreConfig(lookback=21, method="ewm", residual_key="exp_hl126_mh252"),
-            ZScoreConfig(lookback=42, method="ewm", residual_key="exp_hl252_mh504"),
+            ZScoreConfig(lookback=10, ddof=1, method="ewm", residual_key="exp_hl63_mh126"),
+            ZScoreConfig(lookback=21, ddof=1, method="ewm", residual_key="exp_hl126_mh252"),
+            ZScoreConfig(lookback=42, ddof=1, method="ewm", residual_key="exp_hl252_mh504"),
         ], candidate_panel_subdir="V3.pair"),
     ]
     run_sweep(RUNS)
@@ -267,11 +267,11 @@ def _build_sim_config(sweep: SweepConfig, *, index: int | None = None) -> Simula
     if sweep.is_multi_timescale:
         z_score = sweep.z_score_overrides
     else:
-        z_score = ZScoreConfig(lookback=sweep.z_lookback, method=sweep.z_method)
+        z_score = ZScoreConfig(lookback=sweep.z_lookback, ddof=1, method=sweep.z_method)
 
     sizing = SizingConfig(
         base_pair_notional=sweep.base_pair_notional,
-        vol_normalize=VolSizingConfig() if sweep.vol_normalize else None,
+        vol_normalize=VolSizingConfig(floor_multiplier=0.2, cap_multiplier=5.0) if sweep.vol_normalize else None,
         kelly=sweep.kelly,
         interval_scoring=sweep.interval_scoring,
     )

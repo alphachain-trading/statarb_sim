@@ -47,11 +47,54 @@ def _make_bundle(n: int) -> GroupReturnBundle:
 class TestMinObsIsMandatory(unittest.TestCase):
     def test_omitting_min_obs_raises(self):
         with self.assertRaises(TypeError):
-            pcpc.PairSpreadConfig(hedge_ratio_methods=["ols"])
+            pcpc.PairSpreadConfig(
+                hedge_ratio_methods=["ols"],
+                min_return_std=1e-8,
+                min_level_std=1e-8,
+                min_kappa=1e-6,
+                max_half_life=126.0,
+                tiny_weight_threshold=1e-6,
+            )
 
     def test_min_obs_below_two_raises(self):
         with self.assertRaises(ValueError):
-            pcpc.PairSpreadConfig(hedge_ratio_methods=["ols"], min_obs=1)
+            pcpc.PairSpreadConfig(
+                hedge_ratio_methods=["ols"],
+                min_obs=1,
+                min_return_std=1e-8,
+                min_level_std=1e-8,
+                min_kappa=1e-6,
+                max_half_life=126.0,
+                tiny_weight_threshold=1e-6,
+            )
+
+
+class TestPairSpreadConfigNumericFieldsAreMandatory(unittest.TestCase):
+    """
+    Track D: hedge_ratio_methods, min_return_std, min_level_std, min_kappa,
+    max_half_life, tiny_weight_threshold lost their class defaults alongside
+    min_obs — each must raise if omitted, not silently fall back.
+    """
+
+    _ALL_REQUIRED = dict(
+        hedge_ratio_methods=["ols"],
+        min_obs=252,
+        min_return_std=1e-8,
+        min_level_std=1e-8,
+        min_kappa=1e-6,
+        max_half_life=126.0,
+        tiny_weight_threshold=1e-6,
+    )
+
+    def test_full_construction_succeeds(self):
+        pcpc.PairSpreadConfig(**self._ALL_REQUIRED)
+
+    def test_omitting_any_required_field_raises(self):
+        for missing in self._ALL_REQUIRED:
+            kwargs = {k: v for k, v in self._ALL_REQUIRED.items() if k != missing}
+            with self.subTest(missing=missing):
+                with self.assertRaises(TypeError):
+                    pcpc.PairSpreadConfig(**kwargs)
 
 
 class TestMinObsGate(unittest.TestCase):
@@ -85,6 +128,7 @@ class TestMinObsGate(unittest.TestCase):
             min_level_std=0.0,
             min_kappa=-1e9,
             max_half_life=1e9,
+            tiny_weight_threshold=1e-6,
         )
 
         with patch.object(pcpc, "apply_causal_residual_model", side_effect=fake_apply):

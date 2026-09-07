@@ -94,6 +94,7 @@ class TestPairwiseDropna(unittest.TestCase):
             min_level_std=0.0,
             min_kappa=-1e9,
             max_half_life=1e9,
+            tiny_weight_threshold=1e-6,
         )
 
         with patch.object(pcpc, "apply_causal_residual_model", side_effect=fake_apply):

@@ -34,7 +34,15 @@ from src.candidates.pair_candidate_panel_creator import PairSpreadConfig
 # mr_diag_lb validation only — pair_cfg is irrelevant to what's asserted, so
 # one shared, permissive instance is reused rather than restated per call
 # (pair_cfg carries no default; see panel_batch.py).
-_PAIR_CFG = PairSpreadConfig(hedge_ratio_methods=["pca"], min_obs=2)
+_PAIR_CFG = PairSpreadConfig(
+    hedge_ratio_methods=["pca"],
+    min_obs=2,
+    min_return_std=1e-8,
+    min_level_std=1e-8,
+    min_kappa=1e-6,
+    max_half_life=126.0,
+    tiny_weight_threshold=1e-6,
+)
 
 
 def _decay(**overrides):

@@ -54,22 +54,26 @@ class PairSpreadConfig:
     ----------
     hedge_ratio_methods
         Which weight models to run per pair. Each produces a separate
-        candidate row.  Default: OLS only.
+        candidate row. Mandatory — no default — see min_obs for why a
+        result-affecting choice does not get to live as a class default.
     tickers
         Optional subset of tickers to consider.  If None, use all
         tickers available in the bundle at each as-of date.
     min_active_legs
         Always 2 for pairs (validated, not configurable).
     min_return_std
-        Minimum spread return standard deviation.
+        Minimum spread return standard deviation. Mandatory — no default.
     min_level_std
-        Minimum spread level standard deviation.
+        Minimum spread level standard deviation. Mandatory — no default.
     min_kappa
-        Minimum mean-reversion speed.
+        Minimum mean-reversion speed. Mandatory — no default.
     max_half_life
-        Maximum acceptable half-life in days.
+        Maximum acceptable half-life in days. Mandatory — no default: a
+        research choice, not a value that gets to disappear into a class
+        default.
     tiny_weight_threshold
-        Below this absolute weight, a leg is considered inactive.
+        Below this absolute weight, a leg is considered inactive. Mandatory
+        — no default.
     min_obs
         Minimum number of observations a pair must retain, after its own
         pairwise dropna, before a hedge ratio is fit. Mandatory — no
@@ -81,17 +85,15 @@ class PairSpreadConfig:
         nominal length.
     """
 
-    hedge_ratio_methods: HedgeRatioMethodList = field(
-        default_factory=lambda: ["ols"],
-    )
-    tickers: list[str] | None = None
-    min_return_std: float = 1e-8
-    min_level_std: float = 1e-8
-    min_kappa: float = 1e-6
-    max_half_life: float = 126.0
-    tiny_weight_threshold: float = 1e-6
-    skip_adf: bool = True
+    hedge_ratio_methods: HedgeRatioMethodList = field(kw_only=True)
+    min_return_std: float = field(kw_only=True)
+    min_level_std: float = field(kw_only=True)
+    min_kappa: float = field(kw_only=True)
+    max_half_life: float = field(kw_only=True)
+    tiny_weight_threshold: float = field(kw_only=True)
     min_obs: int = field(kw_only=True)
+    tickers: list[str] | None = None
+    skip_adf: bool = True
 
     def __post_init__(self) -> None:
         if not self.hedge_ratio_methods:
@@ -524,22 +526,16 @@ def create_pair_candidates_for_date(
     residual_cfg: CausalResidualConfig,
     pair_cfg: PairSpreadConfig,
     *,
-    hedge_ratio_lb: int | None = None,
-    mr_diag_lb: int | None = None,
+    hedge_ratio_lb: int,
+    mr_diag_lb: int,
     debug: bool = False,
     progress: bool = True,
 ) -> CandidatePanelResult:
     """
     Create pair spread candidates for one exact as-of date.
 
-    hedge_ratio_lb / mr_diag_lb are the (independent) candidate-scoring windows;
-    when omitted they fall back to residual_cfg.lookback (single shared window).
+    hedge_ratio_lb / mr_diag_lb are the (independent) candidate-scoring windows.
     """
-    if hedge_ratio_lb is None:
-        hedge_ratio_lb = residual_cfg.lookback
-    if mr_diag_lb is None:
-        mr_diag_lb = residual_cfg.lookback
-
     dt = pd.Timestamp(asof_date)
     aligned_index = bundle.aligned_returns.index
 
@@ -624,8 +620,8 @@ def create_pair_candidate_panel(
     pair_cfg: PairSpreadConfig,
     frequency: str | None = None,
     *,
-    hedge_ratio_lb: int | None = None,
-    mr_diag_lb: int | None = None,
+    hedge_ratio_lb: int,
+    mr_diag_lb: int,
     dates: list[str | pd.Timestamp] | None = None,
     debug: bool = False,
     start_date: str | None = None,
@@ -641,16 +637,10 @@ def create_pair_candidate_panel(
     Create a pair spread CandidatePanel at the requested as-of dates.
 
     hedge_ratio_lb / mr_diag_lb are the two independent candidate-scoring
-    windows (hedge-ratio fit vs mean-reversion diagnostics). When omitted they
-    fall back to residual_cfg.lookback (single shared window).
+    windows (hedge-ratio fit vs mean-reversion diagnostics).
 
     Same walkforward interface as create_portfolio_candidate_panel.
     """
-    if hedge_ratio_lb is None:
-        hedge_ratio_lb = residual_cfg.lookback
-    if mr_diag_lb is None:
-        mr_diag_lb = residual_cfg.lookback
-
     aligned_index = bundle.aligned_returns.index
 
     # ── resolve as-of datetimes ──────────────────────────────────────

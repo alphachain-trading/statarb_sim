@@ -39,14 +39,22 @@ from src.candidates.candidate_selector import CandidateSelectionConfig
 _STANDARD_V1: Mapping[str, Any] = MappingProxyType({
     "capital": CapitalConfig(total_capital=1_000_000.0),
     "candidate_selection": CandidateSelectionConfig(
-        allowed_candidate_subtypes=("pca",), require_is_valid=True,
+        allowed_candidate_subtypes=("pca",), require_is_valid=True, require_success=True,
     ),
     "activation": ActivationConfig(
         one_active_per_group=False, switch_only_when_flat=False,
     ),
     "diagnostics": MRDiagnosticsConfig(lookback=252, compute_frequency="off"),
     "execution": ExecutionConfig(
-        allow_fractional_shares=False, share_rounding="nearest",
+        allow_fractional_shares=False,
+        share_rounding="nearest",
+        min_abs_units=0.5,
+        commission_per_share=0.005,
+        commission_per_order=0.0,
+        min_commission_per_order=1.0,
+        max_commission_per_order=9.79,
+        max_commission_pct_of_trade=0.01,
+        short_borrow_rate_annual_bps=30.0,
     ),
     "performance": PerformanceConfig(
         enabled=True,

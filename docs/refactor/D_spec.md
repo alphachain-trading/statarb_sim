@@ -678,3 +678,67 @@ build one by hand and pass it straight in:
 Both callers then call `run_from_config(sim_config)` directly
 (`b_baseline_harness.py:219`, `run_me.py:528`) — `SweepConfig` is nowhere on
 this path.
+
+## Follow-up session — completing the enumeration (post-implementation)
+
+Prompted by review after the first implementation pass: this scope
+declaration (above, "Scope of the enumeration") named every class reachable
+from `SimulatorConfig`, but Table 1 never produced a row for several of
+them. Confirmed by rereading `config.py` field-by-field against Table 1 and
+Table 2 — the gap is real, not just apparent. Reported here before any
+further code change, per the standing "spec before code" rule.
+
+### Classes the scope list named but Table 1/Table 2 never covered
+
+| Class | Field(s) | Default | Real (non-bare-test) call sites | Verdict |
+|---|---|---|---|---|
+| `PairSpreadTraderConfig` | `entry_z` | `2.0` | `run_me.py:447`, `sweep_runner.py:296-302` (via `SweepConfig.entry_z`), `b_baseline_harness.py:181` (**states `1.75`, not `2.0`** — first hard evidence the class default was already stale), notebook 02. One bare call: `tests/test_track_a_guards.py:45`. | Result-affecting, un-pinned, disagreement across callers already exists. **Fix.** |
+| `PairSpreadTraderConfig` | `exit_z` | `0.0` | Same sites, all state `0.0`. | **Fix** (zero value-change, one bare call site). |
+| `PortfolioMeanReversionConfig` | `exit_z` | `0.0` | Zero production sites — only `tests/test_portfolio_mean_reversion_trader.py` (both state `entry_z`, neither states `exit_z`). Same class already had `entry_z` and the sibling `PortfolioMeanReversionTrader.default_abs_target_group_exposure` fixed in the first pass; `exit_z` was missed alongside them. | Dormant on B's baseline, same as the two fields already fixed. **Fix**, same treatment. |
+| `ActivationConfig` | `one_active_per_group`, `switch_only_when_flat` | `True, True` | `run_me.py:434-437`, `sweep_defaults.py:44-46` both state `False, False` — **the opposite of the class default.** Already flagged as a Table-1 "doubtful" entry in the original session (see note above) but left unfixed pending this follow-up. One bare call: `tests/test_track_a_guards.py:43`. | Confirmed live disagreement between class default and every real caller. **Fix.** |
+| `ZScoreConfig` | `lookback` | `21` | All real sites (`run_me.py`, `sweep_runner.py`, `b_baseline_harness.py`, notebooks) state it. Two bare calls in `tests/test_track_a_guards.py:166,184` (exercise real `_load_panels` production code, though this particular test doesn't depend on the value). | **Fix**, zero blast radius at production sites. |
+| `ZScoreConfig` | `method` | `"rolling"` | All real sites state it (`"ewm"` everywhere observed). Genuinely branches the computation (`candidate_signals.py:447-450`: `ewm` vs rolling mean/std). Several `tests/test_track_a_guards.py` sites omit it. | **Fix.** |
+| `ZScoreConfig` | `ddof` | `1` | **Zero call sites anywhere in the repo state it** — every `ZScoreConfig(...)` construction, production and test alike, relies on the class default. Feeds directly into the live rolling-std computation (`candidate_signals.py:442,452`: `_rolling_mean_std_last(..., ddof=ddof)`) — a numeric that changes the computed z-score denominator on the `method="rolling"` path. The most under-the-radar item in this whole follow-up: unlike `entry_z`, no caller has ever even had the opportunity to notice this one is a class default, because none states it either way. | **Fix.** |
+| `ZScoreConfig` | `weights`, `min_periods`, `residual_key` | `None`, `None`, `""` | — | Legitimate `None`/empty "not set" sentinels with documented resolution behaviour (`resolved_weights`, `resolved_min_periods`), not silent-wrong-value fallbacks. Same category as Table 2's `None`-means-unbounded entries. **No fix** — out of scope, not the defect this track targets. |
+| `MRDiagnosticsConfig` | `lookback`, `compute_frequency` | `252`, `"daily"` | Every real site (`run_me.py:443-446`, `sweep_defaults.py:47`, `tests/test_track_a_guards.py`, `tests/test_sweep_defaults.py`) already states both explicitly. Zero bare calls found. | **Fix**, zero blast radius — purely mechanical. |
+| `SpreadMomentumConfig` | `lookback`, `norm_window`, `entry_threshold` | `5`, `63`, `0.0` | **Zero construction sites anywhere in the repo** (grepped `SpreadMomentumConfig(` — no hits outside `config.py` itself). Entirely unused, opt-in via `PortfolioMeanReversionConfig.spread_momentum: SpreadMomentumConfig \| None = None`. | Dead code today, but a live numeric default the moment someone opts in. **Fix** — zero blast radius, no call site to update. |
+| `KellyConfig` | `min_trades`, `blend_target`, `fraction`, `floor_multiplier`, `cap_multiplier`, `per_sector` | `30, 60, 0.5, 0.25, 2.0, True` | **Zero construction sites anywhere.** Opt-in via `SizingConfig.kelly: KellyConfig \| None = None`. | **Fix**, zero blast radius. `half_life: int \| None = None` stays — documented "None = equal-weighted expanding window" opt state. |
+| `IntervalScoringConfig` | `floor_multiplier`, `cap_multiplier`, `floor_mode` | `0.25, 2.0, "clamp"` | Zero production sites. Test-only: `tests/test_interval_scoring_config.py` (4 sites), `tests/test_sweep_dedup_key.py`'s `_scoring()` helper (1 site) — none state these three. | **Fix**, update the 5 test call sites. `feature_weights` default factory already covered in Table 2 (guarded by `__post_init__`, stays). |
+| `FeatureIntervalSpec` | `missing_weight` | `1.0` | Zero production sites. Same test files as above (3 constructions). | **Fix**, update the 3 test call sites. `interval_names` stays (`None` = no labels, cosmetic). |
+| `TimescaleRiskConfig` | `selection` | `"max_abs_z"` | **Zero construction sites anywhere.** Only matters when `max_timescales_per_spread` (itself `None`-disabled by default) is also set. | **Fix**, zero blast radius. |
+| `CrossTimescaleEntryConfig` | `same_sign_required` | `True` | **Zero construction sites anywhere.** | **Fix**, zero blast radius. |
+
+### Is this a fourth group, or the tail of the same one?
+
+One group, not a new one: every item above is reachable from
+`SimulatorConfig` through fields the original scope list (line 130-138)
+already named — `PairSpreadTraderConfig` and `PortfolioMeanReversionConfig`
+are literally listed there. The audit method (Table 1's own construction)
+just didn't reach them; this is a coverage gap in the first pass, not a
+previously-unknown region of the config surface. A second mechanical pass —
+enumerate every field of every class the scope section names, cross-check
+against Table 1/Table 2, flag anything with neither a row nor an explicit
+"not result-affecting" justification — is what closes it. No further
+sweep beyond `config.py`'s own classes turned up anything else: every other
+`@dataclass` in the repo (grepped `^@dataclass` across `src/`) is either
+already covered, an engine-internal working-state class (excluded above,
+with reasoning re-verified for this session), or a class outside the
+"config a human writes into a script" boundary (`SectorDataSource`, built
+only by `discover_sector_data_sources` itself, never hand-constructed with
+a bare numeric default relied upon).
+
+### Not fixed here, left as-is
+
+`PairSpreadTraderConfig.allow_long`/`.allow_short` and
+`PortfolioMeanReversionConfig.allow_long`/`.allow_short` — both default
+`True`, both used unconditionally at every real call site with no observed
+override to `False` anywhere in the repo (grepped `allow_long=False\|
+allow_short=False` — no hits). Unlike `ActivationConfig`'s booleans, there
+is no live disagreement to prove the default is wrong, and flipping the
+audit's own "doubtful → fix" bar to include every never-overridden boolean
+would swallow essentially every opt-out flag in the config layer
+(`allow_fractional_shares`, `record_exit`, `per_sector` once fixed above,
+etc.). Left as a class default, consistent with `D_config_hygiene.md`'s own
+"Out of scope: Structural changes... beyond removing defaults" read
+narrowly — these two are closer to feature switches than un-stated
+research parameters. Flagged here rather than silently passed over.

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from dataclasses import asdict, dataclass, is_dataclass
+from dataclasses import asdict, dataclass, field, is_dataclass
 from pathlib import Path
 from typing import Any
 
@@ -30,7 +30,10 @@ class CandidateSelectionConfig:
         If True, only candidates with is_valid == True are kept.
 
     require_success
-        If True, only candidates with success == True are kept.
+        If True, only candidates with success == True are kept. Mandatory —
+        no default (Track D): the standard_v1 bundle already restates
+        allowed_candidate_subtypes/require_is_valid but silently inherited
+        this one from the class default.
 
     adf_pvalue_max
         Optional upper bound for the ADF p-value. If set, only candidates with
@@ -65,7 +68,7 @@ class CandidateSelectionConfig:
     """
     allowed_candidate_subtypes: tuple[str, ...] = ("knee", "dense_knee")
     require_is_valid: bool = True
-    require_success: bool = True
+    require_success: bool = field(kw_only=True)
     adf_pvalue_max: float | None = None
     mr_retention_min: float | None = None
     half_life_mult_max: float | None = None

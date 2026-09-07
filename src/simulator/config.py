@@ -71,11 +71,13 @@ class CrossTimescaleEntryConfig:
     mean_abs_z_min
         Mean of abs(z) across timescales must exceed this.
     same_sign_required
-        When True, all timescales must agree on direction.
+        When True, all timescales must agree on direction. Mandatory -- no
+        default (Track D follow-up). Unused by every call site in the repo
+        today -- zero blast radius.
     """
     min_abs_z_all: float | None = None
     mean_abs_z_min: float | None = None
-    same_sign_required: bool = True
+    same_sign_required: bool = field(kw_only=True)
 
 
 @dataclass(slots=True, frozen=True)
@@ -94,9 +96,13 @@ class TimescaleRiskConfig:
     max_pct_single_timescale
         Maximum fraction of total open positions sharing the same residual_key.
         None = uncapped.
+
+    selection is mandatory -- no default (Track D follow-up); only takes
+    effect once max_timescales_per_spread is also set. Unused by every call
+    site in the repo today -- zero blast radius.
     """
     max_timescales_per_spread: int | None = None
-    selection: str = "max_abs_z"
+    selection: str = field(kw_only=True)
     max_pct_single_timescale: float | None = None
 
     def __post_init__(self) -> None:
@@ -290,17 +296,33 @@ class CapitalConfig:
 
 @dataclass(slots=True, frozen=True)
 class ActivationConfig:
-    one_active_per_group: bool = True
-    switch_only_when_flat: bool = True
+    """
+    Trading-rule booleans. Mandatory -- no default (Track D follow-up): every
+    real call site already states both, and disagrees with the class default
+    that used to backstop them (run_me.py / sweep_defaults.py both set
+    False, False; the removed default was True, True).
+    """
+    one_active_per_group: bool
+    switch_only_when_flat: bool
 
 
 @dataclass
 class ZScoreConfig:
-    lookback: int | list[int] = 21
+    """
+    lookback, ddof, and method are mandatory -- no default (Track D
+    follow-up). ddof in particular fed the live rolling z-score std
+    computation (candidate_signals.py's _rolling_mean_std_last) with no
+    caller anywhere in the repo ever stating it, in either direction --
+    unlike the other items in this track, it was never even visibly a
+    magic number, since nobody had occasion to notice it was defaulted.
+    method genuinely branches the computation (rolling vs. ewm mean/std),
+    not merely a display choice.
+    """
+    lookback: int | list[int]
     weights: list[float] | None = None
     min_periods: int | None = None
-    ddof: int = 1
-    method: str = "rolling"  # "rolling" or "ewm"
+    ddof: int = field(kw_only=True)
+    method: str = field(kw_only=True)  # "rolling" or "ewm"
     residual_key: str = ""
 
     def resolved_lookbacks(self) -> list[int]:
@@ -348,9 +370,12 @@ class MRDiagnosticsConfig:
         "daily"  — compute diagnostics every simulation day
         "weekly" — compute only on dates where new panel candidates arrive
         "off"    — never compute; z-score-only fast path
+
+    Both fields mandatory -- no default (Track D follow-up). Every real
+    call site already states both explicitly.
     """
-    lookback: int = 252
-    compute_frequency: str = "daily"  # "daily" | "weekly" | "off"
+    lookback: int
+    compute_frequency: str  # "daily" | "weekly" | "off"
 
     def __post_init__(self) -> None:
         if self.compute_frequency not in ("daily", "weekly", "off"):
@@ -364,10 +389,16 @@ class MRDiagnosticsConfig:
 class SpreadMomentumConfig:
     """
     Spread momentum entry filter.
+
+    All fields mandatory -- no default (Track D follow-up). Unused by every
+    call site in the repo today (opt-in via
+    PortfolioMeanReversionConfig.spread_momentum: SpreadMomentumConfig |
+    None = None) -- zero blast radius to fix now, before a first caller
+    opts in and silently inherits a class default.
     """
-    lookback: int = 5
-    norm_window: int = 63
-    entry_threshold: float = 0.
+    lookback: int
+    norm_window: int
+    entry_threshold: float
 
     def __post_init__(self) -> None:
         if self.lookback < 1:
@@ -386,8 +417,13 @@ class SpreadMomentumConfig:
 
 @dataclass(slots=True, frozen=True)
 class PortfolioMeanReversionConfig:
+    """
+    exit_z is mandatory -- no default (Track D follow-up), same treatment as
+    entry_z (already required from the original Track D pass). Dormant on
+    B's baseline -- see tests/test_portfolio_mean_reversion_trader.py.
+    """
     entry_z: float
-    exit_z: float = 0.0
+    exit_z: float
     allow_long: bool = True
     allow_short: bool = True
     time_stop_half_life_multiplier: float | None = None
@@ -403,9 +439,14 @@ class PairSpreadTraderConfig:
 
     Deliberately minimal: entry on z-threshold, exit on z-cross.
     Sizing is handled by SizingEngine. Risk constraints by RiskManager.
+
+    entry_z and exit_z are mandatory -- no default (Track D follow-up).
+    This is the live trader on B's baseline; b_baseline_harness.py already
+    states entry_z=1.75 against the removed class default of 2.0, evidence
+    the default was already stale before this fix.
     """
-    entry_z: float = 2.0
-    exit_z: float = 0.0
+    entry_z: float
+    exit_z: float
     allow_long: bool = True
     allow_short: bool = True
     cross_ts: CrossTimescaleEntryConfig | None = None
@@ -444,14 +485,20 @@ class KellyConfig:
         Maximum Kelly notional as multiple of base_pair_notional.
     per_sector
         If True, track stats and compute Kelly per group_id.
+
+    Every field but half_life is mandatory -- no default (Track D
+    follow-up). half_life keeps its None default: documented, legitimate
+    "equal-weighted expanding window" opt state, not a silent fallback.
+    Unused by every call site in the repo today (opt-in via
+    SizingConfig.kelly: KellyConfig | None = None) -- zero blast radius.
     """
     half_life: int | None = None
-    min_trades: int = 30
-    blend_target: int = 60
-    fraction: float = 0.5
-    floor_multiplier: float = 0.25
-    cap_multiplier: float = 2.0
-    per_sector: bool = True
+    min_trades: int = field(kw_only=True)
+    blend_target: int = field(kw_only=True)
+    fraction: float = field(kw_only=True)
+    floor_multiplier: float = field(kw_only=True)
+    cap_multiplier: float = field(kw_only=True)
+    per_sector: bool = field(kw_only=True)
 
 
 @dataclass(slots=True, frozen=True)
@@ -467,11 +514,13 @@ class VolSizingConfig:
     ----------
     floor_multiplier
         Minimum vol-norm size multiplier (prevents over-shrinking low-vol pairs).
+        Mandatory — no default (Track D).
     cap_multiplier
         Maximum vol-norm size multiplier (prevents over-sizing high-vol pairs).
+        Mandatory — no default (Track D).
     """
-    floor_multiplier: float = 0.2
-    cap_multiplier: float = 5.0
+    floor_multiplier: float
+    cap_multiplier: float
 
     def __post_init__(self) -> None:
         if self.floor_multiplier <= 0.0:
@@ -566,13 +615,16 @@ class FeatureIntervalSpec:
     interval_names
         Optional labels for intervals, for logging and diagnostics.
     missing_weight
-        Weight when feature value is missing. Default 1.0 = neutral.
+        Weight when feature value is missing. Mandatory -- no default
+        (Track D follow-up). Unused by every call site in the repo today
+        (opt-in via SizingConfig.interval_scoring:
+        IntervalScoringConfig | None = None) -- zero blast radius.
     """
     feature: str
     interval_limits: tuple[float, ...]
     interval_weights: tuple[float, ...]
     interval_names: tuple[str, ...] | None = None
-    missing_weight: float = 1.0
+    missing_weight: float = field(kw_only=True)
 
     def __post_init__(self) -> None:
         n_intervals = len(self.interval_limits) - 1
@@ -634,15 +686,21 @@ class IntervalScoringConfig:
         would promote an intentionally-zeroed feature to full weight and skew
         every trade's size.
     floor_multiplier
-        Minimum output multiplier. Default 0.25.
+        Minimum output multiplier. Mandatory -- no default (Track D
+        follow-up).
     cap_multiplier
-        Maximum output multiplier. Default 2.0.
+        Maximum output multiplier. Mandatory -- no default (Track D
+        follow-up).
+
+    floor_multiplier, cap_multiplier, and floor_mode are unused by every
+    call site in the repo today (opt-in via SizingConfig.interval_scoring:
+    IntervalScoringConfig | None = None) -- zero blast radius to fix now.
     """
     feature_specs: tuple[FeatureIntervalSpec, ...]
     feature_weights: dict[str, float] = field(default_factory=dict)
-    floor_multiplier: float = 0.25
-    cap_multiplier: float = 2.0
-    floor_mode: str = "clamp"   # "clamp" | "exclude"
+    floor_multiplier: float = field(kw_only=True)
+    cap_multiplier: float = field(kw_only=True)
+    floor_mode: str = field(kw_only=True)   # "clamp" | "exclude"
 
     def __post_init__(self) -> None:
         if not self.feature_specs:
@@ -732,16 +790,18 @@ class RiskManagerConfig:
     max_gross_exposure
         Maximum total gross notional as a multiple of CapitalConfig.total_capital.
         E.g. 10.0 = allow up to 10× total_capital deployed simultaneously.
+        Mandatory — no default (Track D).
     max_ticker_exposure_pct
         Maximum net notional per ticker as a fraction of total_capital.
-        E.g. 0.15 = no single ticker can exceed 15% of total_capital as net exposure.
+        E.g. 0.15 = no single ticker can exceed 15% of total_capital as net
+        exposure. Mandatory — no default (Track D).
     max_concurrent_positions
         Hard cap on simultaneous open positions. None = uncapped.
     timescale_risk
         Timescale selection and concentration policy. None = approve all.
     """
-    max_gross_exposure: float = 10.0
-    max_ticker_exposure_pct: float = 0.15
+    max_gross_exposure: float = field(kw_only=True)
+    max_ticker_exposure_pct: float = field(kw_only=True)
     max_concurrent_positions: int | None = None
     timescale_risk: TimescaleRiskConfig | None = None
 
@@ -768,16 +828,25 @@ class RunConfig:
 
 @dataclass(slots=True, frozen=True)
 class ExecutionConfig:
+    """
+    Execution and cost model.
+
+    min_abs_units, and every commission/borrow field below, are mandatory —
+    no default. These feed straight into reported PnL and were previously
+    inherited silently from a class default that no caller ever stated
+    (Track D). Pin them explicitly (or via a versioned bundle) rather than
+    reintroducing a magic number.
+    """
     allow_fractional_shares: bool = False
     share_rounding: str = "nearest"   # nearest | floor | ceil
-    min_abs_units: float = 0.5        # ignored if fractional=True
+    min_abs_units: float = field(kw_only=True)        # ignored if fractional=True
 
-    commission_per_share: float = 0.005
-    commission_per_order: float = 0.0
-    min_commission_per_order: float = 1.0
-    max_commission_per_order: float = 9.79
-    max_commission_pct_of_trade: float = 0.01
-    short_borrow_rate_annual_bps: float = 30.0
+    commission_per_share: float = field(kw_only=True)
+    commission_per_order: float = field(kw_only=True)
+    min_commission_per_order: float = field(kw_only=True)
+    max_commission_per_order: float = field(kw_only=True)
+    max_commission_pct_of_trade: float = field(kw_only=True)
+    short_borrow_rate_annual_bps: float = field(kw_only=True)
 
 
 @dataclass(slots=True, frozen=True)
@@ -837,7 +906,15 @@ class SimulatorConfig:
     run: RunConfig
     execution: ExecutionConfig
     capital: CapitalConfig
-    sizing: SizingConfig = field(default_factory=lambda: SizingConfig(base_pair_notional=100_000.0))
+    sizing: SizingConfig
+    # None is deliberate, not a silent fallback (Track D investigation): it
+    # means "resolve per-residual_key CausalResidualConfig from the
+    # persisted candidate-panel metadata instead" (see
+    # simulator_factory._resolve_residual_configs). Sourced from neither
+    # SweepConfig nor a DEFAULT_CONFIGS bundle — metadata absence raises
+    # loudly (ValueError) rather than defaulting to a value, so the gap in
+    # the config surface's three-way partition (sweep-derived / bundle /
+    # this field) does not need a guard.
     residual: CausalResidualConfig | None = None
     performance: PerformanceConfig = field(default_factory=PerformanceConfig)
     persistence: PersistenceConfig = field(default_factory=PersistenceConfig)

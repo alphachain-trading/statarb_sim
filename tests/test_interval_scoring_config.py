@@ -29,11 +29,13 @@ def _specs():
             feature=XAA,
             interval_limits=(float("-inf"), -0.38, float("inf")),
             interval_weights=(1.25, 1.0),
+            missing_weight=1.0,
         ),
         FeatureIntervalSpec(
             feature=BWG,
             interval_limits=(float("-inf"), 0.0, float("inf")),
             interval_weights=(1.0, 1.0),
+            missing_weight=1.0,
         ),
     )
 
@@ -43,6 +45,9 @@ class TestIntervalScoringConfig(unittest.TestCase):
         cfg = IntervalScoringConfig(
             feature_specs=_specs(),
             feature_weights={XAA: 1.0, BWG: 0.0},
+            floor_multiplier=0.25,
+            cap_multiplier=2.0,
+            floor_mode="clamp",
         )
         self.assertEqual(cfg.feature_weights[BWG], 0.0, "an explicit 0.0 weight must survive")
 
@@ -52,6 +57,9 @@ class TestIntervalScoringConfig(unittest.TestCase):
             IntervalScoringConfig(
                 feature_specs=_specs(),
                 feature_weights={XAA: 1.0, BWG: 0.0, "typo_feature": 1.0},
+                floor_multiplier=0.25,
+                cap_multiplier=2.0,
+                floor_mode="clamp",
             )
         self.assertIn("typo_feature", str(cm.exception))
 
@@ -61,13 +69,21 @@ class TestIntervalScoringConfig(unittest.TestCase):
             IntervalScoringConfig(
                 feature_specs=_specs(),
                 feature_weights={XAA: 1.0},
+                floor_multiplier=0.25,
+                cap_multiplier=2.0,
+                floor_mode="clamp",
             )
         self.assertIn(BWG, str(cm.exception))
 
     def test_empty_weights_raise(self):
         """The default empty dict was never usable — SizingEngine always raised."""
         with self.assertRaises(ValueError) as cm:
-            IntervalScoringConfig(feature_specs=_specs())
+            IntervalScoringConfig(
+                feature_specs=_specs(),
+                floor_multiplier=0.25,
+                cap_multiplier=2.0,
+                floor_mode="clamp",
+            )
         self.assertIn("no feature_weights entry", str(cm.exception))
 
 

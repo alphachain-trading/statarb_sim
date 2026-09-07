@@ -28,7 +28,11 @@ class PortfolioMeanReversionTrader:
     """
 
     config: PortfolioMeanReversionConfig
-    default_abs_target_group_exposure: float = 1.0
+    # Mandatory — no default (Track D). Not part of PortfolioMeanReversionConfig
+    # (adding a new config field is out of scope for D) but the same
+    # anti-pattern: a numeric that affects results, sitting one layer below
+    # the config object as a second, ungated dataclass default.
+    default_abs_target_group_exposure: float
 
     def generate_actions(
         self,

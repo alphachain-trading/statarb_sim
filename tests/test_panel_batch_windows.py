@@ -31,7 +31,15 @@ _MATERIALS_DATA = Path(DATA_UNIVERSES) / "materials_only_v1"
 # pair_cfg carries no default (Track B) — min_obs=2 is the loosest legal
 # value, chosen because these tests are about window slicing/weighting, not
 # about min_obs, and must not reject candidates their assertions rely on.
-_PAIR_CFG = PairSpreadConfig(hedge_ratio_methods=["pca"], min_obs=2)
+_PAIR_CFG = PairSpreadConfig(
+    hedge_ratio_methods=["pca"],
+    min_obs=2,
+    min_return_std=1e-8,
+    min_level_std=1e-8,
+    min_kappa=1e-6,
+    max_half_life=126.0,
+    tiny_weight_threshold=1e-6,
+)
 
 
 @unittest.skipUnless(_MATERIALS_DATA.exists(), "materials market data not present")

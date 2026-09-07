@@ -30,6 +30,7 @@ from src.simulator.config import (
     RunConfig,
     SectorDataSource,
     SimulatorConfig,
+    SizingConfig,
     ZScoreConfig,
 )
 from src.simulator.simulator_factory import _load_panels
@@ -38,13 +39,22 @@ from src.simulator.simulator_factory import _load_panels
 def _minimal_sim_kwargs():
     return dict(
         data=DataConfig(),
-        candidate_selection=CandidateSelectionConfig(),
-        activation=ActivationConfig(),
+        candidate_selection=CandidateSelectionConfig(require_success=True),
+        activation=ActivationConfig(one_active_per_group=True, switch_only_when_flat=True),
         diagnostics=MRDiagnosticsConfig(lookback=21, compute_frequency="off"),
-        trader=PairSpreadTraderConfig(),
+        trader=PairSpreadTraderConfig(entry_z=2.0, exit_z=0.0),
         run=RunConfig(),
-        execution=ExecutionConfig(),
+        execution=ExecutionConfig(
+            min_abs_units=0.5,
+            commission_per_share=0.005,
+            commission_per_order=0.0,
+            min_commission_per_order=1.0,
+            max_commission_per_order=9.79,
+            max_commission_pct_of_trade=0.01,
+            short_borrow_rate_annual_bps=30.0,
+        ),
         capital=CapitalConfig(total_capital=1_000_000.0),
+        sizing=SizingConfig(base_pair_notional=100_000.0),
     )
 
 
@@ -60,7 +70,7 @@ class TestGuard1AdfPvalueMaxAllNaN(unittest.TestCase):
             "candidate_type": ["pair", "pair"],
             "spread_id": ["A|B", "C|D"],
         })
-        cfg = CandidateSelectionConfig(adf_pvalue_max=0.05)
+        cfg = CandidateSelectionConfig(adf_pvalue_max=0.05, require_success=True)
 
         with self.assertRaises(ValueError) as cm:
             select_candidates(panel, cfg)
@@ -82,7 +92,7 @@ class TestGuard1AdfPvalueMaxAllNaN(unittest.TestCase):
             "spread_id": ["A|B", "C|D"],
             "asof_date": pd.to_datetime(["2020-01-01", "2020-01-01"]),
         })
-        cfg = CandidateSelectionConfig(adf_pvalue_max=0.05)
+        cfg = CandidateSelectionConfig(adf_pvalue_max=0.05, require_success=True)
 
         result = select_candidates(panel, cfg)
         self.assertEqual(len(result.panel), 1)
@@ -95,7 +105,7 @@ class TestGuard2EqRolling(unittest.TestCase):
         )
         with self.assertRaises(ValueError) as cm:
             SimulatorConfig(
-                z_score=ZScoreConfig(lookback=21),
+                z_score=ZScoreConfig(lookback=21, ddof=1, method="rolling"),
                 residual=residual,
                 **_minimal_sim_kwargs(),
             )
@@ -108,7 +118,7 @@ class TestGuard2EqRolling(unittest.TestCase):
             mode=ResidualMode.EQ_EXPANDING, subtract_risk_free=False, min_lb_eq_exp=21,
         )
         cfg = SimulatorConfig(
-            z_score=ZScoreConfig(lookback=21),
+            z_score=ZScoreConfig(lookback=21, ddof=1, method="rolling"),
             residual=residual,
             **_minimal_sim_kwargs(),
         )
@@ -120,8 +130,8 @@ class TestGuard3MultiSleeveOccupancy(unittest.TestCase):
         with self.assertRaises(ValueError) as cm:
             SimulatorConfig(
                 z_score=[
-                    ZScoreConfig(residual_key="rk", lookback=21),
-                    ZScoreConfig(residual_key="rk", lookback=42),
+                    ZScoreConfig(residual_key="rk", lookback=21, ddof=1, method="rolling"),
+                    ZScoreConfig(residual_key="rk", lookback=42, ddof=1, method="rolling"),
                 ],
                 **{**_minimal_sim_kwargs(), "diagnostics": MRDiagnosticsConfig(lookback=42, compute_frequency="off")},
             )
@@ -132,8 +142,8 @@ class TestGuard3MultiSleeveOccupancy(unittest.TestCase):
     def test_distinct_residual_keys_do_not_raise(self):
         cfg = SimulatorConfig(
             z_score=[
-                ZScoreConfig(residual_key="rk1", lookback=21),
-                ZScoreConfig(residual_key="rk2", lookback=21),
+                ZScoreConfig(residual_key="rk1", lookback=21, ddof=1, method="rolling"),
+                ZScoreConfig(residual_key="rk2", lookback=21, ddof=1, method="rolling"),
             ],
             **{**_minimal_sim_kwargs(), "diagnostics": MRDiagnosticsConfig(lookback=21, compute_frequency="off")},
         )
@@ -153,7 +163,7 @@ class TestGuard3MultiSleeveOccupancy(unittest.TestCase):
             return_value=CandidatePanelResult(panel=fake_panel, metadata={}),
         ):
             with self.assertRaises(ValueError) as cm:
-                _load_panels(data_cfg, [ZScoreConfig()])
+                _load_panels(data_cfg, [ZScoreConfig(lookback=21, ddof=1, method="rolling")])
         msg = str(cm.exception)
         self.assertIn("weight_model", msg)
         self.assertIn("separate runs", msg)
@@ -171,7 +181,7 @@ class TestGuard3MultiSleeveOccupancy(unittest.TestCase):
             "src.simulator.simulator_factory.load_candidate_panel_result",
             return_value=CandidatePanelResult(panel=fake_panel, metadata={}),
         ):
-            merged, metadata_by_key = _load_panels(data_cfg, [ZScoreConfig()])
+            merged, metadata_by_key = _load_panels(data_cfg, [ZScoreConfig(lookback=21, ddof=1, method="rolling")])
         self.assertEqual(len(merged), 2)
 
 

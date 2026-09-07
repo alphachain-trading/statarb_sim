@@ -83,6 +83,7 @@ def _pair_cfg() -> pcpc.PairSpreadConfig:
         min_level_std=0.0,
         min_kappa=-1e9,
         max_half_life=1e9,
+        tiny_weight_threshold=1e-6,
     )
 
 

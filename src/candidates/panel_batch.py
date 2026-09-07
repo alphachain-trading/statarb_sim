@@ -20,7 +20,15 @@ Usage (notebook):
         hedge_ratio_lb=252,
         mr_diag_lb=252,
         selected_sectors=["materials"],
-        pair_cfg=PairSpreadConfig(hedge_ratio_methods=["pca"], min_obs=252),
+        pair_cfg=PairSpreadConfig(
+            hedge_ratio_methods=["pca"],
+            min_obs=252,
+            min_return_std=1e-8,
+            min_level_std=1e-8,
+            min_kappa=1e-6,
+            max_half_life=126.0,
+            tiny_weight_threshold=1e-6,
+        ),
     )
     results = run_panel_batch(cfg)
 

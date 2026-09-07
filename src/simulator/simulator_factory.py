@@ -89,7 +89,9 @@ def create_simulator(
     )
 
     if isinstance(config.trader, PortfolioMeanReversionConfig):
-        trader = PortfolioMeanReversionTrader(config=config.trader)
+        trader = PortfolioMeanReversionTrader(
+            config=config.trader, default_abs_target_group_exposure=1.0,
+        )
     elif isinstance(config.trader, PairSpreadTraderConfig):
         trader = PairSpreadMeanReversionTrader(config=config.trader)
     else:

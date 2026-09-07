@@ -232,7 +232,15 @@ def _make_panel_batch_cfg(cfg: dict):
         # No default (Track B): fully-binding at the requested hedge_ratio_lb
         # — a pair only gets a hedge ratio if it retained the full 252-day
         # window, matching the demo's own hedge_ratio_lb above.
-        pair_cfg=PairSpreadConfig(hedge_ratio_methods=["pca"], min_obs=252),
+        pair_cfg=PairSpreadConfig(
+            hedge_ratio_methods=["pca"],
+            min_obs=252,
+            min_return_std=1e-8,
+            min_level_std=1e-8,
+            min_kappa=1e-6,
+            max_half_life=126.0,
+            tiny_weight_threshold=1e-6,
+        ),
     )
 
 
@@ -429,6 +437,7 @@ def _build_sim_config(cfg: dict):
         ),
         z_score=ZScoreConfig(
             lookback=z["lookback"],
+            ddof=1,
             method=z["method"],
             residual_key=cfg["residual_key"],
         ),
@@ -444,7 +453,10 @@ def _build_sim_config(cfg: dict):
         ),
         sizing=SizingConfig(
             base_pair_notional=szg["base_pair_notional"],
-            vol_normalize=VolSizingConfig() if szg.get("vol_normalize", True) else None,
+            vol_normalize=(
+                VolSizingConfig(floor_multiplier=0.2, cap_multiplier=5.0)
+                if szg.get("vol_normalize", True) else None
+            ),
         ),
         risk_manager=RiskManagerConfig(
             max_gross_exposure=rsk["max_gross_exposure"],
@@ -459,6 +471,13 @@ def _build_sim_config(cfg: dict):
         execution=ExecutionConfig(
             allow_fractional_shares=False,
             share_rounding="nearest",
+            min_abs_units=0.5,
+            commission_per_share=0.005,
+            commission_per_order=0.0,
+            min_commission_per_order=1.0,
+            max_commission_per_order=9.79,
+            max_commission_pct_of_trade=0.01,
+            short_borrow_rate_annual_bps=30.0,
         ),
         performance=PerformanceConfig(enabled=True, metrics_table=True, report_html=True),
         # output_dir is the *parent* under which the persistence layer creates a

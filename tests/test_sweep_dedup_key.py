@@ -30,9 +30,13 @@ def _scoring(weight: float) -> IntervalScoringConfig:
                 feature="x_area_asymmetry_ewm",
                 interval_limits=(float("-inf"), 0.0, float("inf")),
                 interval_weights=(1.0, weight),
+                missing_weight=1.0,
             ),
         ),
         feature_weights={"x_area_asymmetry_ewm": 1.0},
+        floor_multiplier=0.25,
+        cap_multiplier=2.0,
+        floor_mode="clamp",
     )
 
 
@@ -67,10 +71,10 @@ class TestSweepDedupKey(unittest.TestCase):
     def test_multi_timescale_overrides_change_dedup_key(self):
         """Nested ZScoreConfig lists must reach the key too."""
         a = SweepConfig(candidate_panel_subdir="V4", z_score_overrides=[
-            ZScoreConfig(lookback=21, method="ewm", residual_key="exp_hl126_mh252"),
+            ZScoreConfig(lookback=21, ddof=1, method="ewm", residual_key="exp_hl126_mh252"),
         ])
         b = SweepConfig(candidate_panel_subdir="V4", z_score_overrides=[
-            ZScoreConfig(lookback=42, method="ewm", residual_key="exp_hl126_mh252"),
+            ZScoreConfig(lookback=42, ddof=1, method="ewm", residual_key="exp_hl126_mh252"),
         ])
         self.assertNotEqual(dedup_key(a), dedup_key(b))
 
