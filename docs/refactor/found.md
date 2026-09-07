@@ -35,6 +35,10 @@ serialized `SimulatorConfig`)
 What: Deleting the unused `ActivationConfig.candidate_max_age_days` field changed
 `config_hash`. Harmless in `statarb_sim`, which has no persisted run dirs, but it
 will orphan existing persisted runs when Track A is ported.
+
+Track D removed many further class defaults without changing resolved values, so D
+itself leaves `config_hash` intact — but the same porting hazard applies to any
+future field deletion.
 Severity: result-affecting on port only
 Suggested track: port note — hierarchical-arb
 
@@ -47,9 +51,6 @@ requirement Track G carries for the hedge fit, one stage earlier. It matters mor
 here than it looks: the residual fit is expanding, so gaps accumulate over the whole
 history, and weighting by position after dropping pulls old observations forward at
 exactly the point where the decay is meant to be discounting them.
-
-Whether it bites in practice depends on how gappy the input is. Track B's new
-per-pair drop logging answers that for free — check it before deciding severity.
 
 Partial answer from Track B's own baseline harness: energy_only_v1 and
 materials_only_v1 (the two universes the harness runs against) have no internal
@@ -66,6 +67,26 @@ Out of scope for B, which does not touch the residual fit's window handling.
 Severity: result-affecting, magnitude unknown
 Suggested track: new — sequence after B, since B's logging sizes the problem
 
+## `ZScoreConfig.ddof` was never chosen by anyone
+Found during: track D (follow-up pass, commit 4)
+Location: `ZScoreConfig` in `src/simulator/config.py`; consumed by the rolling
+z-score standard deviation computation
+What: `ddof` feeds the live rolling z-score std directly, and **no caller anywhere
+in the repo had ever stated it** — unlike every other field this track touched,
+where at least one call site made the value explicit. Every z-score in every run to
+date therefore rests on a Bessel correction nobody selected.
+
+The magnitude is small at production lookbacks: at `zlb=126` the difference between
+`ddof=0` and `ddof=1` is a factor of `sqrt(126/125)`, roughly 0.4% on the standard
+deviation. But it applies to the threshold comparison, so it acts multiplicatively
+on every entry decision and systematically in one direction, and it grows as the
+z-lookback shortens.
+
+D relocated the value and made it explicit. It did not validate it. Which value is
+correct is a statistical decision, not a hygiene one.
+Severity: result-affecting (value, not mechanism)
+Suggested track: new — research review, alongside the ExecutionConfig cost review
+
 ## ExecutionConfig cost-field values are unreviewed
 Found during: track D
 Location: `src/simulator/config.py` (`ExecutionConfig`), values pinned in
@@ -81,6 +102,39 @@ reviewed whether they are still the right numbers — only that they are now
 visible and version-tracked rather than implicit.
 Severity: result-affecting (values, not mechanism)
 Suggested track: new — a research review of the cost model, after D
+
+## Config classes with zero construction sites
+Found during: track D (follow-up pass, commit 6)
+Location: `SpreadMomentumConfig`, `KellyConfig`, `TimescaleRiskConfig.selection`,
+`CrossTimescaleEntryConfig.same_sign_required` in `src/simulator/config.py`
+What: Four config surfaces with no construction site anywhere in the repo. D removed
+their defaults as trivial no-risk cleanup, but the deeper question is whether they
+should exist at all.
+
+`KellyConfig` in particular: Kelly sizing was tested in `hierarchical-arb` and
+abandoned. A config class for an abandoned approach is the same failure shape as
+`candidate_max_age_days` — surface that looks like a supported feature and is not.
+`CrossTimescaleEntryConfig` likewise encodes cross-timescale gating, which the
+research record lists as neutral-or-harmful.
+
+Deleting them is cheap and they are recoverable from git history. Decide during F,
+when the config surface is being reshaped anyway.
+Severity: cosmetic
+Suggested track: F, or new
+
+## `allow_long` / `allow_short` defaults deliberately left in place
+Found during: track D (follow-up pass)
+Location: `PairSpreadTraderConfig`, `PortfolioMeanReversionConfig` in
+`src/simulator/config.py`
+What: Both default to `True` and no caller anywhere overrides either. Left as-is
+because, unlike `ActivationConfig`'s inverted booleans, there is no live caller
+disagreement proving the default wrong.
+
+Recorded so the omission is visible rather than looking like an oversight. If the
+rule is taken as absolute — no result-affecting defaults, full stop — these two are
+the remaining exceptions.
+Severity: cosmetic
+Suggested track: none — documented decision, revisit only if the rule tightens
 
 ## demo_materials.yaml does not expose ExecutionConfig's cost fields
 Found during: track D
@@ -127,36 +181,38 @@ a confusing failure for a fresh clone with no `download`/`residuals` state
 Suggested track: new (fixture staleness) — new for the comment; C for the
 download-stage integration
 
-## SimulatorConfig.risk_manager: RiskManagerConfig | None = None
+## `SimulatorConfig.risk_manager: RiskManagerConfig | None = None`
 Found during: track D
 Location: `src/simulator/config.py:844` (field default); consumed at
 `src/simulator/simulator_factory.py:107-110` (`if config.risk_manager is not
 None: risk_manager = RiskManager(...)`, else `risk_manager = None`)
 What: Result-affecting (an omitted risk_manager means portfolio gross/ticker
 exposure runs uncapped) but not a numeric default, so D's "remove default,
-pin value in bundle" mechanism does not apply -- there is no value to pin,
+pin value in bundle" mechanism does not apply — there is no value to pin,
 only a subsystem to require-or-not. This is a Track A style guard question
 or an explicit-mode question, not a config-hygiene one, and it is the same
 defect shape H will examine (a portfolio-level policy silently absent rather
 than explicitly stated). Left as-is; RiskManagerConfig's own two numeric
 fields (max_gross_exposure, max_ticker_exposure_pct) lost their class
-defaults this track (D_spec.md Table 1 #10) -- only the None-sentinel on
+defaults this track (D_spec.md Table 1 #10) — only the None-sentinel on
 SimulatorConfig itself is deferred.
 Severity: result-affecting
 Suggested track: new (Track A style guard) or H
 
-ActivationConfig carries defaults that are wrong for production
+## `start_after_nan` / `check_for_corruptions` disagree between two config classes
+Found during: track D (spec session, flagged "doubtful"; not covered by the
+follow-up pass, which addressed the trader-side classes only)
+Location: two config classes in `src/simulator/config.py` — identify both when
+picking this up
+What: The same field is pre-set to different values on two different config classes.
+Behaviour therefore depends on which class a run is constructed through.
 
-Found during: track D (spec session, flagged "doubtful"; not amended into scope) Location: ActivationConfig in src/simulator/config.py What: The class carries its own field defaults which the spec session judged inappropriate for production use. Left untouched in D because the amendment list did not cover it and "doubtful" was not treated as in scope.
+This is the defect D exists to remove, one level more abstract: not one default too
+many, but two defaults that contradict each other. Unlike a plain default, no bundle
+value can fix it — the two classes have to agree on what the field means, or one of
+them should not carry it.
 
-The spec session was instructed to place doubtful cases in the RESULT-AFFECTING table precisely so they would not fall through. That instruction worked at the enumeration stage but the handover to the implementation session did not carry it. Worth noting as a process gap, not only a code one.
-
-Note that run_me.py:_build_sim_config sets one_active_per_group=False and switch_only_when_flat=False explicitly, so at least those two are stated at the demo call site — check whether the defaults disagree with what production actually wants before changing anything. Severity: result-affecting, unmeasured Suggested track: new — a second D pass, or fold into F's config work
-
-start_after_nan / check_for_corruptions disagree between two config classes
-
-Found during: track D (spec session, flagged "doubtful"; not amended into scope) Location: two config classes in src/simulator/config.py — identify both when picking this up What: The same field is pre-set to different values on two different config classes. Behaviour therefore depends on which class a run is constructed through.
-
-This is the defect D exists to remove, one level more abstract: not one default too many, but two defaults that contradict each other. Unlike a plain default, no bundle value can fix it — the two classes have to agree on what the field means, or one of them should not carry it.
-
-Sequence note: E renames across both classes and F reshapes the config surface, so resolving this before F risks doing it twice. But it should not survive F. Severity: result-affecting, depends on construction path Suggested track: new — decide before or during F
+Sequence note: E renames across both classes and F reshapes the config surface, so
+resolving this before F risks doing it twice. But it should not survive F.
+Severity: result-affecting, depends on construction path
+Suggested track: new — decide before or during F
