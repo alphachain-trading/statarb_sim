@@ -67,10 +67,10 @@ class TestSweepDedupKey(unittest.TestCase):
     def test_multi_timescale_overrides_change_dedup_key(self):
         """Nested ZScoreConfig lists must reach the key too."""
         a = SweepConfig(candidate_panel_subdir="V4", z_score_overrides=[
-            ZScoreConfig(lookback=21, method="ewm", residual_key="exp_hl126_mh252"),
+            ZScoreConfig(lookback=21, ddof=1, method="ewm", residual_key="exp_hl126_mh252"),
         ])
         b = SweepConfig(candidate_panel_subdir="V4", z_score_overrides=[
-            ZScoreConfig(lookback=42, method="ewm", residual_key="exp_hl126_mh252"),
+            ZScoreConfig(lookback=42, ddof=1, method="ewm", residual_key="exp_hl126_mh252"),
         ])
         self.assertNotEqual(dedup_key(a), dedup_key(b))
 

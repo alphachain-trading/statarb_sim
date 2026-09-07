@@ -105,7 +105,7 @@ class TestGuard2EqRolling(unittest.TestCase):
         )
         with self.assertRaises(ValueError) as cm:
             SimulatorConfig(
-                z_score=ZScoreConfig(lookback=21),
+                z_score=ZScoreConfig(lookback=21, ddof=1, method="rolling"),
                 residual=residual,
                 **_minimal_sim_kwargs(),
             )
@@ -118,7 +118,7 @@ class TestGuard2EqRolling(unittest.TestCase):
             mode=ResidualMode.EQ_EXPANDING, subtract_risk_free=False, min_lb_eq_exp=21,
         )
         cfg = SimulatorConfig(
-            z_score=ZScoreConfig(lookback=21),
+            z_score=ZScoreConfig(lookback=21, ddof=1, method="rolling"),
             residual=residual,
             **_minimal_sim_kwargs(),
         )
@@ -130,8 +130,8 @@ class TestGuard3MultiSleeveOccupancy(unittest.TestCase):
         with self.assertRaises(ValueError) as cm:
             SimulatorConfig(
                 z_score=[
-                    ZScoreConfig(residual_key="rk", lookback=21),
-                    ZScoreConfig(residual_key="rk", lookback=42),
+                    ZScoreConfig(residual_key="rk", lookback=21, ddof=1, method="rolling"),
+                    ZScoreConfig(residual_key="rk", lookback=42, ddof=1, method="rolling"),
                 ],
                 **{**_minimal_sim_kwargs(), "diagnostics": MRDiagnosticsConfig(lookback=42, compute_frequency="off")},
             )
@@ -142,8 +142,8 @@ class TestGuard3MultiSleeveOccupancy(unittest.TestCase):
     def test_distinct_residual_keys_do_not_raise(self):
         cfg = SimulatorConfig(
             z_score=[
-                ZScoreConfig(residual_key="rk1", lookback=21),
-                ZScoreConfig(residual_key="rk2", lookback=21),
+                ZScoreConfig(residual_key="rk1", lookback=21, ddof=1, method="rolling"),
+                ZScoreConfig(residual_key="rk2", lookback=21, ddof=1, method="rolling"),
             ],
             **{**_minimal_sim_kwargs(), "diagnostics": MRDiagnosticsConfig(lookback=21, compute_frequency="off")},
         )
@@ -163,7 +163,7 @@ class TestGuard3MultiSleeveOccupancy(unittest.TestCase):
             return_value=CandidatePanelResult(panel=fake_panel, metadata={}),
         ):
             with self.assertRaises(ValueError) as cm:
-                _load_panels(data_cfg, [ZScoreConfig()])
+                _load_panels(data_cfg, [ZScoreConfig(lookback=21, ddof=1, method="rolling")])
         msg = str(cm.exception)
         self.assertIn("weight_model", msg)
         self.assertIn("separate runs", msg)
@@ -181,7 +181,7 @@ class TestGuard3MultiSleeveOccupancy(unittest.TestCase):
             "src.simulator.simulator_factory.load_candidate_panel_result",
             return_value=CandidatePanelResult(panel=fake_panel, metadata={}),
         ):
-            merged, metadata_by_key = _load_panels(data_cfg, [ZScoreConfig()])
+            merged, metadata_by_key = _load_panels(data_cfg, [ZScoreConfig(lookback=21, ddof=1, method="rolling")])
         self.assertEqual(len(merged), 2)
 
 

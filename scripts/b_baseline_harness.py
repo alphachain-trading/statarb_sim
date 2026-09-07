@@ -177,7 +177,7 @@ def _build_sim_config(active_sectors: list[str]) -> SimulatorConfig:
             selected_sectors=active_sectors,
             data_path=str(DATA_UNIVERSES),
         ),
-        "z_score": ZScoreConfig(lookback=21, method="ewm", residual_key=_residual_cfg().key),
+        "z_score": ZScoreConfig(lookback=21, ddof=1, method="ewm", residual_key=_residual_cfg().key),
         "trader": PairSpreadTraderConfig(entry_z=1.75, exit_z=0.0),
         "sizing": SizingConfig(
             base_pair_notional=100_000.0,

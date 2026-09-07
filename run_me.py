@@ -437,6 +437,7 @@ def _build_sim_config(cfg: dict):
         ),
         z_score=ZScoreConfig(
             lookback=z["lookback"],
+            ddof=1,
             method=z["method"],
             residual_key=cfg["residual_key"],
         ),

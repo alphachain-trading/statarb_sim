@@ -302,11 +302,21 @@ class ActivationConfig:
 
 @dataclass
 class ZScoreConfig:
-    lookback: int | list[int] = 21
+    """
+    lookback, ddof, and method are mandatory -- no default (Track D
+    follow-up). ddof in particular fed the live rolling z-score std
+    computation (candidate_signals.py's _rolling_mean_std_last) with no
+    caller anywhere in the repo ever stating it, in either direction --
+    unlike the other items in this track, it was never even visibly a
+    magic number, since nobody had occasion to notice it was defaulted.
+    method genuinely branches the computation (rolling vs. ewm mean/std),
+    not merely a display choice.
+    """
+    lookback: int | list[int]
     weights: list[float] | None = None
     min_periods: int | None = None
-    ddof: int = 1
-    method: str = "rolling"  # "rolling" or "ewm"
+    ddof: int = field(kw_only=True)
+    method: str = field(kw_only=True)  # "rolling" or "ewm"
     residual_key: str = ""
 
     def resolved_lookbacks(self) -> list[int]:
