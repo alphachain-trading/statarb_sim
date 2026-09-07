@@ -364,9 +364,12 @@ class MRDiagnosticsConfig:
         "daily"  — compute diagnostics every simulation day
         "weekly" — compute only on dates where new panel candidates arrive
         "off"    — never compute; z-score-only fast path
+
+    Both fields mandatory -- no default (Track D follow-up). Every real
+    call site already states both explicitly.
     """
-    lookback: int = 252
-    compute_frequency: str = "daily"  # "daily" | "weekly" | "off"
+    lookback: int
+    compute_frequency: str  # "daily" | "weekly" | "off"
 
     def __post_init__(self) -> None:
         if self.compute_frequency not in ("daily", "weekly", "off"):
