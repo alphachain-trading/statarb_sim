@@ -29,7 +29,7 @@ class KellyTracker:
     Tracks closed trade outcomes and computes Kelly-derived base notional.
 
     Uses expanding window with optional EWM half-life.
-    Operates per-sector or globally based on config.
+    Operates per-group or globally based on config.
     """
     config: KellyConfig
     base_pair_notional: float

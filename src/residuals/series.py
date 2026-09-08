@@ -7,7 +7,7 @@ of recomputing ``_get_residuals @ weights -> cumsum`` on every step.
 
 Layout (under ``panel_dir``):
 
-    series/stock/{ticker}.parquet          # single column "residual_return"
+    series/stock/{group_id}__{ticker}.parquet   # single column "residual_return"
     series/spread/{spread_id}__{asof}.parquet   # single column "level"
 
 Spread files are keyed by ``(spread_id, asof_date)``: the same spread recurs
@@ -98,9 +98,13 @@ def compute_and_persist_series(
         Loaded candidate panel (one row per (spread_id, asof_date) candidate).
         Must carry: ``spread_id``, ``group_id``, ``asof_date``, ``weights``.
     residual_params
-        ``{(group_id, residual_key): {asof_date: FittedCausalResidualModel}}`` —
+        ``{(group_id, residual_key): {fit_date: FittedCausalResidualModel}}`` —
         the same in-memory form the simulator factory assembles from the
-        ``*_residual_params.pkl`` files.
+        ``*_residual_params.pkl`` files. ``fit_date`` is the residual model's
+        own (daily) fit date, distinct from a candidate's ``asof_date`` (its
+        weights fit date, at outer refit dates); a candidate's ``asof_date``
+        is always a valid ``fit_date`` to look up here, since candidates only
+        arise on dates the daily residual grid also covers.
     market_data
         Loaded UniverseMarketData used to build per-group return bundles.
 
@@ -136,13 +140,13 @@ def compute_and_persist_series(
     def full_residuals(
         group_id: str,
         residual_key: str,
-        asof_date: pd.Timestamp,
+        fit_date: pd.Timestamp,
     ) -> pd.DataFrame | None:
-        """Full-history residual matrix for a (group, key) frozen at asof_date."""
+        """Full-history residual matrix for a (group, key) frozen at fit_date."""
         params = residual_params.get((group_id, residual_key))
         if params is None:
             return None
-        model = params.get(pd.Timestamp(asof_date))
+        model = params.get(pd.Timestamp(fit_date))
         if model is None:
             return None
         bundle = get_bundle(group_id)
@@ -167,20 +171,27 @@ def compute_and_persist_series(
             group_resid_cache[key] = full_residuals(group_id, rkey, group_latest[key])
         return group_resid_cache[key]
 
-    ticker_group: dict[str, tuple[str, str]] = {}
-    for key in group_latest:
-        resid = latest_group_resid(*key)
+    # Keyed by (group_id, ticker), not ticker alone: residual fits are
+    # group-scoped, so a ticker could carry a different residual series per
+    # group once the multi-group ticker restriction (simulator_factory
+    # ._merge_umds) lifts. Costs nothing today, since that restriction
+    # currently guarantees each ticker resolves to exactly one group.
+    ticker_group_rkey: dict[tuple[str, str], str] = {}
+    for group_id, rkey in group_latest:
+        resid = latest_group_resid(group_id, rkey)
         if resid is None:
             continue
         for ticker in resid.columns:
-            ticker_group.setdefault(str(ticker), key)
+            ticker_group_rkey.setdefault((group_id, str(ticker)), rkey)
 
     n_stock_written = 0
-    for ticker in tqdm(sorted(ticker_group), desc="[series] stock residuals", unit="ticker"):
-        path = stock_dir / f"{ticker}.parquet"
+    for group_id, ticker in tqdm(
+        sorted(ticker_group_rkey), desc="[series] stock residuals", unit="ticker"
+    ):
+        path = stock_dir / f"{group_id}__{ticker}.parquet"
         if path.exists():
             continue
-        group_id, rkey = ticker_group[ticker]
+        rkey = ticker_group_rkey[(group_id, ticker)]
         resid = latest_group_resid(group_id, rkey)
         if resid is None or ticker not in resid.columns:
             continue

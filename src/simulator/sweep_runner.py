@@ -48,7 +48,7 @@ from src.simulator.config import (
     FeatureIntervalSpec, IntervalScoringConfig,
     CrossTimescaleEntryConfig, TimescaleRiskConfig,
     SpectrumConfig,
-    discover_sector_data_sources, sector_abbrev,
+    discover_group_data_sources, group_abbrev,
 )
 from src.simulator.simulator import SimulationResult
 from src.simulator.simulator_factory import run_from_config
@@ -98,7 +98,7 @@ class SweepConfig:
     spectrum: SpectrumConfig | None = None
 
     # Universe
-    excluded_sectors: list[str] | None = None
+    excluded_groups: list[str] | None = None
 
     # Candidate panel — required. "" = unset, which _resolve_panel_subdir
     # rejects. Single source of truth; no run_sweep-level override.
@@ -209,8 +209,8 @@ class SweepConfig:
         if self.spectrum is not None:
             parts.append("spec")
 
-        if self.excluded_sectors:
-            parts.append("ex-" + sector_abbrev(sectors=self.excluded_sectors, to_string=True))
+        if self.excluded_groups:
+            parts.append("ex-" + group_abbrev(groups=self.excluded_groups, to_string=True))
         else:
             parts.append("all")
 
@@ -289,7 +289,7 @@ def _build_sim_config(sweep: SweepConfig, *, index: int | None = None) -> Simula
     sweep_derived = {
         "data": DataConfig(
             candidate_panel_subdir=panel,
-            excluded_sectors=sweep.excluded_sectors,
+            excluded_groups=sweep.excluded_groups,
             data_path=str(DATA_UNIVERSES),
         ),
         "z_score": z_score,
@@ -377,7 +377,7 @@ def _save_sweep_results(df: pd.DataFrame) -> None:
 _CONFIG_COLS = [
     "alias", "z_method", "z_lookback", "entry_z", "exit_z",
     "base_pair_notional", "vol_normalize", "max_ticker_exposure_pct", "max_gross_exposure",
-    "excluded_sectors", "z_score_overrides", "cross_ts", "timescale_risk",
+    "excluded_groups", "z_score_overrides", "cross_ts", "timescale_risk",
 ]
 
 _RETURN_COLS = [
@@ -412,7 +412,7 @@ _RISK_COLS = [
 ]
 
 _UNIVERSE_COLS = [
-    "alias", "excluded_sectors",
+    "alias", "excluded_groups",
     "sharpe_net", "annual_return_net", "max_drawdown_net", "calmar_net",
     "n_trades", "n_groups_traded",
 ]

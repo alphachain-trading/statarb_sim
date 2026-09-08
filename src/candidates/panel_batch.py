@@ -19,7 +19,7 @@ Usage (notebook):
         ],
         hedge_ratio_lb=252,
         mr_diag_lb=252,
-        selected_sectors=["materials"],
+        selected_groups=["materials"],
         pair_cfg=PairSpreadConfig(
             hedge_ratio_methods=["pca"],
             min_obs=252,
@@ -49,7 +49,7 @@ from tqdm.auto import tqdm
 
 from src.settings import CONFIG_UNIVERSE, DATA_UNIVERSES, CANDIDATE_PANELS_ROOT
 
-from src.simulator.config import SectorDataSource, sector_abbrev
+from src.simulator.config import GroupDataSource, group_abbrev
 from src.candidates.pair_candidate_panel_creator import (
     PairSpreadConfig,
     create_pair_candidate_panel,
@@ -61,21 +61,21 @@ from src.data.universe_config import UniverseConfig
 from src.residuals.causal_residuals import CausalResidualConfig
 
 
-# ── sector discovery ────────────────────────────────────────────────────
+# ── group discovery ─────────────────────────────────────────────────────
 
 
-def discover_sector_yamls(
+def discover_group_yamls(
     universe_dir: str | Path,
-    selected_sectors: list[str] | None = None,
-    excluded_sectors: list[str] | None = None,
+    selected_groups: list[str] | None = None,
+    excluded_groups: list[str] | None = None,
 ) -> list[tuple[str, Path]]:
     """
     Discover (group_id, yaml_path) pairs from universe config directory.
 
     Returns sorted list of (group_id, path) tuples.
     """
-    if selected_sectors is not None and excluded_sectors is not None:
-        raise ValueError("Cannot specify both selected_sectors and excluded_sectors.")
+    if selected_groups is not None and excluded_groups is not None:
+        raise ValueError("Cannot specify both selected_groups and excluded_groups.")
 
     universe_dir = Path(universe_dir)
     results = []
@@ -93,9 +93,9 @@ def discover_sector_yamls(
         if not group_id:
             continue
 
-        if selected_sectors is not None and group_id not in selected_sectors:
+        if selected_groups is not None and group_id not in selected_groups:
             continue
-        if excluded_sectors is not None and group_id in excluded_sectors:
+        if excluded_groups is not None and group_id in excluded_groups:
             continue
 
         results.append((group_id, yaml_path))
@@ -133,7 +133,7 @@ class PanelBatchConfig:
     hedge_ratio_lb: int | list[int]
     mr_diag_lb: int | list[int]
 
-    # Pair spread config (shared across all sectors/residual configs). No
+    # Pair spread config (shared across all groups/residual configs). No
     # default: PairSpreadConfig.min_obs is itself mandatory with no default
     # (Track B), and a dataclass default here would just be a second place
     # for the same result-affecting number to silently live. Callers must
@@ -145,9 +145,9 @@ class PanelBatchConfig:
     # Panel frequency
     frequency: str = "W-FRI"
 
-    # Sector selection
-    selected_sectors: list[str] | None = None
-    excluded_sectors: list[str] | None = None
+    # Group selection
+    selected_groups: list[str] | None = None
+    excluded_groups: list[str] | None = None
 
     # Paths
     universe_dir: str | Path = ""  # "" → CONFIG_UNIVERSE from settings
@@ -236,10 +236,10 @@ def _make_panel_stem(
     """
     Build a compact, canonical file stem for panel artifacts.
 
-    Format: {sector_abbrev}_pairs_{methods}_{freq}_{window}_hl{hl}_{timestamp}
+    Format: {group_abbrev}_pairs_{methods}_{freq}_{window}_hl{hl}_{timestamp}
     Example: dsc_pairs_pca_W-FRI_exp_hl126_20260505_2128
     """
-    abbrev = sector_abbrev(group_id)
+    abbrev = group_abbrev(group_id)
     methods = "+".join(pair_cfg.hedge_ratio_methods)
     window = "exp" if residual_cfg.window_mode == "expanding" else f"lb{residual_cfg.lookback}"
     hl = f"hl{residual_cfg.half_life}" if residual_cfg.half_life else "nohl"
@@ -250,7 +250,7 @@ def run_panel_batch(
     cfg: PanelBatchConfig,
 ) -> dict[tuple[str, str], CandidatePanelResult]:
     """
-    Run batch panel creation across sectors × cfg.residual_configs.
+    Run batch panel creation across groups × cfg.residual_configs.
 
     Returns
     -------
@@ -258,37 +258,37 @@ def run_panel_batch(
     """
     batch_timestamp = pd.Timestamp.now().strftime("%Y%m%d_%H%M")
 
-    # Discover sectors
-    sector_entries = discover_sector_yamls(
+    # Discover groups
+    group_entries = discover_group_yamls(
         universe_dir=cfg.resolved_universe_dir(),
-        selected_sectors=cfg.selected_sectors,
-        excluded_sectors=cfg.excluded_sectors,
+        selected_groups=cfg.selected_groups,
+        excluded_groups=cfg.excluded_groups,
     )
 
-    if not sector_entries:
+    if not group_entries:
         raise FileNotFoundError(
-            f"No sector YAMLs found in {cfg.resolved_universe_dir()} "
-            f"(selected={cfg.selected_sectors}, excluded={cfg.excluded_sectors})"
+            f"No group YAMLs found in {cfg.resolved_universe_dir()} "
+            f"(selected={cfg.selected_groups}, excluded={cfg.excluded_groups})"
         )
 
     points = list(zip(cfg.residual_configs, cfg.resolved_windows()))
 
-    sector_labels = [sector_abbrev(gid) for gid, _ in sector_entries]
+    group_labels = [group_abbrev(gid) for gid, _ in group_entries]
     print(f"Batch {batch_timestamp}")
-    print(f"Sectors: {len(sector_entries)} [{', '.join(sector_labels)}]")
+    print(f"Groups: {len(group_entries)} [{', '.join(group_labels)}]")
     print(f"Residual configs: {[rc.key for rc in cfg.residual_configs]}")
-    total_jobs = len(sector_entries) * len(points)
+    total_jobs = len(group_entries) * len(points)
     print(f"Total jobs: {total_jobs}")
 
     results: dict[tuple[str, str], CandidatePanelResult] = {}
 
-    sector_bar = tqdm(sector_entries, desc="Sectors", unit="sector")
+    group_bar = tqdm(group_entries, desc="Groups", unit="group")
 
-    for group_id, yaml_path in sector_bar:
-        abbrev = sector_abbrev(group_id)
-        sector_bar.set_postfix_str(abbrev)
+    for group_id, yaml_path in group_bar:
+        abbrev = group_abbrev(group_id)
+        group_bar.set_postfix_str(abbrev)
 
-        # Load UMD once per sector
+        # Load UMD once per group
         ucfg = UniverseConfig.from_yaml(yaml_path)
         loader = UniverseDataLoader(
             ucfg,

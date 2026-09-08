@@ -216,3 +216,25 @@ Sequence note: E renames across both classes and F reshapes the config surface, 
 resolving this before F risks doing it twice. But it should not survive F.
 Severity: result-affecting, depends on construction path
 Suggested track: new — decide before or during F
+
+## `config_hash` changed by Track E's `sector` -> `group_id` field renames
+Found during: track E
+Location: `src/simulator/simulation_persistence.py:32-44` (`hash_config`, hashes
+the full serialized `SimulatorConfig` via `json.dumps(..., sort_keys=True)`,
+which includes field names, not just values)
+What: Same porting hazard as the `candidate_max_age_days` deletion note above, a
+different trigger. Track E renamed `DataConfig.selected_sectors` ->
+`selected_groups`, `DataConfig.excluded_sectors` -> `excluded_groups`, and
+`DataConfig.sectors` -> `groups` (plus `SectorDataSource` -> `GroupDataSource`,
+which is not itself hashed but travels with the field rename). None of these
+change any resolved value, but `hash_config` serializes field names, so
+`config_hash` changes for every config regardless. Confirmed via
+`tests/test_sweep_defaults.py::test_standard_v1_output_is_hash_stable`, whose
+recorded hash needed updating (`4d36adb0...` -> `9daa71da...`) for exactly this
+reason.
+
+Harmless in `statarb_sim`, which has no persisted run dirs, but will orphan
+existing persisted runs in `hierarchical-arb` when this track's field renames are
+ported, the same way the Track A deletion did.
+Severity: result-affecting on port only
+Suggested track: port note — hierarchical-arb
