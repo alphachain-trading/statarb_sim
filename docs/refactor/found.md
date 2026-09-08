@@ -258,3 +258,32 @@ Axis 3 — the same ticker in two groups. Residual fits are group-scoped, so a t
 Addressed by Track E, which re-keyed to (group_id, ticker). Note this was proactive, not a staleness fix: E also added an assert forbidding multi-group tickers, so the collision cannot currently occur. The re-key exists so that the storage layer needs no change if the restriction ever lifts.
 
 The point of this entry: E's re-key touches axis 3 only. It does nothing for axis 2, and axis 2 is the one that can silently produce wrong numbers today. Do not read "series now keyed by (group_id, ticker)" as "series staleness handled." Severity: axis 2 is result-affecting and live; axes 1 and 3 are addressed Suggested track: axis 2 -> F, alongside the artifact layer redesign
+
+## `UniverseDataLoader.load`'s in-place cache-hit resync remains live for its three existing callers
+Found during: track C
+Location: `src/data/universe_loader.py:36-92` (`load`, the `to_remove`/`to_add`
+resync branch reachable when `_cache_exists()` is true and the yaml's ticker
+set no longer matches the cached data); callers: `run_me.py`'s `stage_download`
+(`run_me.py:129-130`), `src/candidates/panel_batch.py:293-302`
+(`run_panel_batch`), `src/simulator/simulator_factory.py:203-211`
+(`_load_umd`).
+What: When a yaml's member list changes and the loader is pointed at that
+sector's existing cache directory, `load()` silently drops removed tickers,
+downloads added ones, rebuilds `ticker_info`/`group_info`/`membership`, and
+re-persists — mutating the cache in place with no record that the event
+happened. This is the same "input revised underneath an artifact" failure
+Track C's snapshot layer exists to prevent, one layer down, and it is
+unguarded on all three of `UniverseDataLoader.load`'s current callers.
+Track C's own snapshot build path (`src/data/market_snapshot.py`) cannot
+reach this branch — each group downloads into a freshly created temp
+directory, so `_cache_exists()` is always false there, and
+`_download_group` additionally asserts this and raises loudly
+(`SnapshotResyncGuardError`) if it ever would not be. But `load()` itself
+was deliberately left unmodified for its existing callers (Track C's brief
+scopes wiring `run_me.py`/panel_batch/simulator_factory to the snapshot
+layer to Track F), so all three keep resyncing in place today.
+Severity: result-affecting, live today (not hypothetical — any local cache
+whose yaml's member list is edited will resync silently on next load)
+Suggested track: F, when these three call sites are wired to
+`ensure_market_snapshot`/`load_market_snapshot` and `UniverseDataLoader.load`'s
+role for them is decided
