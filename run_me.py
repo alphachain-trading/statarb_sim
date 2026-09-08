@@ -90,9 +90,19 @@ def _selected_groups(cfg: dict) -> list[str]:
     return list(cfg["selected_groups"])
 
 
-def _universe_yaml_path(group_id: str) -> Path:
-    """Resolve a group's universe config yaml under CONFIG_UNIVERSE."""
-    return CONFIG_UNIVERSE / f"universe.{group_id}_only.v1.yaml"
+def _universe_name(cfg: dict) -> str:
+    """The universe directory name, from demo_materials.yaml's `universe_name`."""
+    return cfg["universe_name"]
+
+
+def _universe_dir(cfg: dict) -> Path:
+    """config/universes/{universe_name}/ — the directory of this universe's group yamls."""
+    return CONFIG_UNIVERSE / _universe_name(cfg)
+
+
+def _universe_yaml_path(cfg: dict, group_id: str) -> Path:
+    """Resolve a group's yaml under this config's universe directory."""
+    return _universe_dir(cfg) / f"{group_id}.yaml"
 
 
 # ---------------------------------------------------------------------------
@@ -107,7 +117,7 @@ def stage_download(cfg: dict, force: bool) -> None:
     started = False
 
     for group_id in _selected_groups(cfg):
-        yaml_path = _universe_yaml_path(group_id)
+        yaml_path = _universe_yaml_path(cfg, group_id)
         if not yaml_path.exists():
             sys.exit(f"[download] missing universe config for group '{group_id}': {yaml_path}")
 
@@ -225,7 +235,7 @@ def _make_panel_batch_cfg(cfg: dict):
         hedge_ratio_lb=252,
         mr_diag_lb=252,
         selected_groups=_selected_groups(cfg),
-        universe_dir=CONFIG_UNIVERSE,
+        universe_name=_universe_name(cfg),
         data_path=DATA_UNIVERSES,
         persist_dir_template=cfg["panels"]["subdir"],
         frequency="W-FRI",
@@ -283,7 +293,8 @@ def _persist_series_multi(cfg: dict, sim_config) -> None:
 
     sources = discover_group_data_sources(
         panel_dir=panel_dir,
-        universe_dir=CONFIG_UNIVERSE,
+        universe_dir=_universe_dir(cfg),
+        universe_name=_universe_name(cfg),
         selected_groups=_selected_groups(cfg),
     )
 
@@ -421,6 +432,7 @@ def _build_sim_config(cfg: dict):
         data=DataConfig(
             candidate_panel_subdir=cfg["panels"]["subdir"],
             selected_groups=_selected_groups(cfg),
+            universe_name=_universe_name(cfg),
             data_path=str(DATA_UNIVERSES),
             price_field=data_cfg.get("price_field", "Close"),
             return_method=data_cfg.get("return_method", "log"),

@@ -46,7 +46,7 @@ from src.simulator.sweep_runner import SweepConfig, dedup_key
 # DataConfig's sector-vocabulary fields (selected_sectors -> selected_groups,
 # excluded_sectors -> excluded_groups, sectors -> groups): a field-name
 # rename, not a value change, but the hash is computed over field names too.
-_PRE_REGISTRY_HASH = "9daa71da15c7a4803ddeba2ee6165d19"
+_PRE_REGISTRY_HASH = "284530b0e036d50ef4c9f716982138ef"
 
 
 class TestSweepDefaults(unittest.TestCase):

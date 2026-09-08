@@ -454,6 +454,7 @@ class UniverseDataLoader:
 def ensure_universe_data(
     sectors: list[str],
     *,
+    universe_name: str = "sp500_v1",
     universe_dir: str | Path | None = None,
     data_path: str | Path | None = None,
     force_download: bool = False,
@@ -462,14 +463,16 @@ def ensure_universe_data(
     """
     Ensure market data is present on disk for each sector, downloading only
     what's missing. Resolves each sector's universe yaml the same way
-    run_me.py's download stage does, then calls UniverseDataLoader.load() —
-    which already skips re-downloading whatever is cached.
+    run_me.py's download stage does (config/universes/{universe_name}/
+    {sector}.yaml), then calls UniverseDataLoader.load() — which already
+    skips re-downloading whatever is cached.
     """
     universe_dir = Path(universe_dir) if universe_dir else CONFIG_UNIVERSE
+    universe_dir = universe_dir / universe_name
     data_path = Path(data_path) if data_path else DATA_UNIVERSES
 
     for sector in sectors:
-        yaml_path = universe_dir / f"universe.{sector}_only.v1.yaml"
+        yaml_path = universe_dir / f"{sector}.yaml"
         if not yaml_path.exists():
             raise FileNotFoundError(f"missing universe config for sector '{sector}': {yaml_path}")
 

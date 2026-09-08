@@ -70,7 +70,9 @@ def discover_group_yamls(
     excluded_groups: list[str] | None = None,
 ) -> list[tuple[str, Path]]:
     """
-    Discover (group_id, yaml_path) pairs from universe config directory.
+    Discover (group_id, yaml_path) pairs from a universe directory
+    (config/universes/{universe_name}/), one yaml per group, filename stem
+    is the group_id.
 
     Returns sorted list of (group_id, path) tuples.
     """
@@ -80,18 +82,8 @@ def discover_group_yamls(
     universe_dir = Path(universe_dir)
     results = []
 
-    for yaml_path in sorted(universe_dir.glob("universe.*_only.*.yaml")):
-        name = yaml_path.name
-        # Parse: universe.{group_id}_only.{version}.yaml
-        prefix = "universe."
-        if not name.startswith(prefix):
-            continue
-        rest = name[len(prefix):]
-        if "_only." not in rest:
-            continue
-        group_id = rest.split("_only.", 1)[0]
-        if not group_id:
-            continue
+    for yaml_path in sorted(universe_dir.glob("*.yaml")):
+        group_id = yaml_path.stem
 
         if selected_groups is not None and group_id not in selected_groups:
             continue
@@ -150,7 +142,8 @@ class PanelBatchConfig:
     excluded_groups: list[str] | None = None
 
     # Paths
-    universe_dir: str | Path = ""  # "" → CONFIG_UNIVERSE from settings
+    universe_name: str = "sp500_v1"  # config/universes/{universe_name}/{group_id}.yaml
+    universe_dir: str | Path = ""  # "" → CONFIG_UNIVERSE / universe_name; full override otherwise
     data_path: str | Path = ""     # "" → DATA_UNIVERSES from settings
 
     # Data loading
@@ -202,7 +195,7 @@ class PanelBatchConfig:
     # ── path helpers ─────────────────────────────────────────────────────
 
     def resolved_universe_dir(self) -> Path:
-        return Path(self.universe_dir) if self.universe_dir else Path(CONFIG_UNIVERSE)
+        return Path(self.universe_dir) if self.universe_dir else Path(CONFIG_UNIVERSE) / self.universe_name
 
     def resolved_data_path(self) -> Path:
         return Path(self.data_path) if self.data_path else Path(DATA_UNIVERSES)

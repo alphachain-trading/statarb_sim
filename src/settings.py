@@ -2,7 +2,7 @@ from pathlib import Path
 # settings.py lives in src/, so the repo root is two levels up (src/ -> root).
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 CONFIG_ROOT = PROJECT_ROOT / "config"
-CONFIG_UNIVERSE = CONFIG_ROOT / 'universe'
+CONFIG_UNIVERSE = CONFIG_ROOT / 'universes'
 CONFIG_SP500 = CONFIG_ROOT / 'sp500_constituents'
 DATA_ROOT = PROJECT_ROOT / "data"
 MARKET_ROOT = DATA_ROOT / "market"
