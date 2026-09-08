@@ -136,6 +136,7 @@ class GroupDataSource:
 def discover_group_data_sources(
         panel_dir: str | Path,
         universe_dir: str | Path,
+        universe_name: str,
         selected_groups: list[str] | None = None,
         excluded_groups: list[str] | None = None,
 ) -> list[GroupDataSource]:
@@ -144,6 +145,13 @@ def discover_group_data_sources(
 
     Accepts both full (consumer_discretionary) and abbreviated (dsc) group
     names in stems, selected_groups, and excluded_groups.
+
+    `universe_dir` is the specific universe's directory
+    (config/universes/{universe_name}/); `universe_name` is stored (via
+    GroupDataSource.universe_config_name) as a path relative to
+    CONFIG_UNIVERSE, e.g. "sp500_v1/materials.yaml", so simulator_factory's
+    join (CONFIG_UNIVERSE / universe_config_name) resolves it without
+    needing universe_name itself.
     """
     if selected_groups is not None and excluded_groups is not None:
         raise ValueError("Cannot specify both selected_groups and excluded_groups.")
@@ -184,7 +192,7 @@ def discover_group_data_sources(
         if excluded_resolved is not None and group_id in excluded_resolved:
             continue
 
-        yaml_path = universe_dir / f"universe.{group_id}_only.v1.yaml"
+        yaml_path = universe_dir / f"{group_id}.yaml"
         if not yaml_path.exists():
             print(f"[discover] Warning: no universe YAML for {group_id}, skipping")
             continue
@@ -203,7 +211,7 @@ def discover_group_data_sources(
                 residual_key = CausalResidualConfig.from_dict(residual_cfg_raw).key
 
         source = GroupDataSource(
-            universe_config_name=yaml_path.name,
+            universe_config_name=f"{universe_name}/{yaml_path.name}",
             candidate_panel_stem=stem,
             residual_params_stem=residual_stem,
             residual_key=residual_key,
@@ -247,6 +255,7 @@ class DataConfig:
     selected_groups: list[str] | None = None
     excluded_groups: list[str] | None = None
     candidate_panel_subdir: str = ""
+    universe_name: str = "sp500_v1"  # config/universes/{universe_name}/{group_id}.yaml
     data_path: str = "data"
     price_field: str = "Close"
     return_method: str = "log"
@@ -269,7 +278,8 @@ class DataConfig:
             panel_dir = panel_dir / self.candidate_panel_subdir
         return discover_group_data_sources(
             panel_dir=panel_dir,
-            universe_dir=Path(CONFIG_UNIVERSE),
+            universe_dir=Path(CONFIG_UNIVERSE) / self.universe_name,
+            universe_name=self.universe_name,
             selected_groups=self.selected_groups,
             excluded_groups=self.excluded_groups,
         )

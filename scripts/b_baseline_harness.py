@@ -59,6 +59,7 @@ from src.simulator.simulator_factory import run_from_config, _load_umd
 from src.simulator.sweep_defaults import get_default_bundle, merge_defaults
 from src.simulator.performance.performance_report import _METRICS_ORDER, _fmt_value
 
+UNIVERSE_NAME = "sp500_v1"  # config/universes/{UNIVERSE_NAME}/{group_id}.yaml
 GROUPS = ["energy", "materials"]
 PANEL_SUBDIR = "refactor_b_harness"
 MAX_STEPS = 40
@@ -105,6 +106,7 @@ def _build_panels() -> tuple[float, dict]:
         hedge_ratio_lb=HEDGE_RATIO_LB,
         mr_diag_lb=MR_DIAG_LB,
         selected_groups=GROUPS,
+        universe_name=UNIVERSE_NAME,
         frequency="W-FRI",
         start_date=PANEL_START_DATE,
         max_steps=MAX_STEPS,
@@ -134,7 +136,8 @@ def _persist_series(sim_config: SimulatorConfig, active_groups: list[str]) -> No
 
     sources = discover_group_data_sources(
         panel_dir=panel_dir,
-        universe_dir=CONFIG_UNIVERSE,
+        universe_dir=CONFIG_UNIVERSE / UNIVERSE_NAME,
+        universe_name=UNIVERSE_NAME,
         selected_groups=active_groups,
     )
 
@@ -175,6 +178,7 @@ def _build_sim_config(active_groups: list[str]) -> SimulatorConfig:
         "data": DataConfig(
             candidate_panel_subdir=PANEL_SUBDIR,
             selected_groups=active_groups,
+            universe_name=UNIVERSE_NAME,
             data_path=str(DATA_UNIVERSES),
         ),
         "z_score": ZScoreConfig(lookback=21, ddof=1, method="ewm", residual_key=_residual_cfg().key),

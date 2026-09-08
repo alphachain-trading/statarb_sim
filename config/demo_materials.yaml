@@ -6,6 +6,7 @@
 # the project root) and model/strategy parameters are configured here.
 
 # --- what to trade -----------------------------------------------------------
+universe_name: sp500_v1                                 # config/universes/{universe_name}/{group_id}.yaml
 selected_groups: [materials]
 residual_key: exp_hl504_mh1008_rf
 

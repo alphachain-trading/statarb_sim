@@ -238,3 +238,105 @@ existing persisted runs in `hierarchical-arb` when this track's field renames ar
 ported, the same way the Track A deletion did.
 Severity: result-affecting on port only
 Suggested track: port note — hierarchical-arb
+
+series/ staleness has three separate axes — only one is being fixed
+
+Found during: track E (review of the (group_id, ticker) re-key) Location: src/residuals/series.py; the series/ artifact directory; stem resolution in run_me.py and the panel builders What: "Series staleness" has been used as one label for three unrelated failure modes. They have different causes and different fixes, and conflating them has already led to one of them looking solved when it is not.
+
+This entry is reconstructed from the design discussion, not verified against the code. Confirm each axis before acting on it.
+
+Axis 1 — market data revised underneath an artifact. Corporate actions retroactively re-adjust historical closes, so the same tickers over the same range can yield different values on a later download. Causality protects against lookahead, not against input revision. Any artifact built before a re-download is silently stale, and there is currently no way to tell with justified effort.
+
+Fixed by Track C: snapshot_id plus a per-sector content hash, with each run bound to one frozen snapshot. This is the "marrying market data to a simulator run" axis.
+
+Axis 2 — stem reuse across different residual configs. The series/ artifacts are keyed by ticker and spread_id but NOT by residual_key. Reusing a stem while changing the residual config therefore reads back series computed under the old config, silently.
+
+Not fixed by anything yet. This axis was deliberately left open: auto-clearing on mismatch is unsafe without a real key design, and the obvious fix — add residual_key to the key — has not been specced. Track F dissolves the panel and reshapes the artifact layer, which is the natural place to settle it.
+
+Axis 3 — the same ticker in two groups. Residual fits are group-scoped, so a ticker in two groups has two different residual series. Keying by ticker alone cannot hold both.
+
+Addressed by Track E, which re-keyed to (group_id, ticker). Note this was proactive, not a staleness fix: E also added an assert forbidding multi-group tickers, so the collision cannot currently occur. The re-key exists so that the storage layer needs no change if the restriction ever lifts.
+
+The point of this entry: E's re-key touches axis 3 only. It does nothing for axis 2, and axis 2 is the one that can silently produce wrong numbers today. Do not read "series now keyed by (group_id, ticker)" as "series staleness handled." Severity: axis 2 is result-affecting and live; axes 1 and 3 are addressed Suggested track: axis 2 -> F, alongside the artifact layer redesign
+
+## `UniverseDataLoader.load`'s in-place cache-hit resync remains live for its three existing callers
+Found during: track C
+Location: `src/data/universe_loader.py:36-92` (`load`, the `to_remove`/`to_add`
+resync branch reachable when `_cache_exists()` is true and the yaml's ticker
+set no longer matches the cached data); callers: `run_me.py`'s `stage_download`
+(`run_me.py:129-130`), `src/candidates/panel_batch.py:293-302`
+(`run_panel_batch`), `src/simulator/simulator_factory.py:203-211`
+(`_load_umd`).
+What: When a yaml's member list changes and the loader is pointed at that
+sector's existing cache directory, `load()` silently drops removed tickers,
+downloads added ones, rebuilds `ticker_info`/`group_info`/`membership`, and
+re-persists — mutating the cache in place with no record that the event
+happened. This is the same "input revised underneath an artifact" failure
+Track C's snapshot layer exists to prevent, one layer down, and it is
+unguarded on all three of `UniverseDataLoader.load`'s current callers.
+Track C's own snapshot build path (`src/data/market_snapshot.py`) cannot
+reach this branch — each group downloads into a freshly created temp
+directory, so `_cache_exists()` is always false there, and
+`_download_group` additionally asserts this and raises loudly
+(`SnapshotResyncGuardError`) if it ever would not be. But `load()` itself
+was deliberately left unmodified for its existing callers (Track C's brief
+scopes wiring `run_me.py`/panel_batch/simulator_factory to the snapshot
+layer to Track F), so all three keep resyncing in place today.
+Severity: result-affecting, live today (not hypothetical — any local cache
+whose yaml's member list is edited will resync silently on next load)
+Suggested track: F, when these three call sites are wired to
+`ensure_market_snapshot`/`load_market_snapshot` and `UniverseDataLoader.load`'s
+role for them is decided
+
+## `config_hash` changed by `DataConfig.universe_name`'s addition
+Found during: track C (universe-model correction)
+Location: `src/simulator/simulation_persistence.py:32-44` (`hash_config`,
+hashes the full serialized `SimulatorConfig`)
+What: Same porting hazard as the two entries above, a third trigger.
+`DataConfig` gained a `universe_name: str = "sp500_v1"` field so it can
+resolve `config/universes/{universe_name}/{group_id}.yaml` after the layout
+migration. No resolved value changes for any existing config (the default
+matches the single migrated universe), but `hash_config` serializes field
+names too, so `config_hash` changes for every config regardless. Confirmed
+via `tests/test_sweep_defaults.py::test_standard_v1_output_is_hash_stable`,
+whose recorded hash needed updating (`9daa71da...` -> `284530b0...`).
+Severity: result-affecting on port only
+Suggested track: port note — hierarchical-arb
+
+## `ensure_universe_data` was not actually dead — notebook-only caller missed by a .py-only grep
+Found during: track C (universe-model correction)
+Location: `src/data/universe_loader.py:454` (`ensure_universe_data`); called from
+`notebooks/howto/03_full_simulation_pipeline.ipynb`
+What: Both this track's first session and a follow-up grep before starting the
+layout migration searched `--include=*.py` only and concluded this function had
+zero callers. It has one — a notebook cell
+(`ensure_universe_data(SELECTED_GROUPS)`), invisible to a .py-scoped grep.
+Re-executing the howto notebooks (standing rule, required after this track's
+API-surface changes) surfaced it as a `FileNotFoundError` once the yaml layout
+moved. Fixed in this track (added a `universe_name` parameter, updated the yaml
+path construction) rather than left as dead code. Recorded so a future
+"grep --include=*.py finds zero callers" conclusion about any function is
+checked against notebooks too before being treated as dead.
+Severity: cosmetic (caught and fixed before landing; recorded as a process note)
+Suggested track: none — process note only
+
+## Group yaml's own `meta.universe_name` field now collides in name with the directory-level universe concept
+Found during: track C (universe-model correction)
+Location: every `config/universes/{universe_name}/{group_id}.yaml`'s
+`meta.universe_name` key (e.g. `materials_only_v1`); read by
+`UniverseConfig.universe_name` (`src/data/universe_config.py`), consumed by
+`UniverseDataLoader.__init__`'s cache-dir naming and by
+`market_snapshot.py`'s per-group snapshot subdirectory naming.
+What: Track C's universe-model correction introduced a directory-level
+`universe_name` (config/universes/{universe_name}/) that identifies a whole
+group/ticker set. The pre-existing, unrelated `meta.universe_name` field
+inside each group yaml (predates this track) is really a per-GROUP data-cache
+key today — it was named when each yaml was still framed as a standalone
+one-group "universe". Both are now called "universe_name" for historically
+unrelated reasons, which reads as one concept but is two. Deliberately left
+unrenamed this track: renaming would ripple into the DATA_UNIVERSES cache
+directory naming convention and UniverseDataLoader, which is a separate axis
+from the CONFIG-layout migration this track scoped.
+Severity: cosmetic (naming clarity only; no functional collision — the two
+serve disjoint purposes and never resolve against each other)
+Suggested track: new, or fold into F's config-surface reshaping
