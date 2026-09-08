@@ -238,3 +238,23 @@ existing persisted runs in `hierarchical-arb` when this track's field renames ar
 ported, the same way the Track A deletion did.
 Severity: result-affecting on port only
 Suggested track: port note — hierarchical-arb
+
+series/ staleness has three separate axes — only one is being fixed
+
+Found during: track E (review of the (group_id, ticker) re-key) Location: src/residuals/series.py; the series/ artifact directory; stem resolution in run_me.py and the panel builders What: "Series staleness" has been used as one label for three unrelated failure modes. They have different causes and different fixes, and conflating them has already led to one of them looking solved when it is not.
+
+This entry is reconstructed from the design discussion, not verified against the code. Confirm each axis before acting on it.
+
+Axis 1 — market data revised underneath an artifact. Corporate actions retroactively re-adjust historical closes, so the same tickers over the same range can yield different values on a later download. Causality protects against lookahead, not against input revision. Any artifact built before a re-download is silently stale, and there is currently no way to tell with justified effort.
+
+Fixed by Track C: snapshot_id plus a per-sector content hash, with each run bound to one frozen snapshot. This is the "marrying market data to a simulator run" axis.
+
+Axis 2 — stem reuse across different residual configs. The series/ artifacts are keyed by ticker and spread_id but NOT by residual_key. Reusing a stem while changing the residual config therefore reads back series computed under the old config, silently.
+
+Not fixed by anything yet. This axis was deliberately left open: auto-clearing on mismatch is unsafe without a real key design, and the obvious fix — add residual_key to the key — has not been specced. Track F dissolves the panel and reshapes the artifact layer, which is the natural place to settle it.
+
+Axis 3 — the same ticker in two groups. Residual fits are group-scoped, so a ticker in two groups has two different residual series. Keying by ticker alone cannot hold both.
+
+Addressed by Track E, which re-keyed to (group_id, ticker). Note this was proactive, not a staleness fix: E also added an assert forbidding multi-group tickers, so the collision cannot currently occur. The re-key exists so that the storage layer needs no change if the restriction ever lifts.
+
+The point of this entry: E's re-key touches axis 3 only. It does nothing for axis 2, and axis 2 is the one that can silently produce wrong numbers today. Do not read "series now keyed by (group_id, ticker)" as "series staleness handled." Severity: axis 2 is result-affecting and live; axes 1 and 3 are addressed Suggested track: axis 2 -> F, alongside the artifact layer redesign
