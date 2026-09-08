@@ -8,19 +8,40 @@ tickers/range yield different values on a later download. Causality (row t
 never reads data after t) does not protect against this; only binding a run
 to one frozen, hash-verified block of data does.
 
-`universe_version` is a NAME, not a versioned directory. Deliberately not a
-copy of config/universe/: copying would give the group yamls a second place
-to drift. Instead, the manifest records `universe_version` plus, per group,
-the resolved yaml content verbatim — that is the versioned record, colocated
-with the data it produced.
+THE UNIVERSE MODEL
 
-Deviation from the brief's literal signature: `ensure_market_snapshot` takes
-an explicit `groups` list. The brief's `mint_universe_version` mechanism
-(directory copy) was the only place a universe_version could resolve to a
-group set; without it, nothing else supplies that mapping. `groups` fills
-the gap deliberately rather than reintroducing a directory copy.
+A universe is a DIRECTORY of group yamls, one per group:
 
-Layout — dl_ts outermost, one snapshot holds many groups:
+    config/universes/{universe_name}/{group_id}.yaml
+
+The directory name IS the universe name. A universe name identifies exactly
+one set of groups and tickers — any change to either (a group added or
+removed, a ticker list edited) requires a new universe version (e.g.
+sp500_v8 -> sp500_v9), never an edit in place. `ensure_market_snapshot`
+therefore takes only `universe_version`; the group set is not a parameter,
+it is read off the directory. Group *selection* for a run (a subset of a
+universe's groups) is a run concern (DataConfig.selected_groups/
+excluded_groups), not a snapshot concern — a snapshot always covers every
+group in its universe directory.
+
+This corrects the module's first version, which took an explicit `groups`
+list and treated `universe_version` as a bare name with mint_universe_version
+copying a directory to version it. That directory-copy design is dropped:
+the universe directory under config/universes/ *is* the versioned record,
+so there is nothing left for the snapshot layer to copy. See
+docs/refactor/C_market_snapshot.md for the full model.
+
+A snapshot freezes one download of one universe. Two snapshots of the same
+universe may differ in realized end date and in price values (corporate
+actions re-adjust history) — that is what dl_ts and the content hash are
+for. What two snapshots of the same universe_version may NOT differ in is
+group/ticker composition: `_mint_snapshot` enforces this by diffing the
+current directory's yaml content against the verbatim yamls stored in the
+most recent snapshot of the same universe_version, and raises if they
+differ (see UniverseChangedError). With no prior snapshot there is nothing
+to compare against — the first mint is definitional.
+
+Layout — dl_ts outermost, one snapshot holds every group in its universe:
 
     {snapshot_root}/{universe_version}_{dl_ts}/
         manifest.json
@@ -29,6 +50,11 @@ Layout — dl_ts outermost, one snapshot holds many groups:
             ticker_info.parquet
             group_info.parquet
             membership.parquet
+
+(The per-group subdirectory name is UniverseConfig.universe_name — the
+group yaml's own `meta.universe_name` field, unrelated to and predating the
+config/universes/{universe_name}/ directory-level name above. Both are
+called "universe_name" for historical reasons; see found.md.)
 
 Immutability: build under a temp dir beside the snapshot root, atomic
 `os.rename` into position, then chmod the whole tree read-only. The write
@@ -44,6 +70,12 @@ download branch. `force_download=True` is passed as well, so the branch
 taken does not even depend on that being true. `_download_group` also
 asserts the cache does not exist first and raises loudly if it ever would —
 belt and suspenders around a case that should be unreachable.
+
+Incomplete downloads: a ticker listed in a group yaml (member, proxy_etf,
+benchmark, or risk_free) that yfinance returns no data for aborts the mint.
+Every group is attempted before raising, so the single error lists every
+missing ticker across every group, grouped by group_id, rather than
+surfacing one at a time across repeated retries.
 """
 
 from __future__ import annotations
@@ -90,12 +122,38 @@ class SnapshotResyncGuardError(RuntimeError):
     """
 
 
+class UniverseChangedError(RuntimeError):
+    """
+    Raised at mint time when a universe directory's group yamls no longer
+    match the most recent snapshot minted for the same universe_version.
+    A universe_version identifies exactly one group/ticker set; edit the
+    yaml(s) under a new universe_version instead of in place.
+    """
+
+
+class IncompleteUniverseDownloadError(RuntimeError):
+    """
+    Raised when one or more tickers listed in a universe's group yamls
+    returned no data. Carries every missing ticker across every group, not
+    just the first — see module docstring.
+    """
+
+
 def _dl_ts_now() -> str:
     return pd.Timestamp.now().strftime("%Y%m%dT%H%M%S%f")
 
 
-def _group_yaml_path(universe_dir: Path, group_id: str) -> Path:
-    return universe_dir / f"universe.{group_id}_only.v1.yaml"
+def _validate_universe_version(universe_version: str) -> None:
+    if not _UNIVERSE_VERSION_ONLY_RE.match(universe_version):
+        raise ValueError(
+            f"universe_version must match {_UNIVERSE_VERSION_ONLY_RE.pattern!r}, got "
+            f"{universe_version!r}"
+        )
+
+
+def _discover_group_yamls(universe_path: Path) -> list[tuple[str, Path]]:
+    """(group_id, yaml_path) pairs for every group in a universe directory."""
+    return [(p.stem, p) for p in sorted(universe_path.glob("*.yaml"))]
 
 
 def _hash_file(path: Path) -> str:
@@ -149,7 +207,59 @@ def _finalize_snapshot(tmp_dir: Path, target_dir: Path) -> None:
     _make_tree_read_only(target_dir)
 
 
-def _download_group(group_id: str, yaml_path: Path, tmp_dir: Path, progress: bool) -> tuple[UniverseConfig, UniverseMarketData]:
+def _check_universe_unchanged(group_entries: list[tuple[str, Path]], prior_manifest: dict) -> None:
+    """
+    Raise if the current universe directory's yaml content differs from the
+    yamls stored (verbatim, per group) in `prior_manifest` — added group,
+    removed group, or any content change to a shared group's yaml.
+    """
+    prior_groups: dict = prior_manifest["groups"]
+    current_ids = {group_id for group_id, _ in group_entries}
+    prior_ids = set(prior_groups.keys())
+
+    added = sorted(current_ids - prior_ids)
+    removed = sorted(prior_ids - current_ids)
+    changed = []
+    for group_id, yaml_path in group_entries:
+        if group_id not in prior_groups:
+            continue
+        current_raw = UniverseConfig.from_yaml(yaml_path).raw
+        if current_raw != prior_groups[group_id]["resolved_config"]:
+            changed.append(group_id)
+
+    if not (added or removed or changed):
+        return
+
+    parts = []
+    if added:
+        parts.append(f"group(s) added: {added}")
+    if removed:
+        parts.append(f"group(s) removed: {removed}")
+    if changed:
+        parts.append(f"group(s) with edited yaml content: {sorted(changed)}")
+
+    raise UniverseChangedError(
+        f"universe '{prior_manifest['universe_version']}' has changed since its most recent "
+        f"snapshot ({prior_manifest['snapshot_id']}): {'; '.join(parts)}. A universe_version "
+        "identifies exactly one group/ticker set. Mint a new universe_version directory "
+        "(e.g. copy config/universes/ to a new version name with the desired edits) instead "
+        "of editing this one in place."
+    )
+
+
+def _download_group(
+    group_id: str, yaml_path: Path, tmp_dir: Path, progress: bool
+) -> tuple[UniverseConfig, UniverseMarketData | None, list[str]]:
+    """
+    Returns (config, umd, missing_tickers). umd is None only when every
+    requested ticker failed to download (UniverseDataLoader.load's "All
+    ticker downloads failed" case) — missing_tickers is then every ticker
+    requested for this group. Never raises on a ticker-availability gap;
+    the caller aggregates across groups first. Still raises hard (and
+    always) on SnapshotResyncGuardError — that is a structural bug, not a
+    data-availability gap, and must never be folded into the aggregated
+    missing-ticker report.
+    """
     config = UniverseConfig.from_yaml(yaml_path)
     loader = UniverseDataLoader(config, data_path=tmp_dir, progress=progress)
 
@@ -162,8 +272,18 @@ def _download_group(group_id: str, yaml_path: Path, tmp_dir: Path, progress: boo
             "destroys the immutability guarantee. This should be unreachable."
         )
 
-    umd = loader.load(force_download=True, check_for_corruptions=True, start_after_nan=False)
-    return config, umd
+    requested = set(config.all_symbols())
+    try:
+        umd = loader.load(force_download=True, check_for_corruptions=True, start_after_nan=False)
+    except RuntimeError:
+        # Every ticker in this group failed (UniverseDataLoader._download_prices
+        # raises "All ticker downloads failed." in this case). Continue to the
+        # next group rather than aborting — the caller wants every group's
+        # gaps in one report, not this one first.
+        return config, None, sorted(requested)
+
+    missing = sorted(requested - set(umd.tickers()))
+    return config, umd, missing
 
 
 def _build_group_manifest_entry(config: UniverseConfig, umd: UniverseMarketData, group_dir: Path) -> dict:
@@ -187,18 +307,43 @@ def _build_group_manifest_entry(config: UniverseConfig, umd: UniverseMarketData,
     }
 
 
+def _format_missing_tickers_error(universe_version: str, missing_by_group: dict[str, list[str]]) -> str:
+    total = sum(len(v) for v in missing_by_group.values())
+    lines = [
+        f"mint aborted for universe '{universe_version}': {total} ticker(s) missing data "
+        f"across {len(missing_by_group)} group(s):",
+    ]
+    for group_id in sorted(missing_by_group):
+        lines.append(f"  {group_id}: {', '.join(missing_by_group[group_id])}")
+    lines.append(
+        "This is a data-provider survivorship gap (yfinance has no data for these "
+        "tickers over the requested range), not a transient failure — retrying will not "
+        "help. Create a new universe version with these tickers removed from the "
+        "affected group yaml(s) and mint under that new universe_version."
+    )
+    return "\n".join(lines)
+
+
 def _mint_snapshot(
     universe_version: str,
-    groups: list[str],
     universe_dir: Path,
     snapshot_root: Path,
     progress: bool,
 ) -> str:
-    if not _UNIVERSE_VERSION_ONLY_RE.match(universe_version):
-        raise ValueError(
-            f"universe_version must match {_UNIVERSE_VERSION_ONLY_RE.pattern!r}, got "
-            f"{universe_version!r}"
-        )
+    _validate_universe_version(universe_version)
+
+    universe_path = universe_dir / universe_version
+    if not universe_path.is_dir():
+        raise FileNotFoundError(f"no universe directory: {universe_path}")
+
+    group_entries = _discover_group_yamls(universe_path)
+    if not group_entries:
+        raise ValueError(f"universe directory has no group yaml files: {universe_path}")
+
+    existing = _list_snapshots(universe_version, snapshot_root)
+    if existing:
+        prior_manifest = _read_manifest(snapshot_root / existing[0])
+        _check_universe_unchanged(group_entries, prior_manifest)
 
     dl_ts = _dl_ts_now()
     snapshot_id = f"{universe_version}_{dl_ts}"
@@ -213,17 +358,24 @@ def _mint_snapshot(
     tmp_dir = Path(tempfile.mkdtemp(dir=snapshot_root, prefix=f".tmp-{snapshot_id}-"))
     try:
         manifest_groups: dict[str, dict] = {}
-        group_ids = sorted(set(groups))
-        iterator = tqdm(group_ids, desc=f"snapshot {snapshot_id}", unit="group") if progress else group_ids
-        for group_id in iterator:
-            yaml_path = _group_yaml_path(universe_dir, group_id)
-            if not yaml_path.exists():
-                raise FileNotFoundError(
-                    f"missing universe config for group '{group_id}': {yaml_path}"
-                )
-            config, umd = _download_group(group_id, yaml_path, tmp_dir, progress)
+        missing_by_group: dict[str, list[str]] = {}
+
+        iterator = (
+            tqdm(group_entries, desc=f"snapshot {snapshot_id}", unit="group")
+            if progress else group_entries
+        )
+        for group_id, yaml_path in iterator:
+            config, umd, missing = _download_group(group_id, yaml_path, tmp_dir, progress)
+            if missing:
+                missing_by_group[group_id] = missing
+                continue
             group_dir = tmp_dir / config.universe_name
             manifest_groups[group_id] = _build_group_manifest_entry(config, umd, group_dir)
+
+        if missing_by_group:
+            raise IncompleteUniverseDownloadError(
+                _format_missing_tickers_error(universe_version, missing_by_group)
+            )
 
         manifest = {
             "snapshot_id": snapshot_id,
@@ -250,6 +402,13 @@ def _read_manifest(snapshot_dir: Path) -> dict:
 
 
 def _list_snapshots(universe_version: str, snapshot_root: Path) -> list[str]:
+    """
+    Every snapshot id for `universe_version`, chronologically sorted newest
+    first. No group-set filtering: a universe_version identifies exactly one
+    group set by construction (enforced at mint time by
+    _check_universe_unchanged), so every snapshot returned here already
+    shares the same group set.
+    """
     if not snapshot_root.exists():
         return []
     pattern = re.compile(rf"^{re.escape(universe_version)}_({DL_TS_PATTERN})$")
@@ -297,7 +456,6 @@ def _merge_group_market_data(per_group: list[UniverseMarketData]) -> UniverseMar
 
 def ensure_market_snapshot(
     universe_version: str,
-    groups: list[str],
     *,
     universe_dir: str | Path | None = None,
     snapshot_root: str | Path | None = None,
@@ -305,36 +463,30 @@ def ensure_market_snapshot(
     progress: bool = True,
 ) -> list[str]:
     """
-    Ensure a snapshot exists for `universe_version` covering exactly `groups`.
+    Ensure a snapshot exists for `universe_version` — every group in
+    config/universes/{universe_version}/, by construction.
 
     Returns every existing snapshot id for `universe_version`, chronologically
     sorted newest first — always a list, never a single "latest" pick, so
     there is no branch at the call site.
 
-    Reuse: if `force` is False and an existing snapshot's group set exactly
-    equals `groups`, nothing is downloaded. Otherwise a new snapshot is
-    minted with exactly the requested group set (never appended to an
-    existing snapshot directory — that would mix adjustment vintages within
-    one manifest and destroy the hash's meaning). This mint-not-append rule
-    is what "adding a group raises" means in practice: there is no append
-    operation for a caller to reach.
+    Reuse: if `force` is False and at least one snapshot already exists for
+    `universe_version`, nothing is downloaded. Otherwise a new snapshot is
+    minted (never appended to an existing snapshot directory — that would
+    mix adjustment vintages within one manifest and destroy the hash's
+    meaning). Minting always enforces universe immutability first: the
+    current directory's yaml content must match the most recent existing
+    snapshot's, or the mint raises (UniverseChangedError) rather than
+    silently drifting what universe_version means.
     """
-    if not groups:
-        raise ValueError("ensure_market_snapshot requires a non-empty groups list.")
-
     universe_dir = Path(universe_dir) if universe_dir else CONFIG_UNIVERSE
     snapshot_root = Path(snapshot_root) if snapshot_root else DATA_MARKET_SNAPSHOTS
-    requested = set(groups)
 
     existing = _list_snapshots(universe_version, snapshot_root)
+    if not force and existing:
+        return existing
 
-    if not force:
-        for snapshot_id in existing:
-            manifest = _read_manifest(snapshot_root / snapshot_id)
-            if set(manifest["groups"].keys()) == requested:
-                return existing
-
-    _mint_snapshot(universe_version, sorted(requested), universe_dir, snapshot_root, progress)
+    _mint_snapshot(universe_version, universe_dir, snapshot_root, progress)
     return _list_snapshots(universe_version, snapshot_root)
 
 
