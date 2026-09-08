@@ -287,3 +287,56 @@ whose yaml's member list is edited will resync silently on next load)
 Suggested track: F, when these three call sites are wired to
 `ensure_market_snapshot`/`load_market_snapshot` and `UniverseDataLoader.load`'s
 role for them is decided
+
+## `config_hash` changed by `DataConfig.universe_name`'s addition
+Found during: track C (universe-model correction)
+Location: `src/simulator/simulation_persistence.py:32-44` (`hash_config`,
+hashes the full serialized `SimulatorConfig`)
+What: Same porting hazard as the two entries above, a third trigger.
+`DataConfig` gained a `universe_name: str = "sp500_v1"` field so it can
+resolve `config/universes/{universe_name}/{group_id}.yaml` after the layout
+migration. No resolved value changes for any existing config (the default
+matches the single migrated universe), but `hash_config` serializes field
+names too, so `config_hash` changes for every config regardless. Confirmed
+via `tests/test_sweep_defaults.py::test_standard_v1_output_is_hash_stable`,
+whose recorded hash needed updating (`9daa71da...` -> `284530b0...`).
+Severity: result-affecting on port only
+Suggested track: port note — hierarchical-arb
+
+## `ensure_universe_data` was not actually dead — notebook-only caller missed by a .py-only grep
+Found during: track C (universe-model correction)
+Location: `src/data/universe_loader.py:454` (`ensure_universe_data`); called from
+`notebooks/howto/03_full_simulation_pipeline.ipynb`
+What: Both this track's first session and a follow-up grep before starting the
+layout migration searched `--include=*.py` only and concluded this function had
+zero callers. It has one — a notebook cell
+(`ensure_universe_data(SELECTED_GROUPS)`), invisible to a .py-scoped grep.
+Re-executing the howto notebooks (standing rule, required after this track's
+API-surface changes) surfaced it as a `FileNotFoundError` once the yaml layout
+moved. Fixed in this track (added a `universe_name` parameter, updated the yaml
+path construction) rather than left as dead code. Recorded so a future
+"grep --include=*.py finds zero callers" conclusion about any function is
+checked against notebooks too before being treated as dead.
+Severity: cosmetic (caught and fixed before landing; recorded as a process note)
+Suggested track: none — process note only
+
+## Group yaml's own `meta.universe_name` field now collides in name with the directory-level universe concept
+Found during: track C (universe-model correction)
+Location: every `config/universes/{universe_name}/{group_id}.yaml`'s
+`meta.universe_name` key (e.g. `materials_only_v1`); read by
+`UniverseConfig.universe_name` (`src/data/universe_config.py`), consumed by
+`UniverseDataLoader.__init__`'s cache-dir naming and by
+`market_snapshot.py`'s per-group snapshot subdirectory naming.
+What: Track C's universe-model correction introduced a directory-level
+`universe_name` (config/universes/{universe_name}/) that identifies a whole
+group/ticker set. The pre-existing, unrelated `meta.universe_name` field
+inside each group yaml (predates this track) is really a per-GROUP data-cache
+key today — it was named when each yaml was still framed as a standalone
+one-group "universe". Both are now called "universe_name" for historically
+unrelated reasons, which reads as one concept but is two. Deliberately left
+unrenamed this track: renaming would ripple into the DATA_UNIVERSES cache
+directory naming convention and UniverseDataLoader, which is a separate axis
+from the CONFIG-layout migration this track scoped.
+Severity: cosmetic (naming clarity only; no functional collision — the two
+serve disjoint purposes and never resolve against each other)
+Suggested track: new, or fold into F's config-surface reshaping
