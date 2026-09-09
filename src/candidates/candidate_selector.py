@@ -37,7 +37,11 @@ class CandidateSelectionConfig:
 
     adf_pvalue_max
         Optional upper bound for the ADF p-value. If set, only candidates with
-        adf_pvalue <= this threshold are kept.
+        adf_pvalue <= this threshold are kept. Never set in any live config
+        today. candidates.parquet no longer persists an adf_pvalue column
+        (F1 commit 5, since Track A defaulted skip_adf=True everywhere and
+        nothing filters on it) -- setting this against a post-F1 panel
+        raises KeyError, not the friendlier all-NaN guard message.
 
     mr_retention_min
         Optional lower bound for mr_retention_vs_ref. This is computed relative
@@ -169,11 +173,15 @@ def _extract_asof_date_series(panel: pd.DataFrame) -> pd.Series:
 
 
 def _required_cols_for_selection() -> list[str]:
+    # adf_pvalue is not required (F1 commit 5): candidates.parquet no longer
+    # persists it. CandidateSelectionConfig.adf_pvalue_max's gate below still
+    # reads panel["adf_pvalue"] when set -- against a post-F1 panel that
+    # raises KeyError (loud), not a silent skip. Never set in any live
+    # config today.
     return [
         "candidate_subtype",
         "is_valid",
         "success",
-        "adf_pvalue",
         "mr_score",
         "half_life",
         "candidate_type",

@@ -388,7 +388,12 @@ def _build_pair_candidate_rows_for_date(
                 # Always 2 in the pair path: both legs are live hedge-fit
                 # estimates, not optimizer output to threshold (F1 commit 4).
                 "n_legs": 2,
-                "adf_pvalue": diagnostics["adf_pvalue"],
+                # adf_pvalue dropped from candidates.parquet (F1 commit 5):
+                # Track A already defaulted skip_adf=True since nothing
+                # filters on it (CandidateSelectionConfig.adf_pvalue_max is
+                # never set live), so the persisted column was all-NaN in
+                # every real run. _fast_pair_diagnostics still computes it
+                # internally when skip_adf=False; it's just not persisted.
                 "mr_score": diagnostics["mr_score"],
                 "kappa": diagnostics["kappa"],
                 "half_life": diagnostics["half_life"],
@@ -668,6 +673,22 @@ def create_pair_candidate_panel(
     windows (hedge-ratio fit vs mean-reversion diagnostics).
 
     Same walkforward interface as create_portfolio_candidate_panel.
+
+    Panel schema (candidates.parquet, F1 commit 5): one row per pair per
+    outer refit date, full scored set including invalid rows. The NaN
+    pattern is structured -- a pair rejected at an early gate never reaches
+    the OU fit, so every downstream metric is NaN for that row. why_invalid
+    is authoritative; do not infer the failure reason from which column is
+    NaN. Only the first failure is recorded, so conditioning on a later gate
+    means conditioning on having passed every earlier one.
+
+    Two distinct absence classes, and this table can only carry one. Rows
+    with is_valid=False carry a reason in why_invalid. Pairs skipped by a
+    structural pre-check -- a leg missing from the cleaned window
+    (structural_skip), or a weight-computation exception (weight_fit_failed)
+    -- produce NO ROW AT ALL; they are logged separately (DEBUG) rather than
+    persisted here. Any breadth, coverage, or rejection-rate denominator
+    needs both classes, and this table alone cannot supply the second one.
     """
     aligned_index = bundle.aligned_returns.index
 
