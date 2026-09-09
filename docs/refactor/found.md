@@ -360,6 +360,27 @@ Severity: cosmetic (naming clarity only; no functional collision — the two
 serve disjoint purposes and never resolve against each other)
 Suggested track: new, or fold into F's config-surface reshaping
 
+**Update (track F1, commit 6):** `F1_artifact_schema.md`'s commit 6 asked to
+remove `meta.universe_name` from the group yamls, describing it as
+"redundant... a leftover from when each yaml was its own universe." That
+characterization does not hold: re-verified directly against this entry's
+own citations, `UniverseConfig.universe_name` (`universe_config.py:74-75`)
+reads `self.raw["meta"]["universe_name"]` as a **required** key (no
+default; `UniverseConfig.validate()` doesn't even need to touch it —
+accessing the property KeyErrors if it's absent), and it is what
+`UniverseDataLoader.__init__` uses to name the on-disk cache directory
+(`universe_loader.py:23`, `self.cache_dir = self.data_path /
+self.config.universe_name`) — the exact `data/market/universes/
+materials_only_v1/`-style paths every panel build in this track has read
+from. Removing the yaml key would break cache resolution for every
+existing cached universe, not free up genuinely dead surface. **Declined**:
+F1 did not remove `meta.universe_name`. This looks like the brief's commit
+6 was written without re-checking this entry's own prior finding.
+Severity unchanged from above; the "Suggested track" line still applies —
+whoever picks this up needs to actually design the cache-directory-naming
+migration this entry already flagged as the real blocker, not just delete
+a yaml key.
+
 ## "Zero call sites" claims in this refactor were `.py`-only greps
 Found during: track C (the `ensure_universe_data` notebook caller)
 Location: process, not code — affects claims in `A_spec.md` and `D_spec.md`
@@ -504,3 +525,16 @@ Severity: cosmetic (the actual F1 commit 4 change is still neutral,
 verified) — the process/documentation error is the finding
 Suggested track: none — process note; relevant context if F2's fidelity
 test session revisits commit 4's neutrality argument
+
+## `config_hash` changed by Track F1 commit 6's `DataConfig.snapshot_id`
+Found during: track F1 (commit 6)
+Location: `src/simulator/simulation_persistence.py:32-44` (`hash_config`)
+What: Same pattern as every prior entry in this family. Adding
+`DataConfig.snapshot_id: str | None = None` changes `hash_config`'s output
+for every config regardless of resolved value (always `None` today, since
+nothing constructs it non-`None` — the snapshot layer isn't wired to
+`stage_download` yet). Confirmed via
+`tests/test_sweep_defaults.py::test_standard_v1_output_is_hash_stable`,
+whose recorded hash needed updating (`7a5f6834...` -> `89b82e76...`).
+Severity: result-affecting on port only
+Suggested track: port note — hierarchical-arb
