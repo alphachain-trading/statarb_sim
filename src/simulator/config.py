@@ -189,6 +189,17 @@ class DataConfig:
     excluded_groups: list[str] | None = None
     candidate_panel_subdir: str = ""
     universe_name: str = "sp500_v1"  # config/universes/{universe_name}/{group_id}.yaml
+    # Which frozen market-data snapshot (src/data/market_snapshot.py) this
+    # run binds to, e.g. "sp500_v1_20260713T140501". None = the run loaded
+    # market data through UniverseDataLoader's live cache, not a snapshot —
+    # true for every run today. stage_download / _load_umd are not yet
+    # wired to ensure_market_snapshot/load_market_snapshot (found.md:
+    # "UniverseDataLoader.load's in-place cache-hit resync remains live for
+    # its three existing callers" — that wiring is deferred, not this
+    # commit's job). This field exists so config.json can record a
+    # snapshot_id once that wiring lands, without another config_hash-
+    # shifting field addition at that point.
+    snapshot_id: str | None = None
     data_path: str = "data"
     price_field: str = "Close"
     return_method: str = "log"

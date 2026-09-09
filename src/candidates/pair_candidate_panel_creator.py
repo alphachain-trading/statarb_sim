@@ -775,6 +775,11 @@ def create_pair_candidate_panel(
     rows: list[dict[str, Any]] = []
     weight_rows: list[dict[str, Any]] = []
     fitted_params: dict[pd.Timestamp, FittedCausalResidualModel] = {}
+    # Union, across every daily fit date, of the residual model's realized
+    # input tickers (F1 commit 6) — what reconstruction must load. Not the
+    # requested set (pair_cfg.tickers, if narrower) and not a per-date
+    # figure (that varies with dropna and belongs to Track B's log).
+    fit_input_tickers: set[str] = set()
     panel_date_set = set(asof_datetimes)
     t0 = time.time()
 
@@ -813,6 +818,8 @@ def create_pair_candidate_panel(
         # Store fitted params for persistence
         if persist_residual_params:
             fitted_params[dt] = model
+
+        fit_input_tickers.update(model.members)
 
         # Build candidate rows only on panel dates
         if is_panel_date:
@@ -861,6 +868,10 @@ def create_pair_candidate_panel(
         "residual_cfg": asdict(residual_cfg),
         "hedge_ratio_lb": hedge_ratio_lb,
         "mr_diag_lb": mr_diag_lb,
+        # Union across every daily fit date of the residual model's realized
+        # input tickers, keyed to this panel's (group_id, residual_key) —
+        # what reconstruction must load (F1 commit 6). Not the requested set.
+        "fit_input_tickers": sorted(fit_input_tickers),
     }
 
     result = CandidatePanelResult(panel=panel, metadata=metadata)

@@ -60,7 +60,11 @@ from src.simulator.sweep_runner import SweepConfig, dedup_key
 # Updated again (0240fcdf... -> 7a5f6834...) when Track F1 commit 2 deleted
 # SimulatorConfig.spectrum (z_spectra capture, unreferenced by any notebook
 # or test). Another field removal, not a value change.
-_PRE_REGISTRY_HASH = "7a5f6834642e0196efa64b9589538922"
+#
+# Updated again (7a5f6834... -> 89b82e76...) when Track F1 commit 6 added
+# DataConfig.snapshot_id (additive, always None today -- stage_download
+# isn't wired to Track C's snapshot layer yet).
+_PRE_REGISTRY_HASH = "89b82e764261666d4a3b4481e8b76fd9"
 
 
 class TestSweepDefaults(unittest.TestCase):

@@ -160,6 +160,8 @@ def run_from_config(config: SimulatorConfig) -> SimulationResult:
     panel, metadata_by_key = _load_panels(config.data, z_configs)
     print(f"[run] Panels loaded in {_time.time() - t0:.1f}s")
 
+    _assert_fit_input_tickers_available(umd, metadata_by_key)
+
     residual_configs = _resolve_residual_configs(config, metadata_by_key)
 
     print("[run] Loading residual params...")
@@ -420,6 +422,41 @@ def _load_panels(
             print(f"  {gid}: {cnt} rows")
 
     return merged, metadata_by_key
+
+
+def _assert_fit_input_tickers_available(
+    umd: UniverseMarketData,
+    metadata_by_key: dict[str, dict[str, Any]],
+) -> None:
+    """
+    Load-time "different universe" guard (F1 commit 6).
+
+    fit_input_tickers (panel metadata, the union of a residual model's
+    realized input tickers across every fit date) names what reconstruction
+    must load. Missing tickers here means the UMD backing this run is a
+    different universe than the one the panel was built against -- fail
+    loud now, not partway through a residual fit. Metadata from a panel
+    built before this commit has no fit_input_tickers key; skipped, not an
+    error (nothing to check against).
+
+    Deliberately narrower than Track C's snapshot content-hash: this only
+    checks "is every required ticker present," not "does its price content
+    match what the panel was built from" -- that is what the snapshot hash
+    covers, per a run that is actually bound to one (not yet wired, see
+    DataConfig.snapshot_id).
+    """
+    available = set(umd.tickers())
+    for rkey, metadata in metadata_by_key.items():
+        fit_input_tickers = metadata.get("fit_input_tickers")
+        if not fit_input_tickers:
+            continue
+        missing = sorted(set(fit_input_tickers) - available)
+        if missing:
+            raise ValueError(
+                f"UniverseMarketData is missing tickers required by the candidate "
+                f"panel for residual_key={rkey!r}: {missing}. This UMD is a "
+                f"different universe than the one this panel was built against."
+            )
 
 
 def _load_residual_params(
