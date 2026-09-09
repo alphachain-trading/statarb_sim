@@ -46,7 +46,6 @@ from src.simulator.config import (
     SizingConfig, VolSizingConfig,
     EntryFeatureConfig, FeatureSpec,
     FeatureIntervalSpec, IntervalScoringConfig,
-    SpectrumConfig,
     discover_group_data_sources, group_abbrev,
 )
 from src.simulator.simulator import SimulationResult
@@ -87,9 +86,6 @@ class SweepConfig:
     # Risk constraints
     max_ticker_exposure_pct: float = 0.15
     max_gross_exposure: float = 10.0
-
-    # Spectrum capture
-    spectrum: SpectrumConfig | None = None
 
     # Universe
     excluded_groups: list[str] | None = None
@@ -167,9 +163,6 @@ class SweepConfig:
             sc = self.interval_scoring
             sc_parts = [f.feature for f in sc.feature_specs]
             parts.append(f"is-{'+'.join(sc_parts)}")
-
-        if self.spectrum is not None:
-            parts.append("spec")
 
         if self.excluded_groups:
             parts.append("ex-" + group_abbrev(groups=self.excluded_groups, to_string=True))
@@ -267,7 +260,6 @@ def _build_sim_config(sweep: SweepConfig, *, index: int | None = None) -> Simula
             start_date=sweep.start_date,
             end_date=sweep.end_date,
         ),
-        "spectrum": sweep.spectrum,
         "entry_features": sweep.entry_features,
     }
 
@@ -466,12 +458,6 @@ def run_sweep(
                         f"{zc.residual_key}:zhl{zc.resolved_lookbacks()[0]}"
                         for zc in val
                     ])
-                elif f.name == "spectrum" and val is not None:
-                    sweep_fields[f.name] = (
-                        f"rhl={val.residual_lookbacks or 'all'} "
-                        f"zlb={val.zlb_values or 'auto'} "
-                        f"exit={val.record_exit}"
-                    )
                 else:
                     sweep_fields[f.name] = val
 

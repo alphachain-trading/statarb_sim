@@ -192,7 +192,6 @@ def _build_sim_config(active_groups: list[str]) -> SimulatorConfig:
             max_ticker_exposure_pct=0.15,
         ),
         "run": RunConfig(progress=False, progress_step=10, start_date=None, end_date=None),
-        "spectrum": None,
         "entry_features": None,
     }
 

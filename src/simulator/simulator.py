@@ -29,7 +29,6 @@ from src.simulator.types import (
     ExecutionFill,
     LiveCandidatePosition,
 )
-from src.simulator.z_spectrum_capture import ZSpectrumCapture
 from src.utils.sim_logger import logger
 
 
@@ -223,19 +222,6 @@ class Simulator:
     sizing_engine: SizingEngine
     entry_feature_engine: EntryFeatureEngine | None
     risk_manager: RiskManager | None
-
-    _spectrum_capture: ZSpectrumCapture | None = field(default=None, init=False, repr=False)
-
-    def __post_init__(self) -> None:
-        if self.config.spectrum is not None:
-            self._spectrum_capture = ZSpectrumCapture(
-                config=self.config.spectrum,
-                signal_generator=self.signal_generator,
-                z_score_configs={
-                    zc.timescale_label: zc
-                    for zc in self.config.resolved_z_score_configs()
-                },
-            )
 
     def run(
         self,
@@ -578,8 +564,6 @@ class Simulator:
                 diagnostics_log.clear()
                 closed_trades.clear()
                 logger.log(f"[sim] Year {date.year} checkpoint: flushed logs, memory freed")
-                if self._spectrum_capture is not None:
-                    self._spectrum_capture.save(run_dir)
 
         if label_to_meta:
             enriched = []
@@ -644,16 +628,6 @@ class Simulator:
                 performance_result=performance_result,
                 run_id=run_id,
             )
-            if self._spectrum_capture is not None:
-                if run_dir is not None:
-                    self._spectrum_capture.save(run_dir)
-                else:
-                    import warnings
-                    warnings.warn(
-                        "[Simulator] spectrum capture configured but persistence disabled "
-                        "— spectra not saved.",
-                        stacklevel=2,
-                    )
 
         result.performance = performance_result
         result.run_id = run_id if self.config.persistence.enabled else None
@@ -725,21 +699,6 @@ class Simulator:
                 timescale_label=ref.timescale_label,
             )
 
-            raw_w = dict(zip(ref.members, ref.weights))
-            gross_norm = sum(abs(v) for v in raw_w.values())
-            model_weights_by_ticker = {t: v / gross_norm for t, v in raw_w.items()} if gross_norm > 0 else raw_w
-
-            if self._spectrum_capture is not None:
-                self._spectrum_capture.capture_entry(
-                    date=date,
-                    spread_id=action.spread_id,
-                    group_id=action.group_id,
-                    weights_by_ticker=model_weights_by_ticker,
-                    residual_key=ref.residual_key,
-                    trading_z_score=action.z_score,
-                    trading_z_cfg=self.signal_generator._get_z_score_config(ref.timescale_label),
-                )
-
             open_txn_cost = sum(f.commission for f in exec_res.fills)
 
             live_positions_by_candidate_id[action.candidate_id] = LiveCandidatePosition(
@@ -803,15 +762,6 @@ class Simulator:
             )
             closed_trades.append(closed_trade)
             live_positions_by_candidate_id.pop(action.candidate_id, None)
-
-            if self._spectrum_capture is not None:
-                self._spectrum_capture.capture_exit(
-                    date=date,
-                    spread_id=live_pos.spread_id,
-                    group_id=live_pos.group_id,
-                    weights_by_ticker=live_pos.realized_weights_by_ticker,
-                    residual_key=live_pos.residual_key,
-                )
 
             return float(closed_trade.realized_pnl_gross), close_txn_cost
 

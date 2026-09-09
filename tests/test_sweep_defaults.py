@@ -56,7 +56,11 @@ from src.simulator.sweep_runner import SweepConfig, dedup_key
 # types -- KellyConfig, TimescaleRiskConfig, CrossTimescaleEntryConfig -- were
 # deleted as unconstructed config surface). Field removals, not value changes,
 # but hash_config serializes field names too.
-_PRE_REGISTRY_HASH = "0240fcdf90e65dd93969b4f6bb1789e8"
+#
+# Updated again (0240fcdf... -> 7a5f6834...) when Track F1 commit 2 deleted
+# SimulatorConfig.spectrum (z_spectra capture, unreferenced by any notebook
+# or test). Another field removal, not a value change.
+_PRE_REGISTRY_HASH = "7a5f6834642e0196efa64b9589538922"
 
 
 class TestSweepDefaults(unittest.TestCase):

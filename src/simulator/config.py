@@ -743,17 +743,6 @@ TraderConfig = PortfolioMeanReversionConfig | PairSpreadTraderConfig
 
 
 @dataclass(slots=True, frozen=True)
-class SpectrumConfig:
-    """
-    Configuration for z-score spectrum capture during simulation.
-    """
-    residual_lookbacks: list[int] | None = None
-    zlb_values: list[int] | None = None
-    record_exit: bool = True
-    identity_check_epsilon: float = 1e-4
-
-
-@dataclass(slots=True, frozen=True)
 class SimulatorConfig:
     data: DataConfig
     candidate_selection: CandidateSelectionConfig
@@ -777,7 +766,6 @@ class SimulatorConfig:
     performance: PerformanceConfig = field(default_factory=PerformanceConfig)
     persistence: PersistenceConfig = field(default_factory=PersistenceConfig)
     risk_manager: RiskManagerConfig | None = None
-    spectrum: SpectrumConfig | None = None
     entry_features: EntryFeatureConfig | None = None
 
     def __post_init__(self) -> None:
