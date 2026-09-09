@@ -211,6 +211,14 @@ def save_candidate_panel_result(
     panel_path = out_dir / f"{stem}.panel.parquet"
     meta_path = out_dir / f"{stem}.meta.json"
 
+    if not result.panel.empty and "candidate_id" in result.panel.columns:
+        dupe_mask = result.panel["candidate_id"].duplicated(keep=False)
+        if dupe_mask.any():
+            dupes = sorted(result.panel.loc[dupe_mask, "candidate_id"].unique())
+            raise ValueError(
+                f"candidates.parquet has non-unique candidate_id rows for stem={stem!r}: {dupes}"
+            )
+
     result.panel.to_parquet(panel_path)
 
     metadata = dict(result.metadata)
