@@ -340,3 +340,29 @@ from the CONFIG-layout migration this track scoped.
 Severity: cosmetic (naming clarity only; no functional collision — the two
 serve disjoint purposes and never resolve against each other)
 Suggested track: new, or fold into F's config-surface reshaping
+
+## "Zero call sites" claims in this refactor were `.py`-only greps
+Found during: track C (the `ensure_universe_data` notebook caller)
+Location: process, not code — affects claims in `A_spec.md` and `D_spec.md`
+What: `ensure_universe_data` was recorded as having zero callers repo-wide. It
+had one, in a cell of `notebooks/howto/03_full_simulation_pipeline.ipynb`, which
+a `.py`-only grep did not see. It surfaced as a FileNotFoundError once the yaml
+layout moved.
+
+Every other "dead code" or "zero construction sites" finding in this refactor
+rests on the same kind of search and is therefore unverified for notebooks:
+
+- Track A deleted `compute_candidate_diagnostics` on that basis. Already
+  deleted, so check the notebooks for it and restore if needed.
+- Track D classified `SpreadMomentumConfig`, `KellyConfig`,
+  `TimescaleRiskConfig.selection` and `CrossTimescaleEntryConfig` as having no
+  construction sites. Nothing was deleted, so the exposure is limited to the
+  reasoning in that entry.
+- `build_spread_returns` (`src/residuals/spreads.py:289`) is recorded as
+  callerless on the same basis.
+
+Rule going forward: any grep supporting a deletion must include
+`notebooks/**/*.ipynb`. This matters most for Track F, which deletes
+`daily_state` and may delete the four config classes above.
+Severity: process; one instance already found and fixed
+Suggested track: check before any deletion in F

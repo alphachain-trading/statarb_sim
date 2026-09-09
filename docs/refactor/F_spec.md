@@ -6,6 +6,14 @@ says must be settled here, Part 3 proposes a commit order. No code was changed.
 
 ---
 
+> **Note added after this session:** Track F was split into F1 (artifact schema)
+> and F2 (loop, series, fidelity), and `F_artifact_layer.md` was deleted. This spec
+> predates the split and covers both halves; the briefs `F1_artifact_schema.md` and
+> `F2_loop_and_fidelity.md` carry the decisions made since, including `n_legs`,
+> `series/`, and z_spectra. Where they differ from this document, the briefs win.
+> 
+---
+
 ## Part 1 — verification
 
 ### 1. Live weights serialization path
