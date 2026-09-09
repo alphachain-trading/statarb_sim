@@ -181,6 +181,25 @@ a confusing failure for a fresh clone with no `download`/`residuals` state
 Suggested track: new (fixture staleness) — new for the comment; C for the
 download-stage integration
 
+Addendum (track F1, commit 3): `_bootstrap_panel_from_fixtures`'s copied-suffix
+list (`run_me.py:393`, `(".panel.parquet", ".meta.json", "_residual_params.pkl")`)
+was deliberately left untouched when F1 commit 3 moved every real
+`residual_params` writer/reader from `.pkl` to `.parquet` — this function does
+a raw file copy, never reads the params through `load_residual_params`, and the
+committed fixture at `fixtures/materials_v1/..._residual_params.pkl` is still
+that stale pickle. Leaving it means the fallback (already masked, per above)
+would now copy a `.pkl` file that `discover_group_data_sources` cannot see
+(it checks for `.parquet` — `config.py`'s `residual_params_stem` resolution),
+so a series-persist step downstream would silently skip residual-params-
+dependent series instead of finding them, on top of the pre-existing
+stem-mismatch that already stops the fixture from being found at all. Two
+compounding reasons this path won't work if it's ever reached; still masked
+today by the same locally-built panel. Whoever fixes the fixture staleness
+above should also regenerate this fixture as `.parquet` and update the suffix
+list.
+Severity: cosmetic today (masked); compounds the existing entry
+Suggested track: same as above — new (fixture staleness)
+
 ## `SimulatorConfig.risk_manager: RiskManagerConfig | None = None`
 Found during: track D
 Location: `src/simulator/config.py:844` (field default); consumed at
