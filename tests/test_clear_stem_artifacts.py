@@ -4,7 +4,7 @@ Regression test for stem-scoped artifact clearing before a fresh panel write.
 create_pair_candidate_panel persists many panels (group x timescale) into one
 shared directory, so a fresh write must clear only THIS stem's prior
 artifacts — never sibling panels or the shared series/ folder. This guards
-against both a reused stem keeping a stale residual_params.pkl and, in the
+against both a reused stem keeping a stale residual_params.parquet and, in the
 other direction, a directory-wide wipe destroying a batch's other panels.
 """
 import sys
@@ -23,14 +23,14 @@ def _write_panel(out_dir: Path, stem: str, content: str) -> None:
     _clear_stem_artifacts(out_dir, stem)
     (out_dir / f"{stem}.panel.parquet").write_text(f"panel:{content}")
     (out_dir / f"{stem}.meta.json").write_text(f"meta:{content}")
-    (out_dir / f"{stem}_residual_params.pkl").write_text(f"params:{content}")
+    (out_dir / f"{stem}_residual_params.parquet").write_text(f"params:{content}")
 
 
 def _stem_files(out_dir: Path, stem: str) -> list[Path]:
     return [
         out_dir / f"{stem}.panel.parquet",
         out_dir / f"{stem}.meta.json",
-        out_dir / f"{stem}_residual_params.pkl",
+        out_dir / f"{stem}_residual_params.parquet",
     ]
 
 
@@ -59,12 +59,12 @@ class TestClearStemArtifacts(unittest.TestCase):
             # A's three files replaced with the new content.
             self.assertEqual((out_dir / "A.panel.parquet").read_text(), "panel:v2")
             self.assertEqual((out_dir / "A.meta.json").read_text(), "meta:v2")
-            self.assertEqual((out_dir / "A_residual_params.pkl").read_text(), "params:v2")
+            self.assertEqual((out_dir / "A_residual_params.parquet").read_text(), "params:v2")
 
             # Sibling stem B untouched — still original content.
             self.assertEqual((out_dir / "B.panel.parquet").read_text(), "panel:v1")
             self.assertEqual((out_dir / "B.meta.json").read_text(), "meta:v1")
-            self.assertEqual((out_dir / "B_residual_params.pkl").read_text(), "params:v1")
+            self.assertEqual((out_dir / "B_residual_params.parquet").read_text(), "params:v1")
 
             # Shared series/ content untouched.
             self.assertTrue(series_stock.exists())
@@ -82,7 +82,7 @@ class TestClearStemArtifacts(unittest.TestCase):
             (out_dir / "A.meta.json").unlink()
             removed = _clear_stem_artifacts(out_dir, "A")
             names = sorted(p.name for p in removed)
-            self.assertEqual(names, ["A.panel.parquet", "A_residual_params.pkl"])
+            self.assertEqual(names, ["A.panel.parquet", "A_residual_params.parquet"])
 
 
 if __name__ == "__main__":

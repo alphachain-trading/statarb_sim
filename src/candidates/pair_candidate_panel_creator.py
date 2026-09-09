@@ -28,6 +28,7 @@ from src.residuals.causal_residuals import (
     FittedCausalResidualModel,
     apply_causal_residual_model,
     fit_causal_residual_model,
+    save_residual_params,
 )
 from src.residuals.spreads import (
     HedgeRatioMethod,
@@ -593,7 +594,7 @@ def _clear_stem_artifacts(out_dir: Path, stem: str) -> list[Path]:
 
     Matches the stage_download convention of deleting stale artifacts to force
     a clean rebuild: a reused stem must not keep its old meta or, worse, a
-    residual_params.pkl fitted under a different config.
+    residual_params.parquet fitted under a different config.
 
     Scoped to THIS stem only — sibling panels sharing a batch directory and the
     shared series/ folder are left untouched. (series/ filenames are keyed by
@@ -606,7 +607,7 @@ def _clear_stem_artifacts(out_dir: Path, stem: str) -> list[Path]:
     for path in (
         out_dir / f"{stem}.panel.parquet",
         out_dir / f"{stem}.meta.json",
-        out_dir / f"{stem}_residual_params.pkl",
+        out_dir / f"{stem}_residual_params.parquet",
     ):
         if path.exists():
             path.unlink()
@@ -843,7 +844,7 @@ def create_pair_candidate_panel(
         result.metadata["artifact_out_dir"] = str(out_dir)
 
         # Remove this stem's prior artifacts before writing fresh ones, so a
-        # reused stem cannot leave a stale meta or a residual_params.pkl from a
+        # reused stem cannot leave a stale meta or a residual_params.parquet from a
         # different config behind. Stem-scoped: sibling panels in a shared batch
         # directory and the shared series/ folder are untouched.
         for removed_path in _clear_stem_artifacts(out_dir, stem):
@@ -857,11 +858,8 @@ def create_pair_candidate_panel(
 
         # Persist daily fitted residual model parameters
         if fitted_params:
-            import pickle
-
-            params_path = out_dir / f"{stem}_residual_params.pkl"
-            with open(params_path, "wb") as f:
-                pickle.dump(fitted_params, f, protocol=pickle.HIGHEST_PROTOCOL)
+            params_path = out_dir / f"{stem}_residual_params.parquet"
+            save_residual_params(fitted_params, str(params_path))
 
             result.metadata["residual_params_path"] = str(params_path)
             result.metadata["residual_params_n_dates"] = len(fitted_params)

@@ -32,7 +32,6 @@ Usage:
 """
 from __future__ import annotations
 
-import pickle
 import time
 from pathlib import Path
 
@@ -40,7 +39,7 @@ from src.settings import CANDIDATE_PANELS_ROOT, CONFIG_UNIVERSE, DATA_UNIVERSES,
 from src.candidates.panel_batch import PanelBatchConfig, run_panel_batch
 from src.candidates.candidate_panel import load_candidate_panel_result
 from src.candidates.pair_candidate_panel_creator import PairSpreadConfig
-from src.residuals.causal_residuals import CausalResidualConfig, ResidualMode
+from src.residuals.causal_residuals import CausalResidualConfig, ResidualMode, load_residual_params
 from src.residuals.series import compute_and_persist_series
 from src.simulator.config import (
     SimulatorConfig,
@@ -156,9 +155,8 @@ def _persist_series(sim_config: SimulatorConfig, active_groups: list[str]) -> No
             print(f"[harness] no residual params for {src.candidate_panel_stem}; skipping series")
             continue
 
-        params_path = panel_dir / f"{src.residual_params_stem}_residual_params.pkl"
-        with params_path.open("rb") as f:
-            raw_params = pickle.load(f)
+        params_path = panel_dir / f"{src.residual_params_stem}_residual_params.parquet"
+        raw_params = load_residual_params(str(params_path))
 
         residual_params = {
             (str(group_id), ""): raw_params

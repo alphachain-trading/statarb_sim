@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import pickle
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any
@@ -35,7 +34,7 @@ from src.simulator.traders.portfolio_mean_reversion import PortfolioMeanReversio
 from src.candidates.candidate_panel import CandidatePanelResult, load_candidate_panel_result
 from src.data.universe_loader import UniverseConfig, UniverseDataLoader
 from src.data.universe_marketdata import UniverseMarketData
-from src.residuals.causal_residuals import CausalResidualConfig, FittedCausalResidualModel
+from src.residuals.causal_residuals import CausalResidualConfig, FittedCausalResidualModel, load_residual_params
 
 
 def create_simulator(
@@ -448,12 +447,11 @@ def _load_residual_params(
         if composite_key in merged:
             continue
 
-        params_path = panel_dir / f"{src.residual_params_stem}_residual_params.pkl"
+        params_path = panel_dir / f"{src.residual_params_stem}_residual_params.parquet"
         if not params_path.exists():
             raise FileNotFoundError(f"Residual params not found: {params_path}")
 
-        with open(params_path, "rb") as f:
-            params: dict[pd.Timestamp, FittedCausalResidualModel] = pickle.load(f)
+        params: dict[pd.Timestamp, FittedCausalResidualModel] = load_residual_params(str(params_path))
 
         if not params:
             continue

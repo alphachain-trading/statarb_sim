@@ -125,7 +125,7 @@ def discover_group_data_sources(
             print(f"[discover] Warning: no universe YAML for {group_id}, skipping")
             continue
 
-        params_path = panel_dir / f"{stem}_residual_params.pkl"
+        params_path = panel_dir / f"{stem}_residual_params.parquet"
         residual_stem = stem if params_path.exists() else None
 
         residual_key = ""

@@ -100,7 +100,7 @@ def compute_and_persist_series(
     residual_params
         ``{(group_id, residual_key): {fit_date: FittedCausalResidualModel}}`` —
         the same in-memory form the simulator factory assembles from the
-        ``*_residual_params.pkl`` files. ``fit_date`` is the residual model's
+        ``*_residual_params.parquet`` files. ``fit_date`` is the residual model's
         own (daily) fit date, distinct from a candidate's ``asof_date`` (its
         weights fit date, at outer refit dates); a candidate's ``asof_date``
         is always a valid ``fit_date`` to look up here, since candidates only
