@@ -432,3 +432,75 @@ experiment) before porting this deletion there. If it does, this is not a
 result-neutral port.
 Severity: result-affecting on port only
 Suggested track: port note — hierarchical-arb
+
+## `hedge_key` in weights.parquet is a stand-in, not Track G's real key
+Found during: track F1 (commit 4)
+Location: `src/candidates/pair_candidate_panel_creator.py` (weight_rows
+construction in `_build_pair_candidate_rows_for_date`); `weights.parquet`'s
+grain per `F1_artifact_schema.md`: `(group_id, residual_key, hedge_key,
+spread_id, asof_date, ticker) -> weight`
+What: The brief specifies `hedge_key` as part of `weights.parquet`'s grain
+and as one of the two live key columns in F1's Layout section ("Until
+Track H defines `zscore_key`, the key columns are `residual_key` and
+`hedge_key` only") — implying it should already be a real, defined concept
+by F1. It is not: grepped `hedge_key` across `src/` before this commit and
+found zero hits anywhere in the codebase. Track G ("hedge mode"), which
+`found.md`'s residual-fit-weighting entry above describes as carrying "the
+same defect class... one stage earlier" for the hedge fit, has not landed
+— no `HedgeConfig` class or `.key` property exists to source a real
+`hedge_key` from.
+
+This commit set `hedge_key` to the existing hedge-ratio method string (e.g.
+`"pca"`, `"ols"` — `PairSpreadConfig.hedge_ratio_methods`, the `method`
+loop variable), the closest existing analogue to how `residual_key` is
+`CausalResidualConfig.key`. This is sufficient for `weights.parquet`'s own
+uniqueness today (multiple `hedge_ratio_methods` configured for one panel
+would otherwise collide on `(spread_id, asof_date, ticker)`), but it is not
+Track G's eventual hedge-fit-config key — no lookback/weighting-scheme
+information is encoded, unlike `residual_key`'s `exp_hl252_mh504_rf`-style
+encoding.
+Severity: cosmetic today (weights.parquet is internally consistent and
+correct); a real design question for whoever picks up Track G
+Suggested track: G — confirm or replace this `hedge_key` value when
+`HedgeConfig` is designed
+
+## F_spec.md's "lossy weights JSON never read back into computation" claim was wrong
+Found during: track F1 (commit 4)
+Location: `src/simulator/candidate_filter.py:54-100` (pre-commit-4
+`build_candidate_refs`, called live from `simulator.py:336`)
+What: `F_spec.md` Part 3's commit-4 row and `F1_artifact_schema.md`'s commit
+4 both asserted this was "the one commit in the whole track with a
+*provable* neutrality argument rather than an expectation... the lossy
+JSON was never read back into any computation," citing
+`pair_candidate_panel_creator.py:347-350`'s in-memory full-precision
+`spread_return` computation as the reason.
+
+That citation is correct for `spread_return`/diagnostics, but the claim of
+"never read back into any computation" is false for a different, more
+consequential reader: `CandidateFilter.build_candidate_refs`
+(`candidate_filter.py`, called live every simulated day from
+`simulator.py:336`) parsed the persisted `row["weights"]` JSON string via
+`json.loads` to build `CandidateRef.weights` — the actual weight frozen at
+entry and used for the whole position's lifetime (sizing, PnL). This is
+the live trading path, not a historical-analysis or notebook-only reader.
+Neither `F_spec.md`'s Part 1 verification pass nor the brief caught this;
+both apparently reasoned from the `spread_return` computation alone and
+did not trace `CandidateFilter`'s own read of the panel's `weights` column.
+
+Verified empirically instead of assuming: ran the full pipeline (fresh
+`weights.parquet` write → `_load_weights` → `CandidateFilter` → live
+trading) against the Track B/F1 baseline harness. Result: byte-identical
+97 trades, `B_baseline.txt` unchanged from `## counts` onward. So the
+JSON-precision loss (`double_precision=12`, ~12 significant digits vs.
+float64's ~15-17) turned out to be immaterial at this harness's scale —
+but that is an empirical fact about this one harness run, not a structural
+guarantee the way the brief framed it. A run where a z-score threshold or
+unit-rounding decision sits closer to a boundary could in principle differ.
+Recorded because F2's zero-tolerance fidelity test's premise partly rests
+on the artifact-swap commits being provably neutral; this one commit's
+neutrality claim needed correcting to "verified neutral," not "provably
+neutral by construction."
+Severity: cosmetic (the actual F1 commit 4 change is still neutral,
+verified) — the process/documentation error is the finding
+Suggested track: none — process note; relevant context if F2's fidelity
+test session revisits commit 4's neutrality argument
