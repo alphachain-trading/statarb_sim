@@ -222,6 +222,9 @@ class Simulator:
     sizing_engine: SizingEngine
     entry_feature_engine: EntryFeatureEngine | None
     risk_manager: RiskManager | None
+    # {(spread_id, asof_date): {ticker: weight}}, full float64 precision —
+    # replaces the old per-candidate weights JSON column (F1 commit 4).
+    weights_lookup: dict[tuple[str, pd.Timestamp], dict[str, float]] = field(default_factory=dict)
 
     def run(
         self,
@@ -333,7 +336,7 @@ class Simulator:
                 selected_panel=selected,
                 date=date,
             )
-            new_arrivals = self.candidate_filter.build_candidate_refs(selected_today)
+            new_arrivals = self.candidate_filter.build_candidate_refs(selected_today, self.weights_lookup)
 
             self.candidate_activation.process_new_arrivals(
                 selected_refs=new_arrivals,

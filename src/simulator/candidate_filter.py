@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-import json
 
 import pandas as pd
 
@@ -18,7 +17,6 @@ REQUIRED_SELECTED_COLS = {
     "spread_id",
     "group_id",
     "asof_date",
-    "weights",
 }
 
 
@@ -51,18 +49,32 @@ class CandidateFilter:
         mask = selected_panel["asof_date"] == date
         return selected_panel.loc[mask].copy()
 
-    def build_candidate_refs(self, selected_today: pd.DataFrame) -> list[CandidateRef]:
+    def build_candidate_refs(
+        self,
+        selected_today: pd.DataFrame,
+        weights_lookup: dict[tuple[str, pd.Timestamp], dict[str, float]],
+    ) -> list[CandidateRef]:
+        """
+        weights_lookup: {(spread_id, asof_date): {ticker: weight}}, loaded from
+        weights.parquet at full float64 precision (F1 commit 4) -- replaces
+        the old per-row "weights" JSON column, which lost precision through
+        to_json(double_precision=12) and was never what spread_return itself
+        was computed from.
+        """
         refs = []
         for _, row in selected_today.iterrows():
-            import json
-            weights_raw = row["weights"]
-            if isinstance(weights_raw, str):
-                w_dict = json.loads(weights_raw)  # {"BKNG": 1.0, "MAR": -3.452695568989}
-                members = tuple(w_dict.keys())
-                weights = tuple(w_dict.values())
-            else:
-                members = tuple(row["spread_id"].split("|"))
-                weights = tuple(weights_raw)
+            spread_id = str(row["spread_id"])
+            asof_date = pd.Timestamp(row["asof_date"])
+            members = tuple(spread_id.split("|"))
+
+            weight_dict = weights_lookup.get((spread_id, asof_date))
+            if weight_dict is None:
+                raise KeyError(
+                    f"No weights found for spread_id={spread_id!r} asof_date={asof_date} "
+                    f"— weights.parquet is missing this (spread_id, asof_date) key."
+                )
+            weights = tuple(float(weight_dict[m]) for m in members)
+
             rkey = row.get("residual_key", "")
             zcs = self.z_score_configs_by_rkey.get(rkey, []) if rkey else []
 
@@ -71,9 +83,9 @@ class CandidateFilter:
                 tsl = zcs[0].timescale_label if zcs else ""
                 refs.append(CandidateRef(
                     candidate_id=row["candidate_id"],
-                    spread_id=row["spread_id"],
+                    spread_id=spread_id,
                     group_id=row["group_id"],
-                    asof_date=pd.Timestamp(row["asof_date"]),
+                    asof_date=asof_date,
                     members=members,
                     weights=weights,
                     subtype=row.get("subtype"),
@@ -88,9 +100,9 @@ class CandidateFilter:
                     tsl = zc.timescale_label
                     refs.append(CandidateRef(
                         candidate_id=row["candidate_id"],
-                        spread_id=row["spread_id"],
+                        spread_id=spread_id,
                         group_id=row["group_id"],
-                        asof_date=pd.Timestamp(row["asof_date"]),
+                        asof_date=asof_date,
                         members=members,
                         weights=weights,
                         subtype=row.get("subtype"),
@@ -121,40 +133,3 @@ class CandidateFilter:
             kind="stable",
         ).reset_index(drop=True)
 
-    def _row_to_candidate_ref(self, row: pd.Series) -> CandidateRef:
-        members = tuple(str(x) for x in str(row["spread_id"]).split("|"))
-        weights = self._extract_weights(row["weights"], members)
-
-        return CandidateRef(
-            candidate_id=str(row["candidate_id"]),
-            spread_id=str(row["spread_id"]),
-            group_id=str(row["group_id"]),
-            asof_date=pd.Timestamp(row["asof_date"]),
-            members=members,
-            weights=weights,
-            subtype=self._optional_str(row, "subtype"),
-        )
-
-    def _extract_weights(
-        self,
-        raw_weights: str | dict | pd.Series,
-        members: tuple[str, ...],
-    ) -> tuple[float, ...]:
-        if isinstance(raw_weights, pd.Series):
-            s = raw_weights.reindex(list(members))
-            return tuple(float(x) for x in s.to_list())
-
-        if isinstance(raw_weights, dict):
-            return tuple(float(raw_weights[m]) for m in members)
-
-        if isinstance(raw_weights, str):
-            parsed = json.loads(raw_weights)
-            return tuple(float(parsed[m]) for m in members)
-
-        raise TypeError(f"Unsupported weights type: {type(raw_weights)}")
-
-    @staticmethod
-    def _optional_str(row: pd.Series, col: str) -> str | None:
-        if col not in row or pd.isna(row[col]):
-            return None
-        return str(row[col])

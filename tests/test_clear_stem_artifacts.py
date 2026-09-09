@@ -24,6 +24,7 @@ def _write_panel(out_dir: Path, stem: str, content: str) -> None:
     (out_dir / f"{stem}.panel.parquet").write_text(f"panel:{content}")
     (out_dir / f"{stem}.meta.json").write_text(f"meta:{content}")
     (out_dir / f"{stem}_residual_params.parquet").write_text(f"params:{content}")
+    (out_dir / f"{stem}_weights.parquet").write_text(f"weights:{content}")
 
 
 def _stem_files(out_dir: Path, stem: str) -> list[Path]:
@@ -31,6 +32,7 @@ def _stem_files(out_dir: Path, stem: str) -> list[Path]:
         out_dir / f"{stem}.panel.parquet",
         out_dir / f"{stem}.meta.json",
         out_dir / f"{stem}_residual_params.parquet",
+        out_dir / f"{stem}_weights.parquet",
     ]
 
 
@@ -56,15 +58,17 @@ class TestClearStemArtifacts(unittest.TestCase):
             # Rewrite stem A with different content.
             _write_panel(out_dir, "A", "v2")
 
-            # A's three files replaced with the new content.
+            # A's four files replaced with the new content.
             self.assertEqual((out_dir / "A.panel.parquet").read_text(), "panel:v2")
             self.assertEqual((out_dir / "A.meta.json").read_text(), "meta:v2")
             self.assertEqual((out_dir / "A_residual_params.parquet").read_text(), "params:v2")
+            self.assertEqual((out_dir / "A_weights.parquet").read_text(), "weights:v2")
 
             # Sibling stem B untouched — still original content.
             self.assertEqual((out_dir / "B.panel.parquet").read_text(), "panel:v1")
             self.assertEqual((out_dir / "B.meta.json").read_text(), "meta:v1")
             self.assertEqual((out_dir / "B_residual_params.parquet").read_text(), "params:v1")
+            self.assertEqual((out_dir / "B_weights.parquet").read_text(), "weights:v1")
 
             # Shared series/ content untouched.
             self.assertTrue(series_stock.exists())
@@ -78,11 +82,11 @@ class TestClearStemArtifacts(unittest.TestCase):
             self.assertEqual(_clear_stem_artifacts(out_dir, "A"), [])
 
             _write_panel(out_dir, "A", "v1")
-            # Partial: drop one of the three, confirm only the present ones report.
+            # Partial: drop one of the four, confirm only the present ones report.
             (out_dir / "A.meta.json").unlink()
             removed = _clear_stem_artifacts(out_dir, "A")
             names = sorted(p.name for p in removed)
-            self.assertEqual(names, ["A.panel.parquet", "A_residual_params.parquet"])
+            self.assertEqual(names, ["A.panel.parquet", "A_residual_params.parquet", "A_weights.parquet"])
 
 
 if __name__ == "__main__":

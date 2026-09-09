@@ -281,7 +281,7 @@ def _persist_series_multi(cfg: dict, sim_config) -> None:
     UMD is loaded once across all selected groups; existing series files are
     skipped, so reruns are no-ops.
     """
-    from src.candidates.candidate_panel import load_candidate_panel_result
+    from src.candidates.candidate_panel import load_candidate_panel_result, load_weights, weights_lookup_from_df
     from src.residuals.causal_residuals import load_residual_params
     from src.residuals.series import compute_and_persist_series
     from src.simulator.simulator_factory import _load_umd
@@ -304,6 +304,9 @@ def _persist_series_multi(cfg: dict, sim_config) -> None:
         if src.residual_params_stem is None:
             print(f"[residuals] no residual params for {src.candidate_panel_stem}; skipping series")
             continue
+        if src.weights_stem is None:
+            print(f"[residuals] no weights for {src.candidate_panel_stem}; skipping series")
+            continue
 
         params_path = panel_dir / f"{src.residual_params_stem}_residual_params.parquet"
         raw_params = load_residual_params(str(params_path))
@@ -314,11 +317,15 @@ def _persist_series_multi(cfg: dict, sim_config) -> None:
             for group_id in panel["group_id"].unique()
         }
 
+        weights_path = panel_dir / f"{src.weights_stem}_weights.parquet"
+        weights_lookup = weights_lookup_from_df(load_weights(str(weights_path)))
+
         compute_and_persist_series(
             panel_dir=panel_dir,
             candidate_panel=panel,
             residual_params=residual_params,
             market_data=umd,
+            weights_lookup=weights_lookup,
         )
 
 
@@ -504,7 +511,7 @@ def _persist_spread_series(cfg: dict, sim_config) -> None:
     instead of recomputing residuals each step. Individual files that already
     exist are skipped, so this is a no-op on reruns.
     """
-    from src.candidates.candidate_panel import load_candidate_panel_result
+    from src.candidates.candidate_panel import load_candidate_panel_result, load_weights, weights_lookup_from_df
     from src.residuals.causal_residuals import load_residual_params
     from src.residuals.series import compute_and_persist_series
     from src.simulator.simulator_factory import _load_umd
@@ -524,12 +531,16 @@ def _persist_spread_series(cfg: dict, sim_config) -> None:
         for group_id in panel["group_id"].unique()
     }
 
+    weights_path = panel_dir / f"{stem}_weights.parquet"
+    weights_lookup = weights_lookup_from_df(load_weights(str(weights_path)))
+
     umd = _load_umd(sim_config.data)
     compute_and_persist_series(
         panel_dir=panel_dir,
         candidate_panel=panel,
         residual_params=residual_params,
         market_data=umd,
+        weights_lookup=weights_lookup,
     )
 
 

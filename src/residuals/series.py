@@ -25,7 +25,6 @@ so a single persisted series per candidate can be sliced at any later sim date.
 
 from __future__ import annotations
 
-import json
 from collections import OrderedDict
 from pathlib import Path
 
@@ -57,23 +56,6 @@ def spread_series_filename(spread_id: str, asof_date: pd.Timestamp) -> str:
     return f"{sanitize_spread_id(spread_id)}__{asof.strftime('%Y%m%d')}.parquet"
 
 
-def _parse_members_weights(weights_raw: object) -> tuple[list[str], np.ndarray]:
-    """Extract (members, weights) from a panel ``weights`` cell.
-
-    The panel stores weights as a JSON object string, e.g.
-    ``{"APD": 1.0, "AVY": -0.276}``. Member order follows the JSON key order.
-    """
-    if isinstance(weights_raw, str):
-        w_dict = json.loads(weights_raw)
-    elif isinstance(weights_raw, dict):
-        w_dict = weights_raw
-    else:
-        raise TypeError(f"Unsupported weights payload type: {type(weights_raw)!r}")
-    members = list(w_dict.keys())
-    weights = np.asarray([float(w_dict[m]) for m in members], dtype=float)
-    return members, weights
-
-
 def _rkey_series(panel: pd.DataFrame) -> pd.Series:
     """residual_key per row; defaults to "" when the column is absent."""
     if "residual_key" in panel.columns:
@@ -86,6 +68,7 @@ def compute_and_persist_series(
     candidate_panel: pd.DataFrame,
     residual_params: dict[tuple[str, str], dict[pd.Timestamp, FittedCausalResidualModel]],
     market_data: UniverseMarketData,
+    weights_lookup: dict[tuple[str, pd.Timestamp], dict[str, float]],
 ) -> None:
     """
     Compute and persist stock-residual and spread-level series under ``panel_dir``.
@@ -96,7 +79,7 @@ def compute_and_persist_series(
         Candidate-panel directory; series are written under ``series/``.
     candidate_panel
         Loaded candidate panel (one row per (spread_id, asof_date) candidate).
-        Must carry: ``spread_id``, ``group_id``, ``asof_date``, ``weights``.
+        Must carry: ``spread_id``, ``group_id``, ``asof_date``.
     residual_params
         ``{(group_id, residual_key): {fit_date: FittedCausalResidualModel}}`` —
         the same in-memory form the simulator factory assembles from the
@@ -107,6 +90,11 @@ def compute_and_persist_series(
         arise on dates the daily residual grid also covers.
     market_data
         Loaded UniverseMarketData used to build per-group return bundles.
+    weights_lookup
+        ``{(spread_id, asof_date): {ticker: weight}}``, loaded from
+        weights.parquet at full float64 precision (F1 commit 4) — the same
+        in-memory form CandidateFilter.build_candidate_refs consumes.
+        Replaces the old per-row "weights" JSON column on candidate_panel.
 
     Individual files that already exist are skipped, so the function is
     incremental / resumable across runs.
@@ -237,7 +225,14 @@ def compute_and_persist_series(
         if resid is None:
             continue
 
-        members, weights = _parse_members_weights(row.weights)
+        weight_dict = weights_lookup.get((spread_id, asof))
+        if weight_dict is None:
+            raise KeyError(
+                f"No weights found for spread_id={spread_id!r} asof_date={asof} "
+                f"— weights.parquet is missing this (spread_id, asof_date) key."
+            )
+        members = list(weight_dict.keys())
+        weights = np.asarray([weight_dict[m] for m in members], dtype=float)
         if any(m not in resid.columns for m in members):
             continue
 

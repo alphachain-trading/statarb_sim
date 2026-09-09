@@ -78,26 +78,57 @@ def make_spread_id_from_weights(
     return "|".join(tickers)
 
 
-def serialize_weights_for_spread_id(
-    weights: pd.Series,
-    spread_id: str,
-) -> str:
+def save_weights(rows: list[dict[str, Any]], path: str) -> None:
     """
-    Serialize weights in spread_id ticker order.
+    Persist weights.parquet: one row per leg,
+    (group_id, residual_key, hedge_key, spread_id, asof_date, ticker) -> weight.
 
-    Notes
-    -----
-    - spread_id defines both the active leg set and the canonical ordering.
-    - this is used for both processed weights and raw weights.
+    Full float64 precision -- replaces the live path's old
+    `weights.to_json(double_precision=12)` column, which did not round-trip
+    float64 (F1 commit 4). Stores ALL legs regardless of any later validity
+    gate: spread_return is always built from both legs' full weights, so a
+    fidelity reconstruction needs them all.
     """
-    tickers = spread_id.split("|")
-    w = weights.reindex(tickers)
+    if not rows:
+        raise ValueError("rows is empty; nothing to persist.")
 
-    missing = [t for t in tickers if t not in weights.index]
-    if missing:
-        raise ValueError(f"Missing weights for tickers: {missing}")
+    df = pd.DataFrame(rows)
+    df["group_id"] = df["group_id"].astype("category")
+    df["residual_key"] = df["residual_key"].astype("category")
+    df["hedge_key"] = df["hedge_key"].astype("category")
+    df["spread_id"] = df["spread_id"].astype("category")
+    df["ticker"] = df["ticker"].astype("category")
+    df["asof_date"] = pd.to_datetime(df["asof_date"])
+    df["weight"] = df["weight"].astype("float64")
 
-    return w.to_json(double_precision=12)
+    key_cols = ["group_id", "residual_key", "hedge_key", "spread_id", "asof_date", "ticker"]
+    dupe_mask = df.duplicated(subset=key_cols, keep=False)
+    if dupe_mask.any():
+        dupes = df.loc[dupe_mask, key_cols].drop_duplicates()
+        raise ValueError(f"weights has non-unique {key_cols} rows:\n{dupes}")
+
+    df = df[key_cols + ["weight"]].reset_index(drop=True)
+    df.to_parquet(path)
+
+
+def load_weights(path: str) -> pd.DataFrame:
+    """Load weights.parquet as written by save_weights."""
+    return pd.read_parquet(path)
+
+
+def weights_lookup_from_df(df: pd.DataFrame) -> dict[tuple[str, pd.Timestamp], dict[str, float]]:
+    """
+    Build the {(spread_id, asof_date): {ticker: weight}} lookup consumed by
+    CandidateFilter.build_candidate_refs / compute_and_persist_series, from
+    one or more concatenated weights.parquet frames (as returned by
+    load_weights).
+    """
+    lookup: dict[tuple[str, pd.Timestamp], dict[str, float]] = {}
+    for (spread_id, asof_date), g in df.groupby(["spread_id", "asof_date"], observed=True):
+        lookup[(str(spread_id), pd.Timestamp(asof_date))] = dict(
+            zip(g["ticker"].astype(str), g["weight"].astype(float))
+        )
+    return lookup
 
 
 def _json_default(obj: Any) -> Any:

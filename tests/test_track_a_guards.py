@@ -185,17 +185,29 @@ class TestGuard3MultiSleeveOccupancy(unittest.TestCase):
         self.assertEqual(len(merged), 2)
 
 
-class TestNLegsGateConsistency(unittest.TestCase):
-    """n_legs and the too_few_active_legs gate must never disagree."""
+class TestNoTinyWeightGateInPairDiagnostics(unittest.TestCase):
+    """
+    Superseded by F1 commit 4 (weights.parquet / n_legs).
 
-    def _run(self, w_left: float, w_right: float) -> dict:
+    Track A wired n_legs to a tiny_weight_threshold-derived active-leg count
+    and gated on it (too_few_active_legs). F1 commit 4 removed that: a pair
+    spread always has exactly two legs, both live hedge-fit estimates, not
+    optimizer output to threshold -- n_legs is now a hardcoded 2 set by the
+    caller, and _fast_pair_diagnostics no longer takes w_left/w_right/
+    tiny_weight_threshold or computes n_legs at all. Measured before
+    implementing: the too_few_active_legs gate fired 0/5187 times across the
+    Track B/F1 baseline harness run (docs/refactor/found.md), confirming the
+    removal is result-neutral there.
+
+    This class documents that _fast_pair_diagnostics no longer gates on leg
+    weight magnitude, regardless of how small a weight would have been.
+    """
+
+    def _run(self) -> dict:
         rng = np.random.default_rng(0)
         spread_return = rng.normal(size=60)
         return _fast_pair_diagnostics(
             spread_return=spread_return,
-            w_left=w_left,
-            w_right=w_right,
-            tiny_weight_threshold=1e-6,
             min_return_std=1e-8,
             min_level_std=1e-8,
             min_kappa=1e-6,
@@ -203,22 +215,25 @@ class TestNLegsGateConsistency(unittest.TestCase):
             skip_adf=True,
         )
 
-    def test_two_active_legs_not_gated_on_leg_count(self):
-        diag = self._run(w_left=1.0, w_right=-0.5)
-        self.assertEqual(diag["n_legs"], 2)
+    def test_no_n_legs_key_and_never_gated_on_leg_weight(self):
+        diag = self._run()
+        self.assertNotIn("n_legs", diag)
         self.assertNotEqual(diag["failure_reason"], "too_few_active_legs")
 
-    def test_one_tiny_leg_is_gated_and_reports_n_legs_1(self):
-        diag = self._run(w_left=1.0, w_right=1e-9)
-        self.assertEqual(diag["n_legs"], 1)
-        self.assertFalse(diag["is_valid"])
-        self.assertEqual(diag["failure_reason"], "too_few_active_legs")
-
-    def test_both_tiny_legs_is_gated_and_reports_n_legs_0(self):
-        diag = self._run(w_left=1e-9, w_right=1e-9)
-        self.assertEqual(diag["n_legs"], 0)
-        self.assertFalse(diag["is_valid"])
-        self.assertEqual(diag["failure_reason"], "too_few_active_legs")
+    def test_fast_pair_diagnostics_rejects_weight_kwargs(self):
+        """Old callers passing w_left/w_right/tiny_weight_threshold must fail loud, not silently ignore them."""
+        with self.assertRaises(TypeError):
+            _fast_pair_diagnostics(
+                spread_return=np.zeros(60),
+                w_left=1.0,
+                w_right=1e-9,
+                tiny_weight_threshold=1e-6,
+                min_return_std=1e-8,
+                min_level_std=1e-8,
+                min_kappa=1e-6,
+                max_half_life=126.0,
+                skip_adf=True,
+            )
 
 
 if __name__ == "__main__":

@@ -54,10 +54,11 @@ def group_abbrev(
 
 @dataclass(frozen=True)
 class GroupDataSource:
-    """Per-group data triplet: universe config, candidate panel, optional residual params."""
+    """Per-group data quadruple: universe config, candidate panel, optional residual params, optional weights."""
     universe_config_name: str
     candidate_panel_stem: str
     residual_params_stem: str | None = None
+    weights_stem: str | None = None
     residual_key: str = ""  # from meta.json → CausalResidualConfig.key
 
 
@@ -128,6 +129,9 @@ def discover_group_data_sources(
         params_path = panel_dir / f"{stem}_residual_params.parquet"
         residual_stem = stem if params_path.exists() else None
 
+        weights_path = panel_dir / f"{stem}_weights.parquet"
+        weights_stem = stem if weights_path.exists() else None
+
         residual_key = ""
         meta_path = panel_dir / f"{stem}.meta.json"
         if meta_path.exists():
@@ -142,6 +146,7 @@ def discover_group_data_sources(
             universe_config_name=f"{universe_name}/{yaml_path.name}",
             candidate_panel_stem=stem,
             residual_params_stem=residual_stem,
+            weights_stem=weights_stem,
             residual_key=residual_key,
         )
 
