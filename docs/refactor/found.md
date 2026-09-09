@@ -538,3 +538,20 @@ nothing constructs it non-`None` — the snapshot layer isn't wired to
 whose recorded hash needed updating (`7a5f6834...` -> `89b82e76...`).
 Severity: result-affecting on port only
 Suggested track: port note — hierarchical-arb
+
+## `config_hash` changed by Track F1 commit 8c's `PersistenceConfig.artifacts` default
+Found during: track F1 (commit 8c)
+Location: `src/simulator/simulation_persistence.py:32-44` (`hash_config`)
+What: Same pattern, a value change rather than a field addition/removal
+this time. Deleting the `daily_state`/`daily_portfolio_state` writers
+required dropping those two strings from `PersistenceConfig.artifacts`'
+default tuple (`src/simulator/config.py`) — listing artifacts nothing
+writes anymore is exactly the "looks supported and isn't" surface this
+track removes. `hash_config` serializes values, so `config_hash` shifts
+for every config that relies on the class default (as `sweep_defaults.py`'s
+`standard_v1` bundle does — it constructs `PersistenceConfig(enabled=True)`
+without stating `artifacts` explicitly). Confirmed via
+`tests/test_sweep_defaults.py::test_standard_v1_output_is_hash_stable`,
+whose recorded hash needed updating (`89b82e76...` -> `0bc1e2a0...`).
+Severity: result-affecting on port only
+Suggested track: port note — hierarchical-arb
