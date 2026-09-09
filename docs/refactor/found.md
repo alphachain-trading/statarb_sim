@@ -366,3 +366,26 @@ Rule going forward: any grep supporting a deletion must include
 `daily_state` and may delete the four config classes above.
 Severity: process; one instance already found and fixed
 Suggested track: check before any deletion in F
+
+## `config_hash` changed by Track F1 commit 1's dead-config-class deletion
+Found during: track F1 (commit 1)
+Location: `src/simulator/simulation_persistence.py:32-44` (`hash_config`, hashes
+the full serialized `SimulatorConfig`)
+What: Same porting hazard as the entries above, one more trigger. Deleting
+`KellyConfig`, `TimescaleRiskConfig`, and `CrossTimescaleEntryConfig` required
+deleting their owning fields too: `SizingConfig.kelly`,
+`RiskManagerConfig.timescale_risk`, `PairSpreadTraderConfig.cross_ts`. None of
+these fields was ever set to a non-`None` value by any construction site in
+`statarb_sim`, so no resolved value changes for any existing config — but
+`hash_config` serializes field names, so `config_hash` changes for every
+config regardless. Confirmed via
+`tests/test_sweep_defaults.py::test_standard_v1_output_is_hash_stable`, whose
+recorded hash needed updating (`284530b0...` -> `0240fcdf...`).
+
+Note for the port: `hierarchical-arb` may have live, non-`None` construction
+sites for `KellyConfig`/`TimescaleRiskConfig`/`CrossTimescaleEntryConfig`
+that `statarb_sim`'s greps never saw. Re-verify zero construction sites in
+`hierarchical-arb` specifically before porting this deletion — do not assume
+`statarb_sim`'s "zero callers" finding transfers.
+Severity: result-affecting on port only
+Suggested track: port note — hierarchical-arb
