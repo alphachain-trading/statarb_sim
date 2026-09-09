@@ -389,3 +389,27 @@ that `statarb_sim`'s greps never saw. Re-verify zero construction sites in
 `statarb_sim`'s "zero callers" finding transfers.
 Severity: result-affecting on port only
 Suggested track: port note — hierarchical-arb
+
+## `config_hash` changed by Track F1 commit 2's z_spectra deletion
+Found during: track F1 (commit 2)
+Location: `src/simulator/simulation_persistence.py:32-44` (`hash_config`, hashes
+the full serialized `SimulatorConfig`)
+What: One more trigger in the same family as the entry directly above.
+Deleting `z_spectrum_capture.py` (`ZSpectrumCapture`) required deleting
+`SimulatorConfig.spectrum`/`SpectrumConfig` — per `F1_artifact_schema.md`,
+z_spectra is "residue from an entry-selection experiment that returned null,
+ported from `hierarchical-arb` unnoticed," and this field was never set to a
+non-`None` value by any construction site in `statarb_sim` (confirmed
+including notebooks). No resolved value changes for any existing config, but
+`hash_config` serializes field names, so `config_hash` shifts for every
+config regardless. Confirmed via
+`tests/test_sweep_defaults.py::test_standard_v1_output_is_hash_stable`, whose
+recorded hash needed updating (`0240fcdf...` -> `7a5f6834...`).
+
+Note for the port: `hierarchical-arb` is where `z_spectrum_capture.py` was
+ported *from*, per the brief — check whether it has live, non-`None`
+`SpectrumConfig` construction sites (a real user of the spectrum-capture
+experiment) before porting this deletion there. If it does, this is not a
+result-neutral port.
+Severity: result-affecting on port only
+Suggested track: port note — hierarchical-arb
