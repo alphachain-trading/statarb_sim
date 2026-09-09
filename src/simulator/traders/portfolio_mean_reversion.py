@@ -96,14 +96,7 @@ class PortfolioMeanReversionTrader:
         z_score: float,
         momentum_z: float | None,
     ) -> OpenCandidateAction | None:
-        mom_cfg = self.config.spread_momentum
-
         if self.config.allow_long and z_score <= -self.config.entry_z:
-            if mom_cfg is not None:
-                if momentum_z is None:
-                    return None
-                if momentum_z <= mom_cfg.entry_threshold:
-                    return None
             return OpenCandidateAction(
                 candidate_id=candidate_id,
                 group_id=group_id,
@@ -115,11 +108,6 @@ class PortfolioMeanReversionTrader:
             )
 
         if self.config.allow_short and z_score >= self.config.entry_z:
-            if mom_cfg is not None:
-                if momentum_z is None:
-                    return None
-                if momentum_z >= -mom_cfg.entry_threshold:
-                    return None
             return OpenCandidateAction(
                 candidate_id=candidate_id,
                 group_id=group_id,

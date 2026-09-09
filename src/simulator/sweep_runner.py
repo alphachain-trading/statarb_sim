@@ -31,7 +31,7 @@ Usage from Jupyter:
 from __future__ import annotations
 
 import time as _time
-from dataclasses import dataclass, fields, asdict
+from dataclasses import dataclass, fields
 from datetime import datetime
 from pathlib import Path
 
@@ -43,10 +43,9 @@ from src.simulator.config import (
     RunConfig,
     ZScoreConfig,
     PairSpreadTraderConfig, RiskManagerConfig,
-    SizingConfig, VolSizingConfig, KellyConfig,
+    SizingConfig, VolSizingConfig,
     EntryFeatureConfig, FeatureSpec,
     FeatureIntervalSpec, IntervalScoringConfig,
-    CrossTimescaleEntryConfig, TimescaleRiskConfig,
     SpectrumConfig,
     discover_group_data_sources, group_abbrev,
 )
@@ -73,9 +72,6 @@ class SweepConfig:
     # Multi-timescale override
     z_score_overrides: list[ZScoreConfig] | None = None
 
-    # Cross-timescale entry gate (Mode B). None = independent per-rkey (Mode A).
-    cross_ts: CrossTimescaleEntryConfig | None = None
-
     # Time stop
     max_holding_days: str | int | dict[str, int] | None = None
 
@@ -85,14 +81,12 @@ class SweepConfig:
     # Sizing
     base_pair_notional: float = 100_000.0
     vol_normalize: bool = True             # True = VolSizingConfig with defaults
-    kelly: KellyConfig | None = None
     entry_features: EntryFeatureConfig | None = None
     interval_scoring: IntervalScoringConfig | None = None
 
     # Risk constraints
     max_ticker_exposure_pct: float = 0.15
     max_gross_exposure: float = 10.0
-    timescale_risk: TimescaleRiskConfig | None = None
 
     # Spectrum capture
     spectrum: SpectrumConfig | None = None
@@ -143,17 +137,6 @@ class SweepConfig:
             else:
                 parts.append(f"lb{self.z_lookback}")
 
-        if self.cross_ts is not None:
-            cts_parts = []
-            if self.cross_ts.same_sign_required:
-                cts_parts.append("sign")
-            if self.cross_ts.min_abs_z_all is not None:
-                cts_parts.append(f"minz{self.cross_ts.min_abs_z_all:.1f}")
-            if self.cross_ts.mean_abs_z_min is not None:
-                cts_parts.append(f"avgz{self.cross_ts.mean_abs_z_min:.1f}")
-            if cts_parts:
-                parts.append("cts-" + "+".join(cts_parts))
-
         if self.max_holding_days is not None:
             if isinstance(self.max_holding_days, str):
                 parts.append(f"mhd-{self.max_holding_days.replace('*', 'x')}")
@@ -175,27 +158,6 @@ class SweepConfig:
         parts.append("voln" if self.vol_normalize else "flat")
         parts.append(f"tick{self.max_ticker_exposure_pct:.2f}")
         parts.append(f"gx{self.max_gross_exposure:.1f}")
-
-        if self.timescale_risk is not None:
-            tr = self.timescale_risk
-            tr_parts = []
-            if tr.max_timescales_per_spread is not None:
-                tr_parts.append(f"mts{tr.max_timescales_per_spread}")
-            tr_parts.append(tr.selection)
-            if tr.max_pct_single_timescale is not None:
-                tr_parts.append(f"pct{tr.max_pct_single_timescale:.0%}")
-            parts.append("tsr-" + "+".join(tr_parts))
-
-        if self.kelly is not None:
-            k = self.kelly
-            k_parts = [f"f{k.fraction:.1f}"]
-            if k.half_life is not None:
-                k_parts.append(f"hl{k.half_life}")
-            if k.per_sector:
-                k_parts.append("sec")
-            else:
-                k_parts.append("glob")
-            parts.append("kelly-" + "+".join(k_parts))
 
         if self.entry_features is not None:
             feat_names = "+".join(f.feature for f in self.entry_features.features)
@@ -272,14 +234,12 @@ def _build_sim_config(sweep: SweepConfig, *, index: int | None = None) -> Simula
     sizing = SizingConfig(
         base_pair_notional=sweep.base_pair_notional,
         vol_normalize=VolSizingConfig(floor_multiplier=0.2, cap_multiplier=5.0) if sweep.vol_normalize else None,
-        kelly=sweep.kelly,
         interval_scoring=sweep.interval_scoring,
     )
 
     risk_manager = RiskManagerConfig(
         max_gross_exposure=sweep.max_gross_exposure,
         max_ticker_exposure_pct=sweep.max_ticker_exposure_pct,
-        timescale_risk=sweep.timescale_risk,
     )
 
     # Fields derived from the sweep. The remaining SimulatorConfig fields
@@ -296,7 +256,6 @@ def _build_sim_config(sweep: SweepConfig, *, index: int | None = None) -> Simula
         "trader": PairSpreadTraderConfig(
             entry_z=sweep.entry_z,
             exit_z=sweep.exit_z,
-            cross_ts=sweep.cross_ts,
             max_holding_days=sweep.max_holding_days,
             exit_rule=sweep.exit_rule,
         ),
@@ -377,7 +336,7 @@ def _save_sweep_results(df: pd.DataFrame) -> None:
 _CONFIG_COLS = [
     "alias", "z_method", "z_lookback", "entry_z", "exit_z",
     "base_pair_notional", "vol_normalize", "max_ticker_exposure_pct", "max_gross_exposure",
-    "excluded_groups", "z_score_overrides", "cross_ts", "timescale_risk",
+    "excluded_groups", "z_score_overrides",
 ]
 
 _RETURN_COLS = [
@@ -507,12 +466,6 @@ def run_sweep(
                         f"{zc.residual_key}:zhl{zc.resolved_lookbacks()[0]}"
                         for zc in val
                     ])
-                elif f.name == "cross_ts" and val is not None:
-                    sweep_fields[f.name] = str(asdict(val) if hasattr(val, '__dataclass_fields__') else val)
-                elif f.name == "timescale_risk" and val is not None:
-                    sweep_fields[f.name] = str(asdict(val) if hasattr(val, '__dataclass_fields__') else val)
-                elif f.name == "kelly" and val is not None:
-                    sweep_fields[f.name] = str(asdict(val) if hasattr(val, '__dataclass_fields__') else val)
                 elif f.name == "spectrum" and val is not None:
                     sweep_fields[f.name] = (
                         f"rhl={val.residual_lookbacks or 'all'} "

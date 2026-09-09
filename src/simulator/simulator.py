@@ -813,12 +813,6 @@ class Simulator:
                     residual_key=live_pos.residual_key,
                 )
 
-            # Feed outcome to SizingEngine Kelly tracker
-            self.sizing_engine.record_closed_trade(
-                group_id=closed_trade.group_id,
-                pnl_net=closed_trade.realized_pnl_net,
-            )
-
             return float(closed_trade.realized_pnl_gross), close_txn_cost
 
         raise NotImplementedError(f"Unsupported action type: {type(action).__name__}")

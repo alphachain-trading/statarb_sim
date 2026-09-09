@@ -46,7 +46,17 @@ from src.simulator.sweep_runner import SweepConfig, dedup_key
 # DataConfig's sector-vocabulary fields (selected_sectors -> selected_groups,
 # excluded_sectors -> excluded_groups, sectors -> groups): a field-name
 # rename, not a value change, but the hash is computed over field names too.
-_PRE_REGISTRY_HASH = "284530b0e036d50ef4c9f716982138ef"
+#
+# Updated again (9daa71da... -> 284530b0...) when Track C's universe-model
+# correction added DataConfig.universe_name.
+#
+# Updated again (284530b0... -> 0240fcdf...) when Track F1 commit 1 deleted
+# SizingConfig.kelly, RiskManagerConfig.timescale_risk, and
+# PairSpreadTraderConfig.cross_ts (dead-by-construction Optional fields whose
+# types -- KellyConfig, TimescaleRiskConfig, CrossTimescaleEntryConfig -- were
+# deleted as unconstructed config surface). Field removals, not value changes,
+# but hash_config serializes field names too.
+_PRE_REGISTRY_HASH = "0240fcdf90e65dd93969b4f6bb1789e8"
 
 
 class TestSweepDefaults(unittest.TestCase):
