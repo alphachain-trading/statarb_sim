@@ -745,8 +745,6 @@ class PersistenceConfig:
         "config",
         "selected_panel",
         "closed_trades",
-        "daily_state",
-        "daily_portfolio_state",
         "diagnostics",
         "ticker_trade_log",
         "action_log",

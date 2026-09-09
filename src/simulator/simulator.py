@@ -53,46 +53,6 @@ class TickerTradeLogEntry:
 
 
 @dataclass(slots=True, frozen=True)
-class DailyStateLogEntry:
-    date: pd.Timestamp
-    group_id: str
-
-    active_candidate_id: str | None
-    active_spread_id: str | None
-    active_z_score: float | None
-    active_mr_score: float | None
-    active_half_life: float | None
-    active_adf_pvalue: float | None
-
-    live_candidate_id: str | None
-    live_spread_id: str | None
-    live_z_score: float | None
-
-    is_live: bool
-    pair_notional: float | None          # per-trade notional at entry (from SizingEngine)
-    group_deployed_notional: float       # sum of pair_notional for all live positions in group
-    unrealized_pnl: float
-    days_open: int | None
-
-
-@dataclass(slots=True, frozen=True)
-class DailyPortfolioStateLogEntry:
-    date: pd.Timestamp
-    total_capital: float                 # CapitalConfig.total_capital (reference, not deployed)
-    cumulative_realized_pnl: float
-    total_unrealized_pnl: float
-    total_equity_gross: float
-    total_equity_net: float
-    total_gross_value: float             # sum of |units × price| across all live positions
-    deployed_notional_by_group: dict[str, float]  # bookkeeping: sum of pair_notional per group
-    n_live_candidate_positions: int
-    daily_borrow_cost: float
-    cumulative_transaction_costs: float
-    cumulative_borrow_costs: float
-    residual_pc1_variance: float | None = None
-
-
-@dataclass(slots=True, frozen=True)
 class LiveDiagnosticsLogEntry:
     date: pd.Timestamp
     trade_id: str
@@ -124,8 +84,6 @@ class SimulationResult:
     selected_panel: pd.DataFrame
     action_log: list[ActionLogEntry]
     ticker_trade_log: list[TickerTradeLogEntry]
-    daily_state_log: list[DailyStateLogEntry]
-    daily_portfolio_state_log: list[DailyPortfolioStateLogEntry]
     diagnostics_log: list[LiveDiagnosticsLogEntry]
     closed_trades: list[ClosedCandidateTrade]
     final_live_positions_by_candidate_id: dict[str, LiveCandidatePosition]
@@ -169,21 +127,6 @@ class SimulationResult:
             }
             for e in self.ticker_trade_log
         ]
-        return pd.DataFrame(rows).convert_dtypes()
-
-    def daily_state_df(self) -> pd.DataFrame:
-        rows = [asdict(entry) for entry in self.daily_state_log]
-        return pd.DataFrame(rows).convert_dtypes()
-
-    def daily_portfolio_state_df(self) -> pd.DataFrame:
-        rows = []
-        for entry in self.daily_portfolio_state_log:
-            d = asdict(entry)
-            # Flatten deployed_notional_by_group into columns for parquet compatibility
-            by_group = d.pop("deployed_notional_by_group", {})
-            for group_id, val in by_group.items():
-                d[f"deployed_{group_id}"] = val
-            rows.append(d)
         return pd.DataFrame(rows).convert_dtypes()
 
     def diagnostics_log_df(self) -> pd.DataFrame:
@@ -250,8 +193,6 @@ class Simulator:
                 selected_panel=selected,
                 action_log=[],
                 ticker_trade_log=[],
-                daily_state_log=[],
-                daily_portfolio_state_log=[],
                 diagnostics_log=[],
                 closed_trades=[],
                 final_live_positions_by_candidate_id={},
@@ -277,15 +218,9 @@ class Simulator:
         live_positions_by_candidate_id: dict[str, LiveCandidatePosition] = {}
         action_log: list[ActionLogEntry] = []
         ticker_trade_log: list[TickerTradeLogEntry] = []
-        daily_state_log: list[DailyStateLogEntry] = []
-        daily_portfolio_state_log: list[DailyPortfolioStateLogEntry] = []
         diagnostics_log: list[LiveDiagnosticsLogEntry] = []
         closed_trades: list[ClosedCandidateTrade] = []
         all_closed_trades: list[ClosedCandidateTrade] = []  # survives year-end flush
-
-        cumulative_realized_pnl = 0.0
-        cumulative_transaction_costs = 0.0
-        cumulative_borrow_costs = 0.0
 
         last_date_by_year: dict[int, pd.Timestamp] = {}
         for _d in dates:
@@ -314,8 +249,6 @@ class Simulator:
                     f"[mem] step={_i} {mb:.0f} MB | "
                     f"closed_trades={len(closed_trades)} | "
                     f"action_log={len(action_log)} | "
-                    f"daily_state={len(daily_state_log)} | "
-                    f"portfolio_state={len(daily_portfolio_state_log)} | "
                     f"snapshots={len(live_positions_by_candidate_id)}"
                 )
 
@@ -327,10 +260,13 @@ class Simulator:
                 current_prices=current_prices,
             )
 
-            daily_borrow_cost = self._accrue_borrow_costs(
+            # Return value only ever fed DailyPortfolioStateLogEntry's daily
+            # rollup (deleted, F1 commit 8c) -- the side effect on each
+            # position's own accumulated_borrow_cost (feeding
+            # ClosedCandidateTrade.borrow_costs) is what's still needed here.
+            self._accrue_borrow_costs(
                 live_positions_by_candidate_id=live_positions_by_candidate_id,
             )
-            cumulative_borrow_costs += daily_borrow_cost
 
             selected_today = self.candidate_filter.get_selected_on_date(
                 selected_panel=selected,
@@ -442,7 +378,7 @@ class Simulator:
             # Execute closes first (risk-reducing, no sizing needed)
             for action in closes:
                 _n_before = len(closed_trades)
-                realized_pnl_delta, action_txn_cost = self._apply_action(
+                self._apply_action(
                     date=date,
                     action=action,
                     tracked_ref_by_id=tracked_ref_by_id,
@@ -453,8 +389,6 @@ class Simulator:
                     ticker_trade_log=ticker_trade_log,
                 )
                 all_closed_trades.extend(closed_trades[_n_before:])
-                cumulative_realized_pnl += realized_pnl_delta
-                cumulative_transaction_costs += action_txn_cost
                 action_log.append(ActionLogEntry(date=date, action=action))
 
             # Size proposed opens (drops zero-notional trades)
@@ -476,7 +410,7 @@ class Simulator:
             # Execute approved opens
             for action, pair_notional, feature_scores, size_multiplier in approved_sized:
                 sized_action = action.with_notional(pair_notional)
-                realized_pnl_delta, action_txn_cost = self._apply_action(
+                self._apply_action(
                     date=date,
                     action=sized_action,
                     tracked_ref_by_id=tracked_ref_by_id,
@@ -488,17 +422,7 @@ class Simulator:
                     entry_feature_scores=feature_scores,
                     entry_size_multiplier=size_multiplier,
                 )
-                cumulative_realized_pnl += realized_pnl_delta
-                cumulative_transaction_costs += action_txn_cost
                 action_log.append(ActionLogEntry(date=date, action=sized_action))
-
-            daily_state_log.extend(
-                self._build_daily_state_log_entries(
-                    date=date,
-                    analytics_by_id=analytics_by_id,
-                    live_positions_by_candidate_id=live_positions_by_candidate_id,
-                )
-            )
 
             diagnostics_log.extend(
                 self._build_diagnostics_log_entries(
@@ -507,17 +431,6 @@ class Simulator:
                     fz_analytics_by_id=fz_analytics_by_id,
                     live_positions_by_candidate_id=live_positions_by_candidate_id,
                     current_prices=current_prices,
-                )
-            )
-
-            daily_portfolio_state_log.append(
-                self._build_daily_portfolio_state_log_entry(
-                    date=date,
-                    live_positions_by_candidate_id=live_positions_by_candidate_id,
-                    cumulative_realized_pnl=cumulative_realized_pnl,
-                    daily_borrow_cost=daily_borrow_cost,
-                    cumulative_transaction_costs=cumulative_transaction_costs,
-                    cumulative_borrow_costs=cumulative_borrow_costs,
                 )
             )
 
@@ -543,8 +456,6 @@ class Simulator:
                     selected_panel=selected,
                     action_log=action_log,
                     ticker_trade_log=ticker_trade_log,
-                    daily_state_log=daily_state_log,
-                    daily_portfolio_state_log=daily_portfolio_state_log,
                     diagnostics_log=diagnostics_log,
                     closed_trades=closed_trades,
                     final_live_positions_by_candidate_id=live_positions_by_candidate_id,
@@ -561,7 +472,6 @@ class Simulator:
                     performance_result=None,
                     run_id=run_id,
                 )
-                daily_state_log.clear()
                 action_log.clear()
                 ticker_trade_log.clear()
                 diagnostics_log.clear()
@@ -584,8 +494,6 @@ class Simulator:
             selected_panel=selected,
             action_log=action_log,
             ticker_trade_log=ticker_trade_log,
-            daily_state_log=daily_state_log,
-            daily_portfolio_state_log=daily_portfolio_state_log,
             diagnostics_log=diagnostics_log,
             closed_trades=all_closed_trades,
             final_live_positions_by_candidate_id=live_positions_by_candidate_id,
@@ -636,7 +544,7 @@ class Simulator:
 
         if self.config.persistence.enabled:
             from src.simulator.simulation_persistence import save_simulation_run, flush_yearly_logs
-            if run_dir is not None and daily_state_log:
+            if run_dir is not None and action_log:
                 last_date = pd.Timestamp(dates[-1])
                 flush_yearly_logs(
                     result=result,
@@ -790,76 +698,6 @@ class Simulator:
 
         raise NotImplementedError(f"Unsupported action type: {type(action).__name__}")
 
-    def _build_daily_state_log_entries(
-        self,
-        *,
-        date: pd.Timestamp,
-        analytics_by_id: dict[str, CandidateAnalyticsState],
-        live_positions_by_candidate_id: dict[str, LiveCandidatePosition],
-    ) -> list[DailyStateLogEntry]:
-        rows: list[DailyStateLogEntry] = []
-        live_by_group: dict[str, list[LiveCandidatePosition]] = {}
-        for pos in live_positions_by_candidate_id.values():
-            live_by_group.setdefault(pos.group_id, []).append(pos)
-
-        group_ids = sorted(
-            set(self.candidate_activation.active_by_group.keys())
-            | set(live_by_group.keys())
-        )
-
-        for group_id in group_ids:
-            active_ref = self.candidate_activation.get_active_candidate(group_id)
-            live_positions = live_by_group.get(group_id, [])
-            active_a = None if active_ref is None else analytics_by_id.get(active_ref.candidate_id)
-            group_deployed = sum(pos.pair_notional for pos in live_positions)
-
-            if not live_positions:
-                rows.append(
-                    DailyStateLogEntry(
-                        date=pd.Timestamp(date),
-                        group_id=group_id,
-                        active_candidate_id=None if active_ref is None else active_ref.candidate_id,
-                        active_spread_id=None if active_ref is None else active_ref.spread_id,
-                        active_z_score=None if active_a is None else active_a.z_score,
-                        active_mr_score=None if active_a is None else active_a.mr_score,
-                        active_half_life=None if active_a is None else active_a.half_life,
-                        active_adf_pvalue=None if active_a is None else active_a.adf_pvalue,
-                        live_candidate_id=None,
-                        live_spread_id=None,
-                        live_z_score=None,
-                        is_live=False,
-                        pair_notional=None,
-                        group_deployed_notional=0.0,
-                        unrealized_pnl=0.0,
-                        days_open=None,
-                    )
-                )
-            else:
-                for live_pos in live_positions:
-                    live_a = analytics_by_id.get(live_pos.candidate_id)
-                    rows.append(
-                        DailyStateLogEntry(
-                            date=pd.Timestamp(date),
-                            group_id=group_id,
-                            active_candidate_id=None if active_ref is None else active_ref.candidate_id,
-                            active_spread_id=None if active_ref is None else active_ref.spread_id,
-                            active_z_score=None if active_a is None else active_a.z_score,
-                            active_mr_score=None if active_a is None else active_a.mr_score,
-                            active_half_life=None if active_a is None else active_a.half_life,
-                            active_adf_pvalue=None if active_a is None else active_a.adf_pvalue,
-                            live_candidate_id=live_pos.candidate_id,
-                            live_spread_id=live_pos.spread_id,
-                            live_z_score=None if live_a is None else live_a.z_score,
-                            is_live=True,
-                            pair_notional=live_pos.pair_notional,
-                            group_deployed_notional=group_deployed,
-                            unrealized_pnl=live_pos.unrealized_pnl,
-                            days_open=live_pos.days_open,
-                        )
-                    )
-
-        return rows
-
     def _build_live_fz_analytics(
         self,
         *,
@@ -947,57 +785,6 @@ class Simulator:
             )
 
         return rows
-
-    def _build_daily_portfolio_state_log_entry(
-        self,
-        *,
-        date: pd.Timestamp,
-        live_positions_by_candidate_id: dict[str, LiveCandidatePosition],
-        cumulative_realized_pnl: float,
-        daily_borrow_cost: float,
-        cumulative_transaction_costs: float,
-        cumulative_borrow_costs: float,
-    ) -> DailyPortfolioStateLogEntry:
-        total_capital = self.config.capital.total_capital
-        total_unrealized_pnl = 0.0
-        total_gross_value = 0.0
-        deployed_notional_by_group: dict[str, float] = {}
-
-        for pos in live_positions_by_candidate_id.values():
-            total_unrealized_pnl += float(pos.unrealized_pnl)
-            total_gross_value += float(pos.gross_value)
-            deployed_notional_by_group[pos.group_id] = (
-                deployed_notional_by_group.get(pos.group_id, 0.0) + pos.pair_notional
-            )
-
-        total_equity_gross = total_capital + cumulative_realized_pnl + total_unrealized_pnl
-        total_costs = cumulative_transaction_costs + cumulative_borrow_costs
-        total_equity_net = total_equity_gross - total_costs
-
-        pc1_var = None
-        for gid in set(pos.group_id for pos in live_positions_by_candidate_id.values()):
-            for rkey in self.config.unique_residual_keys():
-                ratios = self.signal_generator.get_pc_variance_ratios(gid, rkey)
-                if ratios is not None and len(ratios) > 0:
-                    v = ratios[0]
-                    if pc1_var is None or v > pc1_var:
-                        pc1_var = v
-
-        return DailyPortfolioStateLogEntry(
-            date=pd.Timestamp(date),
-            total_capital=float(total_capital),
-            cumulative_realized_pnl=float(cumulative_realized_pnl),
-            total_unrealized_pnl=float(total_unrealized_pnl),
-            total_equity_gross=float(total_equity_gross),
-            total_equity_net=float(total_equity_net),
-            total_gross_value=float(total_gross_value),
-            deployed_notional_by_group=deployed_notional_by_group,
-            n_live_candidate_positions=len(live_positions_by_candidate_id),
-            daily_borrow_cost=float(daily_borrow_cost),
-            cumulative_transaction_costs=float(cumulative_transaction_costs),
-            cumulative_borrow_costs=float(cumulative_borrow_costs),
-            residual_pc1_variance=pc1_var,
-        )
 
     def _build_closed_trade(
         self,

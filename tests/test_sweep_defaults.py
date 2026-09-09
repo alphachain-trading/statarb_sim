@@ -64,7 +64,13 @@ from src.simulator.sweep_runner import SweepConfig, dedup_key
 # Updated again (7a5f6834... -> 89b82e76...) when Track F1 commit 6 added
 # DataConfig.snapshot_id (additive, always None today -- stage_download
 # isn't wired to Track C's snapshot layer yet).
-_PRE_REGISTRY_HASH = "89b82e764261666d4a3b4481e8b76fd9"
+#
+# Updated again (89b82e76... -> 0bc1e2a0...) when Track F1 commit 8c removed
+# "daily_state" and "daily_portfolio_state" from PersistenceConfig.artifacts'
+# default tuple (their writers were deleted; nothing constructs artifacts=
+# explicitly in standard_v1, so this class-default value change reaches the
+# hash the same way every prior field addition/removal in this track did).
+_PRE_REGISTRY_HASH = "0bc1e2a0a36eba2851dd0330b5ac76c9"
 
 
 class TestSweepDefaults(unittest.TestCase):
