@@ -594,6 +594,9 @@ class Simulator:
         performance_result = None
 
         if self.config.performance.enabled:
+            from src.simulator.performance.daily_state_reconstruction import (
+                reconstruct_daily_portfolio_state,
+            )
             from src.simulator.performance.performance_report import generate_report
 
             perf_cfg = self.config.performance
@@ -609,9 +612,25 @@ class Simulator:
                     per_group_breakdown=perf_cfg.per_group_breakdown,
                 )
 
+            # F1 commit 8b: daily_portfolio_state_df() (DailyPortfolioStateLogEntry's
+            # day-by-day accumulation during simulation) replaced with a
+            # reconstruction from closed trades + still-open positions, computed
+            # once here instead of on every step of the trading loop.
+            daily_portfolio_state_df = reconstruct_daily_portfolio_state(
+                dates=dates,
+                price_matrix=price_matrix,
+                closed_trades_df=result.closed_trades_df(),
+                final_live_positions_by_candidate_id=result.final_live_positions_by_candidate_id,
+                weights_lookup=self.weights_lookup,
+                position_translator=self.position_translator,
+                execution_engine=self.execution_engine,
+                total_capital=self.config.capital.total_capital,
+                short_borrow_rate_annual_bps=self.config.execution.short_borrow_rate_annual_bps,
+            )
+
             performance_result = generate_report(
                 closed_trades_df=result.closed_trades_df(),
-                daily_portfolio_state_df=result.daily_portfolio_state_df(),
+                daily_portfolio_state_df=daily_portfolio_state_df,
                 cfg=perf_cfg,
             )
 
