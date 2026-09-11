@@ -1038,3 +1038,43 @@ purposes. R3's claim is about the *new, dedicated* reconstruction function (C5),
 whose job is exact-fidelity level/z-score reproduction only — it is correct that
 this narrower function need not call the OU fit, but that's a scope decision for
 C5, not a description of how the existing pipeline is structured today.
+
+---
+
+## Pre-check decisions
+
+D1. C1 also deletes the PC variance-ratio mechanism: `_compute_variance_ratios`,
+    `_latest_pc_variance_ratios`, `get_pc_variance_ratios`, and the side-effect call in
+    `_get_residuals`. Basis: P3, zero callers anywhere, including notebooks.
+
+D2. R2 clarified. The residual model is always the candidate's own asof model. The
+    weights are the caller's: frozen candidate weights for `analytics_by_id`, realized
+    fills for `entry_analytics` and `fz_analytics_by_id`, effective weights for `dy_a`.
+    One function, which takes the weights as an argument.
+
+D3. C3 includes a perturb-the-future test on R2's function, because the in-memory
+    matrix holds rows after t by construction. Mutate the returns strictly after t, then
+    assert that level, `z_score`, `roll_std` and the MR diagnostics at t are unchanged,
+    with `check_exact=True`. This is the `≤ t` guard for the change C3 introduces.
+    C5's reconstruction test does not replace it.
+
+D4. C3's diff explanation must account for three paths:
+    - `z_score` and `roll_std`, via `analytics_by_id`;
+    - `entry_mr_score` and `entry_half_life`, via `entry_analytics` (time stop and
+      deterioration stop);
+    - for rolling-mode residual keys, the level's length changes as well (full history
+      instead of the lookback window).
+    State which residual keys the harness uses.
+
+D5. C6a's outer-date-only fits are approved on P3's evidence, on one condition: show
+    at `path:line` that a fit at date d is a pure function of data ≤ d, with no state
+    carried across the walk (no warm start). The equivalence test then compares
+    outer-date params only.
+
+D6. Two found.md entries, added on the branch; do not fix either:
+    - `portfolio_mean_reversion.py`'s `fz_analytics` parameter is populated from
+      `analytics_by_id`, not from `fz_analytics_by_id` (a naming collision).
+    - The deterioration stop compares a current `mr_score` computed on frozen candidate
+      weights with an `entry_mr_score` computed on realized fill weights: two different
+      spreads in one ratio. Severity: result-affecting, magnitude unmeasured.
+      Suggested track: new.
