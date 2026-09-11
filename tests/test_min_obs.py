@@ -132,7 +132,7 @@ class TestMinObsGate(unittest.TestCase):
         )
 
         with patch.object(pcpc, "apply_causal_residual_model", side_effect=fake_apply):
-            rows = pcpc._build_pair_candidate_rows_for_date(
+            rows, _weight_rows = pcpc._build_pair_candidate_rows_for_date(
                 bundle=bundle,
                 asof_datetime=idx[-1],
                 residual_cfg=residual_cfg,

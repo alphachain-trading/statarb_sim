@@ -87,9 +87,9 @@ def _pair_cfg() -> pcpc.PairSpreadConfig:
     )
 
 
-def _build_rows(bundle: GroupReturnBundle) -> dict[str, dict]:
+def _build_rows(bundle: GroupReturnBundle) -> tuple[dict[str, dict], dict[str, dict]]:
     idx = bundle.aligned_returns.index
-    rows = pcpc._build_pair_candidate_rows_for_date(
+    rows, weight_rows = pcpc._build_pair_candidate_rows_for_date(
         bundle=bundle,
         asof_datetime=idx[-1],
         residual_cfg=_residual_cfg(),
@@ -99,7 +99,10 @@ def _build_rows(bundle: GroupReturnBundle) -> dict[str, dict]:
         debug=True,
         progress=False,
     )
-    return {r["spread_id"]: r for r in rows}
+    weights_by_spread: dict[str, dict] = {}
+    for wr in weight_rows:
+        weights_by_spread.setdefault(wr["spread_id"], {})[wr["ticker"]] = wr["weight"]
+    return {r["spread_id"]: r for r in rows}, weights_by_spread
 
 
 class TestGapInjectionRealPipeline(unittest.TestCase):
@@ -112,8 +115,8 @@ class TestGapInjectionRealPipeline(unittest.TestCase):
         self.assertGreaterEqual(gap_date, candidate_start, "gap must be inside the candidate window")
 
     def test_clean_pairs_beta_is_bit_identical_with_and_without_the_gap(self):
-        clean_rows = _build_rows(_make_bundle())
-        gapped_rows = _build_rows(_punch_hole(_make_bundle(), "CCC", GAP_ABS_INDEX))
+        clean_rows, clean_weights = _build_rows(_make_bundle())
+        gapped_rows, gapped_weights = _build_rows(_punch_hole(_make_bundle(), "CCC", GAP_ABS_INDEX))
 
         ab_clean = clean_rows["AAA|BBB"]
         ab_gapped = gapped_rows["AAA|BBB"]
@@ -122,13 +125,13 @@ class TestGapInjectionRealPipeline(unittest.TestCase):
         # never enters AAA|BBB's fit input at all, so the hedge beta must be
         # bit-identical, not merely close.
         self.assertEqual(ab_clean["hedge_beta"], ab_gapped["hedge_beta"])
-        self.assertEqual(ab_clean["weights"], ab_gapped["weights"])
+        self.assertEqual(clean_weights["AAA|BBB"], gapped_weights["AAA|BBB"])
         self.assertEqual(ab_clean["kappa"], ab_gapped["kappa"])
         self.assertEqual(ab_clean["residual_std"], ab_gapped["residual_std"])
 
     def test_gapped_tickers_own_pairs_lose_exactly_the_gapped_date(self):
         with self.assertLogs(pcpc.logger.name, level="DEBUG") as cm:
-            rows = _build_rows(_punch_hole(_make_bundle(), "CCC", GAP_ABS_INDEX))
+            rows, _weights = _build_rows(_punch_hole(_make_bundle(), "CCC", GAP_ABS_INDEX))
         self.assertIn("AAA|CCC", rows)
         self.assertIn("BBB|CCC", rows)
 

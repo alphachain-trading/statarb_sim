@@ -46,7 +46,31 @@ from src.simulator.sweep_runner import SweepConfig, dedup_key
 # DataConfig's sector-vocabulary fields (selected_sectors -> selected_groups,
 # excluded_sectors -> excluded_groups, sectors -> groups): a field-name
 # rename, not a value change, but the hash is computed over field names too.
-_PRE_REGISTRY_HASH = "284530b0e036d50ef4c9f716982138ef"
+#
+# Updated again (9daa71da... -> 284530b0...) when Track C's universe-model
+# correction added DataConfig.universe_name.
+#
+# Updated again (284530b0... -> 0240fcdf...) when Track F1 commit 1 deleted
+# SizingConfig.kelly, RiskManagerConfig.timescale_risk, and
+# PairSpreadTraderConfig.cross_ts (dead-by-construction Optional fields whose
+# types -- KellyConfig, TimescaleRiskConfig, CrossTimescaleEntryConfig -- were
+# deleted as unconstructed config surface). Field removals, not value changes,
+# but hash_config serializes field names too.
+#
+# Updated again (0240fcdf... -> 7a5f6834...) when Track F1 commit 2 deleted
+# SimulatorConfig.spectrum (z_spectra capture, unreferenced by any notebook
+# or test). Another field removal, not a value change.
+#
+# Updated again (7a5f6834... -> 89b82e76...) when Track F1 commit 6 added
+# DataConfig.snapshot_id (additive, always None today -- stage_download
+# isn't wired to Track C's snapshot layer yet).
+#
+# Updated again (89b82e76... -> 0bc1e2a0...) when Track F1 commit 8c removed
+# "daily_state" and "daily_portfolio_state" from PersistenceConfig.artifacts'
+# default tuple (their writers were deleted; nothing constructs artifacts=
+# explicitly in standard_v1, so this class-default value change reaches the
+# hash the same way every prior field addition/removal in this track did).
+_PRE_REGISTRY_HASH = "0bc1e2a0a36eba2851dd0330b5ac76c9"
 
 
 class TestSweepDefaults(unittest.TestCase):

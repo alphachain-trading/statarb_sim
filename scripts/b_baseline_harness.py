@@ -32,15 +32,14 @@ Usage:
 """
 from __future__ import annotations
 
-import pickle
 import time
 from pathlib import Path
 
 from src.settings import CANDIDATE_PANELS_ROOT, CONFIG_UNIVERSE, DATA_UNIVERSES, PROJECT_ROOT
 from src.candidates.panel_batch import PanelBatchConfig, run_panel_batch
-from src.candidates.candidate_panel import load_candidate_panel_result
+from src.candidates.candidate_panel import load_candidate_panel_result, load_weights, weights_lookup_from_df
 from src.candidates.pair_candidate_panel_creator import PairSpreadConfig
-from src.residuals.causal_residuals import CausalResidualConfig, ResidualMode
+from src.residuals.causal_residuals import CausalResidualConfig, ResidualMode, load_residual_params
 from src.residuals.series import compute_and_persist_series
 from src.simulator.config import (
     SimulatorConfig,
@@ -155,21 +154,27 @@ def _persist_series(sim_config: SimulatorConfig, active_groups: list[str]) -> No
         if src.residual_params_stem is None:
             print(f"[harness] no residual params for {src.candidate_panel_stem}; skipping series")
             continue
+        if src.weights_stem is None:
+            print(f"[harness] no weights for {src.candidate_panel_stem}; skipping series")
+            continue
 
-        params_path = panel_dir / f"{src.residual_params_stem}_residual_params.pkl"
-        with params_path.open("rb") as f:
-            raw_params = pickle.load(f)
+        params_path = panel_dir / f"{src.residual_params_stem}_residual_params.parquet"
+        raw_params = load_residual_params(str(params_path))
 
         residual_params = {
             (str(group_id), ""): raw_params
             for group_id in panel["group_id"].unique()
         }
 
+        weights_path = panel_dir / f"{src.weights_stem}_weights.parquet"
+        weights_lookup = weights_lookup_from_df(load_weights(str(weights_path)))
+
         compute_and_persist_series(
             panel_dir=panel_dir,
             candidate_panel=panel,
             residual_params=residual_params,
             market_data=umd,
+            weights_lookup=weights_lookup,
         )
 
 
@@ -192,7 +197,6 @@ def _build_sim_config(active_groups: list[str]) -> SimulatorConfig:
             max_ticker_exposure_pct=0.15,
         ),
         "run": RunConfig(progress=False, progress_step=10, start_date=None, end_date=None),
-        "spectrum": None,
         "entry_features": None,
     }
 

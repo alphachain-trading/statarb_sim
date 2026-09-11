@@ -91,7 +91,6 @@ def save_simulation_run(
     # DataFrame artifacts — monolithic only (flushable artifacts written per-year by flush_yearly_logs)
     _df_artifacts = {
         "selected_panel": ("selected_panel", lambda: result.selected_panel),
-        "daily_portfolio_state": ("daily_portfolio_state", lambda: result.daily_portfolio_state_df()),
     }
 
     for artifact_key, (filename, df_fn) in _df_artifacts.items():
@@ -134,10 +133,9 @@ def save_simulation_run(
 # ---------------------------------------------------------------------------
 
 # Artifacts written as per-year parquet slices and cleared from memory
-_FLUSHABLE_ARTIFACTS = {"daily_state", "action_log", "ticker_trade_log", "diagnostics", "closed_trades"}
+_FLUSHABLE_ARTIFACTS = {"action_log", "ticker_trade_log", "diagnostics", "closed_trades"}
 
 _FLUSHABLE_DF_FNS: dict[str, Any] = {
-    "daily_state": lambda r: r.daily_state_df(),
     "action_log": lambda r: r.action_log_df(),
     "ticker_trade_log": lambda r: r.ticker_trade_log_df(),
     "diagnostics": lambda r: r.diagnostics_log_df(),
@@ -147,7 +145,6 @@ _FLUSHABLE_DF_FNS: dict[str, Any] = {
 # Per-year flushable artifacts each live in their own subdir inside the run dir,
 # keeping the run root uncluttered (dozens of yearly slices otherwise pile up flat).
 _ARTIFACT_SUBDIRS: dict[str, str] = {
-    "daily_state": "daily_states",
     "action_log": "action_logs",
     "ticker_trade_log": "ticker_trade_logs",
     "diagnostics": "diagnostics",
@@ -347,8 +344,6 @@ def _build_meta(
     # Summary stats from result
     if hasattr(result, "closed_trades"):
         meta["n_closed_trades"] = len(result.closed_trades)
-    if hasattr(result, "daily_portfolio_state_log"):
-        meta["n_trading_days"] = len(result.daily_portfolio_state_log)
 
     # Run dates
     meta["run_start_date"] = str(config.run.start_date) if config.run.start_date else None
@@ -360,6 +355,10 @@ def _build_meta(
         for key in [
             "sortino_net", "sharpe_net", "max_drawdown_net",
             "total_return_net", "win_rate_net", "n_trades",
+            # n_trading_days used to come from len(daily_portfolio_state_log)
+            # (F1 commit 8c deleted it); compute_performance already derives
+            # the same figure from the reconstructed equity curve.
+            "n_trading_days",
         ]:
             if key in m:
                 meta[key] = m[key]

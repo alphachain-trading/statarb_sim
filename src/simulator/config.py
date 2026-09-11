@@ -52,84 +52,13 @@ def group_abbrev(
     return lb + ",".join(result) + rb if to_string else result
 
 
-# ── Cross-timescale signal gate ──────────────────────────────────────────────
-
-@dataclass(slots=True, frozen=True)
-class CrossTimescaleEntryConfig:
-    """
-    Cross-timescale entry filter applied before individual-rkey entry decisions.
-
-    When configured, for a spread to enter on any timescale, the z-score
-    vector across all timescales must satisfy these conditions.
-
-    All conditions are AND-ed. None = disabled (that condition not checked).
-
-    Parameters
-    ----------
-    min_abs_z_all
-        Every timescale's abs(z) must exceed this.
-    mean_abs_z_min
-        Mean of abs(z) across timescales must exceed this.
-    same_sign_required
-        When True, all timescales must agree on direction. Mandatory -- no
-        default (Track D follow-up). Unused by every call site in the repo
-        today -- zero blast radius.
-    """
-    min_abs_z_all: float | None = None
-    mean_abs_z_min: float | None = None
-    same_sign_required: bool = field(kw_only=True)
-
-
-@dataclass(slots=True, frozen=True)
-class TimescaleRiskConfig:
-    """
-    Timescale selection and diversification policy in risk manager.
-
-    Parameters
-    ----------
-    max_timescales_per_spread
-        Maximum concurrent positions for the same spread across timescales.
-        None = unlimited.
-    selection
-        When max_timescales_per_spread limits the set, how to pick:
-        "max_abs_z" | "min_hl" | "max_hl" | "balanced"
-    max_pct_single_timescale
-        Maximum fraction of total open positions sharing the same residual_key.
-        None = uncapped.
-
-    selection is mandatory -- no default (Track D follow-up); only takes
-    effect once max_timescales_per_spread is also set. Unused by every call
-    site in the repo today -- zero blast radius.
-    """
-    max_timescales_per_spread: int | None = None
-    selection: str = field(kw_only=True)
-    max_pct_single_timescale: float | None = None
-
-    def __post_init__(self) -> None:
-        valid_selections = ("max_abs_z", "min_hl", "max_hl", "balanced")
-        if self.selection not in valid_selections:
-            raise ValueError(
-                f"TimescaleRiskConfig.selection must be one of {valid_selections}, "
-                f"got {self.selection!r}"
-            )
-        if self.max_timescales_per_spread is not None and self.max_timescales_per_spread < 1:
-            raise ValueError(
-                f"max_timescales_per_spread must be >= 1, got {self.max_timescales_per_spread}"
-            )
-        if self.max_pct_single_timescale is not None:
-            if not (0.0 < self.max_pct_single_timescale <= 1.0):
-                raise ValueError(
-                    f"max_pct_single_timescale must be in (0, 1], "
-                    f"got {self.max_pct_single_timescale}"
-                )
-
-
 @dataclass(frozen=True)
 class GroupDataSource:
-    """Per-group data triplet: universe config, candidate panel, optional residual params."""
+    """Per-group data quadruple: universe config, candidate panel, optional residual params, optional weights."""
     universe_config_name: str
     candidate_panel_stem: str
     residual_params_stem: str | None = None
+    weights_stem: str | None = None
     residual_key: str = ""  # from meta.json → CausalResidualConfig.key
 
 
@@ -197,8 +126,11 @@ def discover_group_data_sources(
             print(f"[discover] Warning: no universe YAML for {group_id}, skipping")
             continue
 
-        params_path = panel_dir / f"{stem}_residual_params.pkl"
+        params_path = panel_dir / f"{stem}_residual_params.parquet"
         residual_stem = stem if params_path.exists() else None
+
+        weights_path = panel_dir / f"{stem}_weights.parquet"
+        weights_stem = stem if weights_path.exists() else None
 
         residual_key = ""
         meta_path = panel_dir / f"{stem}.meta.json"
@@ -214,6 +146,7 @@ def discover_group_data_sources(
             universe_config_name=f"{universe_name}/{yaml_path.name}",
             candidate_panel_stem=stem,
             residual_params_stem=residual_stem,
+            weights_stem=weights_stem,
             residual_key=residual_key,
         )
 
@@ -256,6 +189,17 @@ class DataConfig:
     excluded_groups: list[str] | None = None
     candidate_panel_subdir: str = ""
     universe_name: str = "sp500_v1"  # config/universes/{universe_name}/{group_id}.yaml
+    # Which frozen market-data snapshot (src/data/market_snapshot.py) this
+    # run binds to, e.g. "sp500_v1_20260713T140501". None = the run loaded
+    # market data through UniverseDataLoader's live cache, not a snapshot —
+    # true for every run today. stage_download / _load_umd are not yet
+    # wired to ensure_market_snapshot/load_market_snapshot (found.md:
+    # "UniverseDataLoader.load's in-place cache-hit resync remains live for
+    # its three existing callers" — that wiring is deferred, not this
+    # commit's job). This field exists so config.json can record a
+    # snapshot_id once that wiring lands, without another config_hash-
+    # shifting field addition at that point.
+    snapshot_id: str | None = None
     data_path: str = "data"
     price_field: str = "Close"
     return_method: str = "log"
@@ -396,36 +340,6 @@ class MRDiagnosticsConfig:
 
 
 @dataclass(slots=True, frozen=True)
-class SpreadMomentumConfig:
-    """
-    Spread momentum entry filter.
-
-    All fields mandatory -- no default (Track D follow-up). Unused by every
-    call site in the repo today (opt-in via
-    PortfolioMeanReversionConfig.spread_momentum: SpreadMomentumConfig |
-    None = None) -- zero blast radius to fix now, before a first caller
-    opts in and silently inherits a class default.
-    """
-    lookback: int
-    norm_window: int
-    entry_threshold: float
-
-    def __post_init__(self) -> None:
-        if self.lookback < 1:
-            raise ValueError(f"SpreadMomentumConfig.lookback must be >= 1, got {self.lookback}")
-        if self.norm_window < self.lookback:
-            raise ValueError(
-                f"SpreadMomentumConfig.norm_window ({self.norm_window}) "
-                f"must be >= lookback ({self.lookback})"
-            )
-        if self.entry_threshold < 0.0:
-            return
-            raise ValueError(
-                f"SpreadMomentumConfig.entry_threshold must be >= 0.0, got {self.entry_threshold}"
-            )
-
-
-@dataclass(slots=True, frozen=True)
 class PortfolioMeanReversionConfig:
     """
     exit_z is mandatory -- no default (Track D follow-up), same treatment as
@@ -439,7 +353,6 @@ class PortfolioMeanReversionConfig:
     time_stop_half_life_multiplier: float | None = None
     mr_deterioration_threshold: float | None = None
     pnl_stop_fraction: float | None = None
-    spread_momentum: SpreadMomentumConfig | None = None
 
 
 @dataclass(slots=True, frozen=True)
@@ -459,7 +372,6 @@ class PairSpreadTraderConfig:
     exit_z: float
     allow_long: bool = True
     allow_short: bool = True
-    cross_ts: CrossTimescaleEntryConfig | None = None
     max_holding_days: str | int | dict[str, int] | None = None
     exit_rule: str | dict[str, str] | None = None
 
@@ -469,46 +381,6 @@ class PairSpreadTraderConfig:
                 "Cannot specify both exit_rule and max_holding_days. "
                 "Use exit_rule='days_open > N' for a pure time stop."
             )
-
-
-@dataclass(slots=True, frozen=True)
-class KellyConfig:
-    """
-    Kelly criterion sizing configuration.
-
-    Derives base_pair_notional from expanding-window trade outcome statistics
-    instead of using a fixed value. Activates per-group or globally.
-
-    Parameters
-    ----------
-    half_life
-        EWM half-life in number of trades. None = equal-weighted expanding window.
-    min_trades
-        Minimum closed trades before Kelly estimate activates.
-    blend_target
-        Trade count at which Kelly fully replaces base_pair_notional.
-    fraction
-        Kelly fraction (0.5 = half-Kelly).
-    floor_multiplier
-        Minimum Kelly notional as multiple of base_pair_notional.
-    cap_multiplier
-        Maximum Kelly notional as multiple of base_pair_notional.
-    per_sector
-        If True, track stats and compute Kelly per group_id.
-
-    Every field but half_life is mandatory -- no default (Track D
-    follow-up). half_life keeps its None default: documented, legitimate
-    "equal-weighted expanding window" opt state, not a silent fallback.
-    Unused by every call site in the repo today (opt-in via
-    SizingConfig.kelly: KellyConfig | None = None) -- zero blast radius.
-    """
-    half_life: int | None = None
-    min_trades: int = field(kw_only=True)
-    blend_target: int = field(kw_only=True)
-    fraction: float = field(kw_only=True)
-    floor_multiplier: float = field(kw_only=True)
-    cap_multiplier: float = field(kw_only=True)
-    per_sector: bool = field(kw_only=True)
 
 
 @dataclass(slots=True, frozen=True)
@@ -759,7 +631,7 @@ class SizingConfig:
     """
     Per-trade sizing configuration.
 
-    Owns all sizing logic: base notional, vol normalization, Kelly adaptation.
+    Owns all sizing logic: base notional, vol normalization.
     The SizingEngine uses this config to compute a concrete pair_notional for
     each approved trade before execution.
 
@@ -771,14 +643,9 @@ class SizingConfig:
     vol_normalize
         When set, scale each pair's notional by inverse spread volatility
         relative to the cross-sectional median. None = disabled.
-    kelly
-        When set, derive base_pair_notional adaptively from trade outcome
-        statistics. Kelly and vol_normalize are composable: Kelly sets the
-        base, vol_normalize scales it per-pair.
     """
     base_pair_notional: float
     vol_normalize: VolSizingConfig | None = None
-    kelly: KellyConfig | None = None
     interval_scoring: IntervalScoringConfig | None = None
 
     def __post_init__(self) -> None:
@@ -807,13 +674,10 @@ class RiskManagerConfig:
         exposure. Mandatory — no default (Track D).
     max_concurrent_positions
         Hard cap on simultaneous open positions. None = uncapped.
-    timescale_risk
-        Timescale selection and concentration policy. None = approve all.
     """
     max_gross_exposure: float = field(kw_only=True)
     max_ticker_exposure_pct: float = field(kw_only=True)
     max_concurrent_positions: int | None = None
-    timescale_risk: TimescaleRiskConfig | None = None
 
 
 @dataclass(slots=True, frozen=True)
@@ -881,8 +745,6 @@ class PersistenceConfig:
         "config",
         "selected_panel",
         "closed_trades",
-        "daily_state",
-        "daily_portfolio_state",
         "diagnostics",
         "ticker_trade_log",
         "action_log",
@@ -892,17 +754,6 @@ class PersistenceConfig:
 
 
 TraderConfig = PortfolioMeanReversionConfig | PairSpreadTraderConfig
-
-
-@dataclass(slots=True, frozen=True)
-class SpectrumConfig:
-    """
-    Configuration for z-score spectrum capture during simulation.
-    """
-    residual_lookbacks: list[int] | None = None
-    zlb_values: list[int] | None = None
-    record_exit: bool = True
-    identity_check_epsilon: float = 1e-4
 
 
 @dataclass(slots=True, frozen=True)
@@ -929,7 +780,6 @@ class SimulatorConfig:
     performance: PerformanceConfig = field(default_factory=PerformanceConfig)
     persistence: PersistenceConfig = field(default_factory=PersistenceConfig)
     risk_manager: RiskManagerConfig | None = None
-    spectrum: SpectrumConfig | None = None
     entry_features: EntryFeatureConfig | None = None
 
     def __post_init__(self) -> None:

@@ -22,15 +22,8 @@ class PairSpreadMeanReversionTrader:
     Does NOT decide size — that is SizingEngine's responsibility.
     OpenCandidateAction.pair_notional is left as None; SizingEngine populates it.
 
-    Supports two activation modes:
-
-    Mode A — Independent (config.cross_ts is None, default):
-        Each (spread_id, residual_key) decides independently.
-
-    Mode B — Cross-timescale gated (config.cross_ts set):
-        Entry only fires when cross-ts conditions are met across timescales.
-
-    Exit is always per-position (own rkey's z-score).
+    Each (spread_id, residual_key) decides independently. Exit is always
+    per-position (own rkey's z-score).
     """
 
     config: PairSpreadTraderConfig
@@ -48,11 +41,7 @@ class PairSpreadMeanReversionTrader:
             return actions
 
         actions.extend(self._generate_closes(df, live_positions_by_candidate_id, live_diagnostics_by_candidate_id))
-
-        if self.config.cross_ts is not None:
-            actions.extend(self._generate_opens_cross_ts(df, live_positions_by_candidate_id, live_diagnostics_by_candidate_id))
-        else:
-            actions.extend(self._generate_opens_independent(df, live_positions_by_candidate_id, live_diagnostics_by_candidate_id))
+        actions.extend(self._generate_opens_independent(df, live_positions_by_candidate_id, live_diagnostics_by_candidate_id))
 
         return actions
 
@@ -197,7 +186,7 @@ class PairSpreadMeanReversionTrader:
 
         return closes
 
-    # ── Opens: Mode A ────────────────────────────────────────────────────────
+    # ── Opens ────────────────────────────────────────────────────────────────
 
     def _generate_opens_independent(
         self,
@@ -232,66 +221,7 @@ class PairSpreadMeanReversionTrader:
 
         return self._threshold_entries(df.loc[mask], live_diagnostics_by_candidate_id)
 
-    # ── Opens: Mode B ────────────────────────────────────────────────────────
-
-    def _generate_opens_cross_ts(
-        self,
-        df: "pd.DataFrame",
-        live_positions_by_candidate_id: dict[str, LiveCandidatePosition],
-        live_diagnostics_by_candidate_id: dict[str, "CandidateAnalyticsState"] | None = None,
-    ) -> list[OpenCandidateAction]:
-        open_spread_keys: set[tuple[str, str]] = {
-            (pos.spread_id, pos.residual_key)
-            for pos in live_positions_by_candidate_id.values()
-        }
-
-        if "residual_key" not in df.columns:
-            rkeys = []
-            for cid in df.index:
-                parts = str(cid).rsplit("__", 1)
-                rkeys.append(parts[1] if len(parts) == 2 else "")
-            df = df.copy()
-            df["residual_key"] = rkeys
-
-        mask = df["is_active"] & df["is_signal_ready"]
-        if live_positions_by_candidate_id:
-            mask = mask & ~df.index.isin(live_positions_by_candidate_id)
-        if open_spread_keys:
-            spread_rkey_pairs = list(zip(df["spread_id"], df["residual_key"]))
-            occupied = [pair in open_spread_keys for pair in spread_rkey_pairs]
-            mask = mask & ~np.array(occupied)
-
-        eligible = df.loc[mask]
-        if eligible.empty:
-            return []
-
-        qualifying_ids: list[str] = []
-        cfg = self.config.cross_ts
-
-        for spread_id, group in eligible.groupby("spread_id"):
-            z_scores = group["z_score"].to_numpy(dtype=float)
-            abs_z = np.abs(z_scores)
-
-            if cfg.same_sign_required:
-                if not (np.all(z_scores > 0) or np.all(z_scores < 0)):
-                    continue
-
-            if cfg.min_abs_z_all is not None:
-                if np.min(abs_z) < cfg.min_abs_z_all:
-                    continue
-
-            if cfg.mean_abs_z_min is not None:
-                if np.mean(abs_z) < cfg.mean_abs_z_min:
-                    continue
-
-            qualifying_ids.extend(group.index.tolist())
-
-        if not qualifying_ids:
-            return []
-
-        return self._threshold_entries(eligible.loc[qualifying_ids], live_diagnostics_by_candidate_id)
-
-    # ── Shared: apply entry z-threshold and emit actions ─────────────────────
+    # ── Apply entry z-threshold and emit actions ──────────────────────────────
 
     def _threshold_entries(
         self,

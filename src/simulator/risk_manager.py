@@ -1,9 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Counter
 
-import numpy as np
 import pandas as pd
 
 from src.simulator.actions import OpenCandidateAction
@@ -20,11 +18,9 @@ class RiskManager:
     Zero-notional trades have already been dropped by SizingEngine.
 
     Pipeline (in order):
-    1. Timescale selection — filter/select across rkeys per spread
-    2. Max concurrent positions cap
-    3. Timescale concentration cap
-    4. Gross exposure cap
-    5. Per-ticker concentration cap
+    1. Max concurrent positions cap
+    2. Gross exposure cap
+    3. Per-ticker concentration cap
     """
 
     config: RiskManagerConfig
@@ -57,39 +53,21 @@ class RiskManager:
         if self.total_capital <= 0.0:
             return []
 
-        # ── Step 1: Timescale selection ──────────────────────────────
-        filtered = self._apply_timescale_policy(
-            sized_opens=sized_opens,
-            live_positions=live_positions,
-        )
-
-        # ── Steps 2-5: Portfolio constraint checks ───────────────────
+        # ── Portfolio constraint checks ───────────────────────────────
         current_gross_notional = self._compute_gross_notional(live_positions, current_prices)
         ticker_net_notional = self._compute_ticker_net_notional(live_positions, current_prices)
         n_positions = len(live_positions)
 
         # Rank by signal strength
-        ranked = sorted(filtered, key=lambda x: abs(x[0].z_score) if x[0].z_score is not None else 0.0, reverse=True)
+        ranked = sorted(sized_opens, key=lambda x: abs(x[0].z_score) if x[0].z_score is not None else 0.0, reverse=True)
 
         approved: list[tuple[OpenCandidateAction, float, dict, float]] = []
-
-        ts_counts: Counter[str] = Counter()
-        for pos in live_positions.values():
-            ts_counts[pos.residual_key] += 1
 
         for action, pair_notional, feature_scores, size_multiplier in ranked:
             # Position count cap
             if self.config.max_concurrent_positions is not None:
                 if n_positions >= self.config.max_concurrent_positions:
                     break
-
-            # Timescale concentration cap
-            ts_cfg = self.config.timescale_risk
-            if ts_cfg is not None and ts_cfg.max_pct_single_timescale is not None:
-                total_after = n_positions + 1
-                rkey_count_after = ts_counts[action.residual_key] + 1
-                if total_after > 0 and rkey_count_after / total_after > ts_cfg.max_pct_single_timescale:
-                    continue
 
             # Gross exposure check
             if current_gross_notional + pair_notional > self.config.max_gross_exposure * self.total_capital:
@@ -105,7 +83,6 @@ class RiskManager:
 
             approved.append((action, pair_notional, feature_scores, size_multiplier))
             n_positions += 1
-            ts_counts[action.residual_key] += 1
             current_gross_notional += pair_notional
             self._update_ticker_net_notional(
                 ticker_net_notional=ticker_net_notional,
@@ -114,79 +91,6 @@ class RiskManager:
             )
 
         return approved
-
-    def _apply_timescale_policy(
-        self,
-        *,
-        sized_opens: list[tuple[OpenCandidateAction, float, dict, float]],
-        live_positions: dict[str, LiveCandidatePosition],
-    ) -> list[tuple[OpenCandidateAction, float, dict, float]]:
-        ts_cfg = self.config.timescale_risk
-        if ts_cfg is None or ts_cfg.max_timescales_per_spread is None:
-            return sized_opens
-
-        max_ts = ts_cfg.max_timescales_per_spread
-
-        live_ts_per_spread: dict[str, set[str]] = {}
-        for pos in live_positions.values():
-            live_ts_per_spread.setdefault(pos.spread_id, set()).add(pos.residual_key)
-
-        opens_by_spread: dict[str, list[tuple[OpenCandidateAction, float, dict, float]]] = {}
-        for item in sized_opens:
-            opens_by_spread.setdefault(item[0].spread_id, []).append(item)
-
-        result: list[tuple[OpenCandidateAction, float, dict, float]] = []
-
-        for spread_id, items in opens_by_spread.items():
-            live_rkeys = live_ts_per_spread.get(spread_id, set())
-            slots_available = max_ts - len(live_rkeys)
-
-            if slots_available <= 0:
-                continue
-
-            if len(items) <= slots_available:
-                result.extend(items)
-                continue
-
-            selected = self._select_timescales(items, slots_available, ts_cfg.selection)
-            result.extend(selected)
-
-        return result
-
-    @staticmethod
-    def _select_timescales(
-        items: list[tuple[OpenCandidateAction, float, dict, float]],
-        n: int,
-        policy: str,
-    ) -> list[tuple[OpenCandidateAction, float, dict, float]]:
-        if policy == "max_abs_z":
-            ranked = sorted(items, key=lambda x: abs(x[0].z_score) if x[0].z_score is not None else 0.0, reverse=True)
-            return ranked[:n]
-
-        def _extract_hl(rkey: str) -> int:
-            try:
-                for part in rkey.split("_"):
-                    if part.startswith("hl") and part[2:].isdigit():
-                        return int(part[2:])
-            except (ValueError, IndexError):
-                pass
-            return 999999
-
-        if policy == "min_hl":
-            return sorted(items, key=lambda x: _extract_hl(x[0].residual_key))[:n]
-
-        if policy == "max_hl":
-            return sorted(items, key=lambda x: _extract_hl(x[0].residual_key), reverse=True)[:n]
-
-        if policy == "balanced":
-            ranked = sorted(items, key=lambda x: _extract_hl(x[0].residual_key))
-            if n >= len(ranked):
-                return ranked
-            indices = np.linspace(0, len(ranked) - 1, n, dtype=int)
-            return [ranked[i] for i in indices]
-
-        # Fallback: max_abs_z
-        return sorted(items, key=lambda x: abs(x[0].z_score) if x[0].z_score is not None else 0.0, reverse=True)[:n]
 
     @staticmethod
     def _compute_gross_notional(

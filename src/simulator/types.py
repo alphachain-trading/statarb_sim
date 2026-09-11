@@ -137,6 +137,11 @@ class LiveCandidatePosition:
     gross_value: float         # current mark-to-market gross value
 
     entry_date: pd.Timestamp
+    # The candidate's own outer refit date (CandidateRef.asof_date) -- when
+    # its weights were fit, not when the trade was executed. Weights are
+    # frozen at entry for the life of a position, so position-view
+    # reconstruction is impossible without it (F1 commit 7).
+    entry_asof_date: pd.Timestamp
     days_open: int
 
     entry_z_score: float | None = None
@@ -167,6 +172,7 @@ class LiveCandidatePosition:
         if self.pair_notional <= 0.0:
             raise ValueError(f"LiveCandidatePosition.pair_notional must be positive, got {self.pair_notional}.")
         self.entry_date = pd.Timestamp(self.entry_date)
+        self.entry_asof_date = pd.Timestamp(self.entry_asof_date)
 
 
 @dataclass(slots=True, frozen=True)
@@ -177,6 +183,9 @@ class ClosedCandidateTrade:
     spread_id: str
 
     entry_date: pd.Timestamp
+    # See LiveCandidatePosition.entry_asof_date (F1 commit 7): the
+    # candidate's own outer refit date, not the trade execution date.
+    entry_asof_date: pd.Timestamp
     exit_date: pd.Timestamp
     days_open: int
 

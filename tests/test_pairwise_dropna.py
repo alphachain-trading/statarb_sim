@@ -98,7 +98,7 @@ class TestPairwiseDropna(unittest.TestCase):
         )
 
         with patch.object(pcpc, "apply_causal_residual_model", side_effect=fake_apply):
-            rows = pcpc._build_pair_candidate_rows_for_date(
+            rows, weight_rows = pcpc._build_pair_candidate_rows_for_date(
                 bundle=bundle,
                 asof_datetime=idx[-1],
                 residual_cfg=residual_cfg,
@@ -109,11 +109,14 @@ class TestPairwiseDropna(unittest.TestCase):
                 fitted_model=fitted_model,
                 progress=False,
             )
-        return {r["spread_id"]: r for r in rows}
+        weights_by_spread = {}
+        for wr in weight_rows:
+            weights_by_spread.setdefault(wr["spread_id"], {})[wr["ticker"]] = wr["weight"]
+        return {r["spread_id"]: r for r in rows}, weights_by_spread
 
     def test_clean_pair_unaffected_by_third_tickers_gap(self):
-        clean = self._build_rows(gap_row=None)
-        gapped = self._build_rows(gap_row=5)
+        clean, clean_weights = self._build_rows(gap_row=None)
+        gapped, gapped_weights = self._build_rows(gap_row=5)
 
         ab_clean = clean["AAA|BBB"]
         ab_gapped = gapped["AAA|BBB"]
@@ -123,12 +126,12 @@ class TestPairwiseDropna(unittest.TestCase):
         # the shared dropna dropped date index 5 for every pair, so AAA|BBB
         # was silently refit on 14 rows instead of 15 whenever CCC gapped.
         # np.testing.assert_equal treats NaN == NaN as equal, unlike ==.
-        self.assertEqual(ab_clean["weights"], ab_gapped["weights"])
+        self.assertEqual(clean_weights["AAA|BBB"], gapped_weights["AAA|BBB"])
         np.testing.assert_equal(ab_clean["residual_std"], ab_gapped["residual_std"])
         np.testing.assert_equal(ab_clean["kappa"], ab_gapped["kappa"])
 
     def test_pairs_touching_the_gapped_ticker_still_produce_a_row(self):
-        rows = self._build_rows(gap_row=5)
+        rows, _weights = self._build_rows(gap_row=5)
         # CCC's own pairs are still attempted, fit on their own 14 retained
         # rows — not dropped from the candidate universe entirely.
         self.assertIn("AAA|CCC", rows)

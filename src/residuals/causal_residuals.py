@@ -246,6 +246,157 @@ class FittedCausalResidualModel:
     subtract_risk_free: bool = False
 
 
+# ── Long-form persistence ──────────────────────────────────────────────────
+#
+# Replaces the old `{stem}_residual_params.pkl` (a pickled
+# dict[fit_date, FittedCausalResidualModel]) with a flat parquet: one row
+# per factor loading per ticker per fit_date. Pure storage-format swap --
+# fit logic (fit_causal_residual_model / apply_causal_residual_model) is
+# untouched.
+#
+# B_proxy's two rows are the proxy's own loadings on [const, bench]; B_stock's
+# three rows are each member's loadings on [const, bench, proxy_resid].
+# pc_components (when PC removal is on) contributes one row per (pc, member).
+# The proxy ticker is distinguished on read by having no "proxy_resid_beta"
+# row -- it is never regressed on its own residual, so this is structural,
+# not a stored flag. bench_name never appears as a row subject (it is only
+# ever a regressor), so it is carried as a constant column alongside every
+# row instead.
+
+_RESIDUAL_PARAMS_FACTOR_CONST = "const"
+_RESIDUAL_PARAMS_FACTOR_BENCH = "bench_beta"
+_RESIDUAL_PARAMS_FACTOR_PROXY_RESID = "proxy_resid_beta"
+
+
+def _pc_factor_name(k: int) -> str:
+    return f"pc{k}_weight"
+
+
+def save_residual_params(
+    fitted_params: dict[pd.Timestamp, FittedCausalResidualModel],
+    path: str,
+) -> None:
+    """
+    Persist a walkforward dict of fitted residual models in long form.
+
+    One row per (fit_date, ticker, factor). Raises if fitted_params is empty
+    or if the resulting (fit_date, ticker, factor) key is not unique.
+    """
+    if not fitted_params:
+        raise ValueError("fitted_params is empty; nothing to persist.")
+
+    rows: list[dict] = []
+    for fit_date, model in fitted_params.items():
+        fit_date = pd.Timestamp(fit_date)
+        common = {
+            "fit_date": fit_date,
+            "bench_name": model.bench_name,
+            "subtract_risk_free": bool(model.subtract_risk_free),
+        }
+
+        rows.append({**common, "ticker": model.proxy_name,
+                     "factor": _RESIDUAL_PARAMS_FACTOR_CONST,
+                     "loading": float(model.B_proxy[0, 0])})
+        rows.append({**common, "ticker": model.proxy_name,
+                     "factor": _RESIDUAL_PARAMS_FACTOR_BENCH,
+                     "loading": float(model.B_proxy[1, 0])})
+
+        for j, ticker in enumerate(model.members):
+            rows.append({**common, "ticker": ticker,
+                         "factor": _RESIDUAL_PARAMS_FACTOR_CONST,
+                         "loading": float(model.B_stock[0, j])})
+            rows.append({**common, "ticker": ticker,
+                         "factor": _RESIDUAL_PARAMS_FACTOR_BENCH,
+                         "loading": float(model.B_stock[1, j])})
+            rows.append({**common, "ticker": ticker,
+                         "factor": _RESIDUAL_PARAMS_FACTOR_PROXY_RESID,
+                         "loading": float(model.B_stock[2, j])})
+            if model.pc_components is not None:
+                for k in range(model.pc_components.shape[0]):
+                    rows.append({**common, "ticker": ticker,
+                                 "factor": _pc_factor_name(k),
+                                 "loading": float(model.pc_components[k, j])})
+
+    df = pd.DataFrame(rows)
+    df["fit_date"] = pd.to_datetime(df["fit_date"])
+    df["ticker"] = df["ticker"].astype("category")
+    df["factor"] = df["factor"].astype("category")
+    df["bench_name"] = df["bench_name"].astype("category")
+    df["loading"] = df["loading"].astype("float64")
+    df["subtract_risk_free"] = df["subtract_risk_free"].astype(bool)
+
+    dupe_mask = df.duplicated(subset=["fit_date", "ticker", "factor"], keep=False)
+    if dupe_mask.any():
+        dupes = df.loc[dupe_mask, ["fit_date", "ticker", "factor"]].drop_duplicates()
+        raise ValueError(
+            f"residual_params has non-unique (fit_date, ticker, factor) rows:\n{dupes}"
+        )
+
+    df = df.reset_index(drop=True)
+    df.to_parquet(path)
+
+
+def load_residual_params(path: str) -> dict[pd.Timestamp, FittedCausalResidualModel]:
+    """Reconstruct the walkforward dict[fit_date, FittedCausalResidualModel] written by save_residual_params."""
+    df = pd.read_parquet(path)
+
+    result: dict[pd.Timestamp, FittedCausalResidualModel] = {}
+    for fit_date, g in df.groupby("fit_date", sort=True, observed=True):
+        bench_name = str(g["bench_name"].iloc[0])
+        subtract_risk_free = bool(g["subtract_risk_free"].iloc[0])
+
+        piv = g.pivot(index="ticker", columns="factor", values="loading")
+        piv = piv.rename(index=str)
+        piv.columns = [str(c) for c in piv.columns]
+
+        if _RESIDUAL_PARAMS_FACTOR_PROXY_RESID not in piv.columns:
+            raise ValueError(
+                f"residual_params for fit_date={fit_date} has no "
+                f"'{_RESIDUAL_PARAMS_FACTOR_PROXY_RESID}' factor at all."
+            )
+
+        proxy_mask = piv[_RESIDUAL_PARAMS_FACTOR_PROXY_RESID].isna()
+        proxy_names = piv.index[proxy_mask].tolist()
+        if len(proxy_names) != 1:
+            raise ValueError(
+                f"Expected exactly one proxy ticker (no proxy_resid_beta row) for "
+                f"fit_date={fit_date}, got {proxy_names}"
+            )
+        proxy_name = proxy_names[0]
+        members = sorted(t for t in piv.index if t != proxy_name)
+
+        B_proxy = np.array([
+            [piv.loc[proxy_name, _RESIDUAL_PARAMS_FACTOR_CONST]],
+            [piv.loc[proxy_name, _RESIDUAL_PARAMS_FACTOR_BENCH]],
+        ], dtype=float)
+
+        B_stock = piv.loc[members, [
+            _RESIDUAL_PARAMS_FACTOR_CONST,
+            _RESIDUAL_PARAMS_FACTOR_BENCH,
+            _RESIDUAL_PARAMS_FACTOR_PROXY_RESID,
+        ]].to_numpy(dtype=float).T
+
+        pc_cols = sorted(
+            (c for c in piv.columns if c.startswith("pc") and c.endswith("_weight")),
+            key=lambda c: int(c[len("pc"):-len("_weight")]),
+        )
+        pc_components = None
+        if pc_cols:
+            pc_components = piv.loc[members, pc_cols].to_numpy(dtype=float).T
+
+        result[pd.Timestamp(fit_date)] = FittedCausalResidualModel(
+            members=members,
+            proxy_name=proxy_name,
+            bench_name=bench_name,
+            B_proxy=B_proxy,
+            B_stock=B_stock,
+            pc_components=pc_components,
+            subtract_risk_free=subtract_risk_free,
+        )
+
+    return result
+
+
 def _slice_fit_window(
     bundle: GroupReturnBundle,
     date: pd.Timestamp,

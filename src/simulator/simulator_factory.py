@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import pickle
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any
@@ -32,10 +31,15 @@ from src.simulator.sizing_engine import SizingEngine
 from src.simulator.simulator import SimulationResult, Simulator
 from src.simulator.traders.pair_spread_mean_reversion import PairSpreadMeanReversionTrader
 from src.simulator.traders.portfolio_mean_reversion import PortfolioMeanReversionTrader
-from src.candidates.candidate_panel import CandidatePanelResult, load_candidate_panel_result
+from src.candidates.candidate_panel import (
+    CandidatePanelResult,
+    load_candidate_panel_result,
+    load_weights,
+    weights_lookup_from_df,
+)
 from src.data.universe_loader import UniverseConfig, UniverseDataLoader
 from src.data.universe_marketdata import UniverseMarketData
-from src.residuals.causal_residuals import CausalResidualConfig, FittedCausalResidualModel
+from src.residuals.causal_residuals import CausalResidualConfig, FittedCausalResidualModel, load_residual_params
 
 
 def create_simulator(
@@ -44,6 +48,7 @@ def create_simulator(
     umd: UniverseMarketData | None = None,
     residual_configs: dict[str, CausalResidualConfig] | None = None,
     precomputed_residual_params: dict[tuple[str, str], dict[pd.Timestamp, FittedCausalResidualModel]] | None = None,
+    weights_lookup: dict[tuple[str, pd.Timestamp], dict[str, float]] | None = None,
 ) -> Simulator:
     """
     Build a fully configured Simulator from a SimulatorConfig.
@@ -60,6 +65,9 @@ def create_simulator(
     precomputed_residual_params
         Optional {(group_id, residual_key): {date: FittedCausalResidualModel}}.
         Skips expensive model fitting in the signal generator.
+    weights_lookup
+        {(spread_id, asof_date): {ticker: weight}}, loaded from weights.parquet.
+        Required for the pair-spread trader to activate any candidate.
     """
     if umd is None:
         umd = _load_umd(config.data)
@@ -128,6 +136,7 @@ def create_simulator(
         sizing_engine=sizing_engine,
         entry_feature_engine=entry_feature_engine,
         risk_manager=risk_manager,
+        weights_lookup=weights_lookup or {},
     )
 
 
@@ -151,12 +160,19 @@ def run_from_config(config: SimulatorConfig) -> SimulationResult:
     panel, metadata_by_key = _load_panels(config.data, z_configs)
     print(f"[run] Panels loaded in {_time.time() - t0:.1f}s")
 
+    _assert_fit_input_tickers_available(umd, metadata_by_key)
+
     residual_configs = _resolve_residual_configs(config, metadata_by_key)
 
     print("[run] Loading residual params...")
     t0 = _time.time()
     precomputed_residual_params = _load_residual_params(config.data, z_configs)
     print(f"[run] Residual params loaded in {_time.time() - t0:.1f}s")
+
+    print("[run] Loading weights...")
+    t0 = _time.time()
+    weights_lookup = _load_weights(config.data, z_configs)
+    print(f"[run] Weights loaded in {_time.time() - t0:.1f}s")
 
     print("[run] Creating simulator...")
     t0 = _time.time()
@@ -165,6 +181,7 @@ def run_from_config(config: SimulatorConfig) -> SimulationResult:
         umd=umd,
         residual_configs=residual_configs,
         precomputed_residual_params=precomputed_residual_params,
+        weights_lookup=weights_lookup,
     )
     print(f"[run] Simulator created in {_time.time() - t0:.1f}s")
 
@@ -407,6 +424,41 @@ def _load_panels(
     return merged, metadata_by_key
 
 
+def _assert_fit_input_tickers_available(
+    umd: UniverseMarketData,
+    metadata_by_key: dict[str, dict[str, Any]],
+) -> None:
+    """
+    Load-time "different universe" guard (F1 commit 6).
+
+    fit_input_tickers (panel metadata, the union of a residual model's
+    realized input tickers across every fit date) names what reconstruction
+    must load. Missing tickers here means the UMD backing this run is a
+    different universe than the one the panel was built against -- fail
+    loud now, not partway through a residual fit. Metadata from a panel
+    built before this commit has no fit_input_tickers key; skipped, not an
+    error (nothing to check against).
+
+    Deliberately narrower than Track C's snapshot content-hash: this only
+    checks "is every required ticker present," not "does its price content
+    match what the panel was built from" -- that is what the snapshot hash
+    covers, per a run that is actually bound to one (not yet wired, see
+    DataConfig.snapshot_id).
+    """
+    available = set(umd.tickers())
+    for rkey, metadata in metadata_by_key.items():
+        fit_input_tickers = metadata.get("fit_input_tickers")
+        if not fit_input_tickers:
+            continue
+        missing = sorted(set(fit_input_tickers) - available)
+        if missing:
+            raise ValueError(
+                f"UniverseMarketData is missing tickers required by the candidate "
+                f"panel for residual_key={rkey!r}: {missing}. This UMD is a "
+                f"different universe than the one this panel was built against."
+            )
+
+
 def _load_residual_params(
     data_cfg: DataConfig,
     z_score_configs: list[ZScoreConfig],
@@ -448,12 +500,11 @@ def _load_residual_params(
         if composite_key in merged:
             continue
 
-        params_path = panel_dir / f"{src.residual_params_stem}_residual_params.pkl"
+        params_path = panel_dir / f"{src.residual_params_stem}_residual_params.parquet"
         if not params_path.exists():
             raise FileNotFoundError(f"Residual params not found: {params_path}")
 
-        with open(params_path, "rb") as f:
-            params: dict[pd.Timestamp, FittedCausalResidualModel] = pickle.load(f)
+        params: dict[pd.Timestamp, FittedCausalResidualModel] = load_residual_params(str(params_path))
 
         if not params:
             continue
@@ -462,6 +513,58 @@ def _load_residual_params(
         print(f"[factory] Loaded residual params for {group_id}/{rkey}: {len(params)} dates")
 
     return merged if merged else None
+
+
+def _load_weights(
+    data_cfg: DataConfig,
+    z_score_configs: list[ZScoreConfig],
+) -> dict[tuple[str, pd.Timestamp], dict[str, float]] | None:
+    """
+    Load precomputed leg weights (weights.parquet), keyed for
+    CandidateFilter.build_candidate_refs' lookup.
+
+    Returns {(spread_id, asof_date): {ticker: weight}} or None if no group
+    source carries a weights_stem (e.g. an older panel built before F1
+    commit 4). Full float64 precision -- replaces the live path's old
+    per-candidate weights JSON column, which lost precision through
+    to_json(double_precision=12).
+    """
+    groups = data_cfg.resolved_groups()
+    requested_keys = {zc.residual_key for zc in z_score_configs}
+    is_multi = any(k != "" for k in requested_keys)
+
+    has_any = any(s.weights_stem is not None for s in groups)
+    if not has_any:
+        return None
+
+    panel_dir = Path(CANDIDATE_PANELS_ROOT)
+    if data_cfg.candidate_panel_subdir:
+        panel_dir = panel_dir / data_cfg.candidate_panel_subdir
+
+    seen_stems: set[str] = set()
+    frames: list[pd.DataFrame] = []
+
+    for src in groups:
+        if src.weights_stem is None or src.weights_stem in seen_stems:
+            continue
+        if is_multi and src.residual_key not in requested_keys:
+            continue
+        seen_stems.add(src.weights_stem)
+
+        weights_path = panel_dir / f"{src.weights_stem}_weights.parquet"
+        if not weights_path.exists():
+            raise FileNotFoundError(f"Weights not found: {weights_path}")
+
+        frames.append(load_weights(str(weights_path)))
+
+    if not frames:
+        return None
+
+    df = pd.concat(frames, ignore_index=True) if len(frames) > 1 else frames[0]
+    lookup = weights_lookup_from_df(df)
+
+    print(f"[factory] Loaded weights for {len(lookup)} (spread_id, asof_date) keys")
+    return lookup
 
 
 # ---------------------------------------------------------------------------

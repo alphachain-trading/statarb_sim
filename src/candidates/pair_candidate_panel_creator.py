@@ -20,7 +20,7 @@ from src.candidates.candidate_panel import (
     finalize_candidate_panel,
     make_candidate_id,
     save_candidate_panel_result,
-    serialize_weights_for_spread_id,
+    save_weights,
 )
 from src.data.returns import GroupReturnBundle
 from src.residuals.causal_residuals import (
@@ -28,6 +28,7 @@ from src.residuals.causal_residuals import (
     FittedCausalResidualModel,
     apply_causal_residual_model,
     fit_causal_residual_model,
+    save_residual_params,
 )
 from src.residuals.spreads import (
     HedgeRatioMethod,
@@ -73,7 +74,14 @@ class PairSpreadConfig:
         default.
     tiny_weight_threshold
         Below this absolute weight, a leg is considered inactive. Mandatory
-        — no default.
+        — no default. **Not applied by the pair-spread path** (F1 commit 4):
+        a pair spread has exactly two legs, both live estimates from the
+        hedge fit, so n_legs is always 2 here regardless of this value —
+        thinning near-zero weights only makes sense for the portfolio path's
+        optimizer-produced spreads, where a sub-threshold weight is
+        genuinely noise to prune. Kept on this config only because
+        make_spread_id_from_weights (candidate_panel.py) still declares the
+        same parameter for that path.
     min_obs
         Minimum number of observations a pair must retain, after its own
         pairwise dropna, before a hedge ratio is fit. Mandatory — no
@@ -221,7 +229,8 @@ def _build_pair_candidate_rows_for_date(
     debug: bool,
     fitted_model: FittedCausalResidualModel | None = None,
     progress: bool = True,
-) -> list[dict[str, Any]]:
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Returns (candidate_rows, weight_rows) — see weights.parquet's grain below."""
     dt = pd.Timestamp(asof_datetime)
 
     if fitted_model is None:
@@ -250,7 +259,7 @@ def _build_pair_candidate_rows_for_date(
     if pair_cfg.tickers is not None:
         available = [t for t in pair_cfg.tickers if t in rr_hedge.columns]
         if len(available) < 2:
-            return []
+            return [], []
         rr_hedge = rr_hedge[available]
         rr_diag = rr_diag[[t for t in available if t in rr_diag.columns]]
 
@@ -272,6 +281,7 @@ def _build_pair_candidate_rows_for_date(
     )
 
     rows: list[dict[str, Any]] = []
+    weight_rows: list[dict[str, Any]] = []
 
     for method in pair_cfg.hedge_ratio_methods:
         pair_iter = tqdm(
@@ -351,9 +361,6 @@ def _build_pair_candidate_rows_for_date(
 
             diagnostics = _fast_pair_diagnostics(
                 spread_return=spread_return,
-                w_left=w_left,
-                w_right=w_right,
-                tiny_weight_threshold=pair_cfg.tiny_weight_threshold,
                 min_return_std=pair_cfg.min_return_std,
                 min_level_std=pair_cfg.min_level_std,
                 min_kappa=pair_cfg.min_kappa,
@@ -378,12 +385,15 @@ def _build_pair_candidate_rows_for_date(
                 "weight_model": method,
                 "spread_id": sid,
                 "group_id": bundle.group_id,
-                "n_legs": diagnostics["n_legs"],
-                "weights": serialize_weights_for_spread_id(
-                    weights=weights,
-                    spread_id=sid,
-                ),
-                "adf_pvalue": diagnostics["adf_pvalue"],
+                # Always 2 in the pair path: both legs are live hedge-fit
+                # estimates, not optimizer output to threshold (F1 commit 4).
+                "n_legs": 2,
+                # adf_pvalue dropped from candidates.parquet (F1 commit 5):
+                # Track A already defaulted skip_adf=True since nothing
+                # filters on it (CandidateSelectionConfig.adf_pvalue_max is
+                # never set live), so the persisted column was all-NaN in
+                # every real run. _fast_pair_diagnostics still computes it
+                # internally when skip_adf=False; it's just not persisted.
                 "mr_score": diagnostics["mr_score"],
                 "kappa": diagnostics["kappa"],
                 "half_life": diagnostics["half_life"],
@@ -400,6 +410,30 @@ def _build_pair_candidate_rows_for_date(
 
             rows.append(row)
 
+            # weights.parquet grain: one row per leg. Written regardless of
+            # is_valid — spread_return above already used both legs' full
+            # weights unconditionally, so a fidelity reconstruction needs
+            # them all, not just the ones that passed a later gate.
+            asof_date = pd.Timestamp(dt).normalize()
+            weight_rows.append({
+                "group_id": bundle.group_id,
+                "residual_key": residual_cfg.key,
+                "hedge_key": method,
+                "spread_id": sid,
+                "asof_date": asof_date,
+                "ticker": left,
+                "weight": w_left,
+            })
+            weight_rows.append({
+                "group_id": bundle.group_id,
+                "residual_key": residual_cfg.key,
+                "hedge_key": method,
+                "spread_id": sid,
+                "asof_date": asof_date,
+                "ticker": right,
+                "weight": w_right,
+            })
+
         if n_min_obs_dropped:
             # Aggregate, per (date, method): how much of the baseline taint
             # this date carries. INFO, not DEBUG — the brief wants this
@@ -409,15 +443,12 @@ def _build_pair_candidate_rows_for_date(
                 dt.date(), bundle.group_id, method, n_min_obs_dropped,
             )
 
-    return rows
+    return rows, weight_rows
 
 
 def _fast_pair_diagnostics(
     *,
     spread_return: np.ndarray,
-    w_left: float,
-    w_right: float,
-    tiny_weight_threshold: float,
     min_return_std: float,
     min_level_std: float,
     min_kappa: float,
@@ -429,12 +460,17 @@ def _fast_pair_diagnostics(
 
     Avoids DataFrame copy/reindex/dropna overhead since we already have
     clean spread returns.
+
+    No n_legs / too_few_active_legs gate here (F1 commit 4): a pair spread
+    always has exactly two legs, both live estimates from the hedge fit —
+    tiny_weight_threshold is a portfolio-path concept (see PairSpreadConfig.
+    tiny_weight_threshold's docstring). The caller sets n_legs=2
+    unconditionally.
     """
     spread_level = np.cumsum(spread_return)
 
     spread_return_std = float(np.std(spread_return, ddof=1))
     level_std = float(np.std(spread_level, ddof=1))
-    n_legs = int(abs(w_left) >= tiny_weight_threshold) + int(abs(w_right) >= tiny_weight_threshold)
 
     def invalid(reason: str) -> dict[str, Any]:
         return {
@@ -448,11 +484,8 @@ def _fast_pair_diagnostics(
             "intercept": np.nan,
             "spread_return_std": spread_return_std,
             "level_std": level_std,
-            "n_legs": n_legs,
         }
 
-    if n_legs < 2:
-        return invalid("too_few_active_legs")
     if spread_return_std < min_return_std:
         return invalid("spread_return_std_too_small")
     if level_std < min_level_std:
@@ -516,7 +549,6 @@ def _fast_pair_diagnostics(
         "intercept": float(intercept),
         "spread_return_std": spread_return_std,
         "level_std": level_std,
-        "n_legs": n_legs,
     }
 
 
@@ -557,7 +589,7 @@ def create_pair_candidates_for_date(
                 f"requirement (min_history={min_history})."
             )
 
-    rows = _build_pair_candidate_rows_for_date(
+    rows, _weight_rows = _build_pair_candidate_rows_for_date(
         bundle=bundle,
         asof_datetime=dt,
         residual_cfg=residual_cfg,
@@ -593,7 +625,7 @@ def _clear_stem_artifacts(out_dir: Path, stem: str) -> list[Path]:
 
     Matches the stage_download convention of deleting stale artifacts to force
     a clean rebuild: a reused stem must not keep its old meta or, worse, a
-    residual_params.pkl fitted under a different config.
+    residual_params.parquet fitted under a different config.
 
     Scoped to THIS stem only — sibling panels sharing a batch directory and the
     shared series/ folder are left untouched. (series/ filenames are keyed by
@@ -606,7 +638,8 @@ def _clear_stem_artifacts(out_dir: Path, stem: str) -> list[Path]:
     for path in (
         out_dir / f"{stem}.panel.parquet",
         out_dir / f"{stem}.meta.json",
-        out_dir / f"{stem}_residual_params.pkl",
+        out_dir / f"{stem}_residual_params.parquet",
+        out_dir / f"{stem}_weights.parquet",
     ):
         if path.exists():
             path.unlink()
@@ -640,6 +673,22 @@ def create_pair_candidate_panel(
     windows (hedge-ratio fit vs mean-reversion diagnostics).
 
     Same walkforward interface as create_portfolio_candidate_panel.
+
+    Panel schema (candidates.parquet, F1 commit 5): one row per pair per
+    outer refit date, full scored set including invalid rows. The NaN
+    pattern is structured -- a pair rejected at an early gate never reaches
+    the OU fit, so every downstream metric is NaN for that row. why_invalid
+    is authoritative; do not infer the failure reason from which column is
+    NaN. Only the first failure is recorded, so conditioning on a later gate
+    means conditioning on having passed every earlier one.
+
+    Two distinct absence classes, and this table can only carry one. Rows
+    with is_valid=False carry a reason in why_invalid. Pairs skipped by a
+    structural pre-check -- a leg missing from the cleaned window
+    (structural_skip), or a weight-computation exception (weight_fit_failed)
+    -- produce NO ROW AT ALL; they are logged separately (DEBUG) rather than
+    persisted here. Any breadth, coverage, or rejection-rate denominator
+    needs both classes, and this table alone cannot supply the second one.
     """
     aligned_index = bundle.aligned_returns.index
 
@@ -724,7 +773,13 @@ def create_pair_candidate_panel(
 
     # ── walkforward loop ─────────────────────────────────────────────
     rows: list[dict[str, Any]] = []
+    weight_rows: list[dict[str, Any]] = []
     fitted_params: dict[pd.Timestamp, FittedCausalResidualModel] = {}
+    # Union, across every daily fit date, of the residual model's realized
+    # input tickers (F1 commit 6) — what reconstruction must load. Not the
+    # requested set (pair_cfg.tickers, if narrower) and not a per-date
+    # figure (that varies with dropna and belongs to Track B's log).
+    fit_input_tickers: set[str] = set()
     panel_date_set = set(asof_datetimes)
     t0 = time.time()
 
@@ -764,21 +819,23 @@ def create_pair_candidate_panel(
         if persist_residual_params:
             fitted_params[dt] = model
 
+        fit_input_tickers.update(model.members)
+
         # Build candidate rows only on panel dates
         if is_panel_date:
-            rows.extend(
-                _build_pair_candidate_rows_for_date(
-                    bundle=bundle,
-                    asof_datetime=dt,
-                    residual_cfg=residual_cfg,
-                    pair_cfg=pair_cfg,
-                    hedge_ratio_lb=hedge_ratio_lb,
-                    mr_diag_lb=mr_diag_lb,
-                    debug=debug,
-                    fitted_model=model,
-                    progress=progress,
-                )
+            date_rows, date_weight_rows = _build_pair_candidate_rows_for_date(
+                bundle=bundle,
+                asof_datetime=dt,
+                residual_cfg=residual_cfg,
+                pair_cfg=pair_cfg,
+                hedge_ratio_lb=hedge_ratio_lb,
+                mr_diag_lb=mr_diag_lb,
+                debug=debug,
+                fitted_model=model,
+                progress=progress,
             )
+            rows.extend(date_rows)
+            weight_rows.extend(date_weight_rows)
 
     if progress:
         total = time.time() - t0
@@ -811,6 +868,10 @@ def create_pair_candidate_panel(
         "residual_cfg": asdict(residual_cfg),
         "hedge_ratio_lb": hedge_ratio_lb,
         "mr_diag_lb": mr_diag_lb,
+        # Union across every daily fit date of the residual model's realized
+        # input tickers, keyed to this panel's (group_id, residual_key) —
+        # what reconstruction must load (F1 commit 6). Not the requested set.
+        "fit_input_tickers": sorted(fit_input_tickers),
     }
 
     result = CandidatePanelResult(panel=panel, metadata=metadata)
@@ -843,7 +904,7 @@ def create_pair_candidate_panel(
         result.metadata["artifact_out_dir"] = str(out_dir)
 
         # Remove this stem's prior artifacts before writing fresh ones, so a
-        # reused stem cannot leave a stale meta or a residual_params.pkl from a
+        # reused stem cannot leave a stale meta or a residual_params.parquet from a
         # different config behind. Stem-scoped: sibling panels in a shared batch
         # directory and the shared series/ folder are untouched.
         for removed_path in _clear_stem_artifacts(out_dir, stem):
@@ -855,13 +916,22 @@ def create_pair_candidate_panel(
             stem=stem,
         )
 
+        # Persist leg weights (full float64 precision; replaces the old
+        # per-candidate weights JSON column)
+        if weight_rows:
+            weights_path = out_dir / f"{stem}_weights.parquet"
+            save_weights(weight_rows, str(weights_path))
+
+            result.metadata["weights_path"] = str(weights_path)
+            result.metadata["weights_n_rows"] = len(weight_rows)
+
+            if progress:
+                print(f"[persist] Weights saved: {weights_path} ({len(weight_rows)} rows)")
+
         # Persist daily fitted residual model parameters
         if fitted_params:
-            import pickle
-
-            params_path = out_dir / f"{stem}_residual_params.pkl"
-            with open(params_path, "wb") as f:
-                pickle.dump(fitted_params, f, protocol=pickle.HIGHEST_PROTOCOL)
+            params_path = out_dir / f"{stem}_residual_params.parquet"
+            save_residual_params(fitted_params, str(params_path))
 
             result.metadata["residual_params_path"] = str(params_path)
             result.metadata["residual_params_n_dates"] = len(fitted_params)
