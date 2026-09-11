@@ -793,3 +793,248 @@ migrated loop fits only on outer dates is decided at C6a, on that evidence.
 | C5 | Reconstruction function; debug-sample config (pair count, seed, optional id tuple, no defaults); zero-tolerance fidelity test for candidate and position view; perturb-the-future `≤ t` test on reconstruction; `remove_residual_pcs > 0` raises | neutral |
 | C6a–c | Loop migration, per R4 | neutral |
 | C7 | Re-execute notebooks `01`, `02`, `03`; fix any notebook-only callers | — |
+
+---
+
+## Implementation pre-check
+
+Read-only. Re-verified against current `main` (post review-amendments commits
+`d1cb80b`, `22c7d25`, `53f61b6`). Measurements taken through the shipped code path
+against `artifacts/simulation_runs/20260713_2017_e5ffbe83/`, not by editing a flag by
+hand. Greps supporting any deletion claim include `notebooks/**/*.ipynb`.
+
+### P1. Every spread-level consumer: residual model, apply window
+
+**Disk path** — writer `src/residuals/series.py::compute_and_persist_series`
+(`:66-249`), reader `candidate_signals.py::_try_batch_levels_from_disk`
+(`:560-605`), called from `_batch_analytics_for_group` (`:343-357`).
+
+- Residual model: frozen at the candidate's own `asof_date`. `series.py`'s Loop 2
+  (`:190-243`) calls `asof_resid(group_id, rkey, asof)` (`:224`) where
+  `asof = pd.Timestamp(row.series_asof)` (`:218`) is the candidate's `asof_date`
+  (`:111`, `panel["series_asof"] = pd.to_datetime(panel["asof_date"])`).
+  `full_residuals` (`:128-145`) looks up `params.get(pd.Timestamp(fit_date))`
+  (`:137`) with `fit_date=asof`.
+- Apply window: **full history, unsliced** — `full_residuals` calls
+  `apply_causal_residual_model(model=model, aligned_returns=bundle.aligned_returns, ...)`
+  (`:141-145`), where `bundle.aligned_returns` (`src/data/returns.py`) is the
+  group's entire aligned-returns index, not passed through `_slice_fit_window`
+  anywhere in `series.py`. This is exactly what R2's function must reproduce.
+  The on-disk file therefore holds the full-history residual series computed
+  once from the frozen model; the reader truncates to `.loc[:date]` **at read
+  time** (`candidate_signals.py:588`), not at write time.
+
+**Recompute path** — three live call sites, all routed through
+`CandidateSignalGenerator._get_residuals` (`:915-975`):
+1. `_batch_analytics_for_group`'s fallback, `:361`.
+2. `compute_analytics_from_weights`, `:629`.
+3. `get_level_series`, `:884`.
+(A fourth call site, `:706` inside `_compute_candidate_analytics`, is dead code —
+zero callers repo-wide including notebooks, confirmed below under P5/R9-C1 — and
+is deleted at C1, not a live consumer.)
+
+- Residual model: fitted/looked-up at **today's date** `date` (the argument
+  passed in — always the simulator's current simulation day, never the
+  candidate's `asof_date`, confirmed at the one place `date` originates,
+  `simulator.py:313` `build_candidate_analytics_states(date=date, ...)`). Inside
+  `_get_residuals`: `group_params[date]` if `date in group_params` (`:944-946`,
+  the precomputed daily-fit-grid lookup), else a live fit at `date`
+  (`fit_causal_residual_model(bundle=bundle, date=date, cfg=residual_config)`,
+  `:949-953`). Both sub-cases fit/look-up at `date`, i.e. "today" — not a third
+  definition, just two ways of arriving at the same (wrong, per R1) date.
+- Apply window: `_slice_fit_window(bundle=bundle, date=date, cfg=residual_config)`
+  (`:955-959`), then `apply_causal_residual_model(model=model, aligned_returns=aligned, ...)`
+  (`:960-964`). `_slice_fit_window` (`causal_residuals.py:400-425`) always
+  truncates to `.loc[:pd.Timestamp(date)]` (`:406`) — right-truncated at today,
+  unlike the disk path's untruncated full history — and additionally, when
+  `cfg.window_mode == "rolling"`, further truncates to `aligned.iloc[-cfg.lookback:]`
+  (`:418`). For `window_mode == "expanding"` (the production `exp_hl504_mh1008_rf`
+  key used in the measured run), no further truncation beyond `.loc[:date]`.
+
+Since `apply_causal_residual_model` is row-wise with no window-dependent internal
+state (confirmed at `causal_residuals.py:550-620` — every output row depends only
+on that row's own inputs and the fixed `model` coefficients), slicing before vs.
+after applying produces identical values for shared rows. The two paths differ in
+(a) which model is applied — asof-frozen vs. today-fitted — and (b) which rows
+exist in the output, not in how a shared row's value is computed. (a) is the
+result-changing difference C3 fixes; (b) only matters for how far back the
+z-score/MR-diagnostics windows can reach, unrelated to this track.
+
+**Confirms R1/R2 exactly as written** — no drift found.
+
+### P2. Which consumers feed a trading decision
+
+Traced by following `analytics_by_id` (from `_batch_analytics_for_group`, disk-or-
+recompute) and the three `compute_analytics_from_weights` call sites to where
+their outputs are actually read in `simulator.py`.
+
+**`_batch_analytics_for_group` output (`analytics_by_id`) — decision-feeding,
+directly, in three places:**
+- Entry: `self.trader.generate_actions(..., live_diagnostics_by_candidate_id=analytics_by_id)`
+  (`simulator.py:360-363`). `z_score` drives entry (`_maybe_open`,
+  `portfolio_mean_reversion.py:99,110`) and exit (`z_score` param of
+  `_maybe_close`, same file `:78-80`, read at the trader's per-row loop,
+  `simulator.py`'s `snapshot.candidate_states` built from `build_signal_frame`,
+  itself sourced from `analytics_by_id`).
+- Exit (deterioration stop): `portfolio_mean_reversion.py:145-153` compares
+  `fz_analytics.mr_score < threshold * live_pos.entry_mr_score`, where
+  `fz_analytics` is `diagnostics.get(candidate_id)` (`:76`,
+  `diagnostics = live_diagnostics_by_candidate_id or {}`) — **this is
+  `analytics_by_id`, not the separately-computed `fz_analytics_by_id`** (see
+  below); despite the local parameter name `fz_analytics`, its `mr_score` comes
+  from the frozen-weight `_batch_analytics_for_group` path, not from realized
+  fill weights. A real naming collision between two different things both
+  called "fz" — worth a comment or rename when C3 touches this code, not a
+  correctness bug today.
+- Sizing: `self.sizing_engine.size(proposed_opens=raw_opens, analytics_by_id=analytics_by_id)`
+  (`simulator.py:395-398`); `sizing_engine.py:70-76` reads `a.roll_std` for vol
+  normalization. **The harness exercises this**: `b_baseline_harness.py:191-193`
+  sets `vol_normalize=VolSizingConfig(...)`, so `roll_std` from
+  `_batch_analytics_for_group` scales every trade's notional on the harness run.
+
+**`compute_analytics_from_weights` — three call sites, mixed:**
+- `simulator.py:622-630` (`entry_analytics`, using `realized_weights_by_ticker` —
+  actual fills). Its `mr_score`/`half_life`/`adf_pvalue` are persisted onto
+  `LiveCandidatePosition.entry_mr_score`/`entry_half_life`/`entry_adf_pvalue`
+  (`:650-652`). These **do feed a later exit decision**:
+  `portfolio_mean_reversion.py:131-136` (time stop, `entry_half_life`) and
+  `:145-153` (deterioration stop, `entry_mr_score`, per above). Not diagnostics-
+  only — this corrects F2_spec.md §3.2's blanket "not read by the trader" framing,
+  which is true for the *other two* call sites but not this one.
+- `simulator.py:701-720` (`_build_live_fz_analytics` → `fz_analytics_by_id`) and
+  `simulator.py:748-756` (`dy_a`) — both feed only `_build_diagnostics_log_entries`
+  (`:722-787`) → `LiveDiagnosticsLogEntry` rows. Confirmed **not** passed to
+  `trader.generate_actions` (which receives `analytics_by_id`, not
+  `fz_analytics_by_id`, at `:363`) and not read by `sizing_engine` or
+  `risk_manager`. Diagnostics-log-only, as F2_spec.md §3.2 states — for these two.
+
+**`get_level_series` — decision-feeding when `entry_features` is configured,
+not exercised by the harness today:**
+- Used by `EntryFeatureEngine.compute` (`entry_feature_engine.py:171`), which
+  writes into `CandidateAnalyticsState.features` (`:202`), read by
+  `SizingEngine._compute_pair_notional` (`sizing_engine.py:83-89`) for
+  `interval_scoring` — a `size_multiplier` of `0.0` there **drops the trade
+  entirely** (`:87-88`). Structurally decision-feeding (a sizing veto), not
+  diagnostics.
+- **Not reached by the baseline harness**: `b_baseline_harness.py:200` sets
+  `"entry_features": None`; `simulator_factory.py:110-112` only builds an
+  `EntryFeatureEngine` `if config.entry_features is not None`; `simulator.py:370`
+  guards the call on `self.entry_feature_engine is not None`. So `get_level_series`
+  is never called on the harness run, and C3's change to it will not move
+  `B_baseline.txt` through this path — but will affect any run configuring
+  `entry_features`.
+
+**Summary for predicting C3's effect on harness trades:** yes, C3 moves
+`B_baseline.txt`, through two confirmed decision paths exercised by the harness —
+`z_score` (entry/exit threshold) and `roll_std` (vol-normalized sizing) from
+`_batch_analytics_for_group`, plus `entry_mr_score`/`entry_half_life` from the
+`entry_analytics` call site feeding later exit stops. `get_level_series`'s sizing
+path is real but dormant on this harness config.
+
+### P3. Remaining consumers of fits on non-outer dates, after C3
+
+`_get_residuals` (`candidate_signals.py:915-975`) is the only function anywhere
+in the repo that looks up or fits a residual model keyed by a date other than a
+candidate's own `asof_date` — confirmed by the full call-site grep under P1 (4
+sites: 3 live, repointed to asof-only lookup by R2; 1 dead, deleted at C1). Grep
+for `_get_residuals` across `src/`, `tests/`, `scripts/`, `run_me.py`, and
+notebooks (`grep -rl` on `notebooks/`) returns zero hits outside
+`candidate_signals.py` itself. **After C3, there are zero remaining consumers of
+fits on non-outer (non-asof) dates** — every live level consumer moves to
+asof-only lookup, and the dead one is gone.
+
+**PC variance ratios**: `_compute_variance_ratios` (`:34-51`) runs as a side
+effect of every `_get_residuals` call (`:968-973`), stored in
+`self._latest_pc_variance_ratios` and exposed via `get_pc_variance_ratios`
+(`:977-983`). Grepped `get_pc_variance_ratios` / `_latest_pc_variance_ratios`
+across `src/`, `tests/`, `scripts/`, `run_me.py`, and notebooks: **zero callers
+anywhere.** Nothing reads PC variance ratios into a decision — the whole
+mechanism is already dead code, independent of C3. Not previously recorded in
+`found.md`; folding into C1's dead-code deletion is the cheapest fix (C1 already
+touches this file), reported here rather than decided.
+
+**Does anything else depend on the daily fit grid surviving?** Checked
+`simulator_factory.py::_load_residual_params` (`:462-515`) — a pure loader with
+no outer/daily distinction, so it imposes no requirement either way. Checked
+`daily_state_reconstruction.py` — confirmed (re-confirmed from F2_spec.md 0.2)
+it never reads `residual_params` at all ("no residual replay"). No other
+consumer found. This is exactly the evidence R8 asks C6a to use: nothing left
+needs the daily grid, so fitting only on outer dates in the migrated loop is
+supported by the evidence, not just plausible — reported as a fact for C6a to
+act on, not decided here.
+
+### P4. R2's in-memory cache — max concurrent keys and memory estimate
+
+No such cache exists yet (pre-implementation), so this is measured by
+reconstructing the activation-interval logic from persisted artifacts, not read
+from a live counter. Method, applied to
+`artifacts/simulation_runs/20260713_2017_e5ffbe83/`:
+
+- `selected_panel.parquet` (`is_valid == True`, 2,041,607 rows) gives every
+  candidate's `(group_id, spread_id, asof_date, candidate_id)`.
+- `closed_trades/*.parquet` (21 year-files, 3,791 rows; 2 `candidate_id`s trade
+  twice non-overlapping, handled as multiple intervals) gives each candidate's
+  live-position interval(s), `[entry_date, exit_date]`.
+- Per `(group_id, spread_id)`, sorted by `asof_date`, replicated
+  `_activate_pair_candidate`'s exact rule (`candidate_activation.py:166-205`):
+  a ref is dropped at the first later arrival for the same spread at which it is
+  not currently open; if open at that moment, it survives until the next arrival
+  that finds it closed.
+- Aggregated per-spread intervals up to per-`(group_id, asof_date)` **key**
+  intervals (a key survives as long as *any* spread sharing that asof_date is
+  still tracked or open — matching R2's eviction rule, "evicted when no tracked
+  candidate and no open position refers to it"), then swept the whole run for
+  the maximum simultaneous count.
+
+**Result: 164 concurrently live `(group_id, residual_key, asof_date)` keys**
+(single `residual_key = exp_hl504_mh1008_rf` throughout this run), peaking on
+2015-09-25 — composition: industrials 30, information_technology 26,
+consumer_discretionary 21, health_care 19, consumer_staples 18, materials 14,
+utilities 14, financials 12, energy 10, real_estate 0. This is a genuinely new
+measurement (not previously reported anywhere in this track's documents) — 164
+is well under the 209 max-concurrent-*positions* figure from §3.1, as expected,
+since many candidates sharing one `(group, asof_date)` batch collapse to one key.
+
+**Memory estimate**: using each group's member count (`config/universes/sp500_v1/
+*.yaml`: 11–26 tickers, mean 21.5) and the run's full length as a conservative
+per-matrix upper bound (`n_trading_days=5920` from `meta.json` — actual matrices
+frozen at earlier asof-dates are shorter early in the run, so this over-
+estimates), the 164-key composition above sums to 3,810 ticker-columns total.
+float64, 8 bytes: `5920 × 3810 × 8 ≈ 1.80 × 10^8` bytes **≈ 172 MB** at peak.
+Trivial relative to typical process memory; no eviction-policy tuning is needed
+beyond what R2 already specifies.
+
+### P5. R1–R9 vs. the code
+
+No contradiction found. Every specific code claim in R1–R9 was re-verified and
+holds exactly as written:
+- R1's "daily model, residual at t is in-sample" — confirmed:
+  `_slice_fit_window`'s `.loc[:pd.Timestamp(date)]` (`causal_residuals.py:406`)
+  is inclusive of `date`, and `fit_causal_residual_model` fits on that window
+  (`:466-470`), so when `date == t` the fit itself uses `t`'s own return row.
+- R6's range-bound characterization of `_build_simulation_dates` — confirmed
+  exactly: `start/end` from `market_dates`/`cp_dates` min/max
+  (`simulator.py:932-933`), then `dates = market_dates[(market_dates >= start) &
+  (market_dates <= end)]` (`:940`) — a bound on `market_dates`, not a set
+  intersection with `cp_dates`.
+- R7's `np.diff` vs. direct-returns caveat — confirmed:
+  `candidate_signals.py:604` (`np.diff(levels, axis=0, prepend=0.0)`, disk path)
+  vs. `:395-396` (`spread_returns = R @ W` then `cumsum`, recompute path) —
+  returns-then-cumsum vs. levels-then-diff, exactly as R7 states.
+- R9 C1's three deletion targets — all re-confirmed zero-callers-repo-wide
+  including notebooks: `create_causal_residuals` (one definition,
+  `causal_residuals.py:623`; one import, `candidate_signals.py:19`; no other
+  hits), `_compute_candidate_analytics` (one definition, `candidate_signals.py:698`;
+  no other hits), the `candidate_signals.py:19` import itself.
+- `config.py:331`'s `MRDiagnosticsConfig.lookback` citation (used by R3/R8's
+  reasoning and by `found.md`'s new entry) — confirmed, no drift.
+
+One clarification, not a contradiction: R3 states reconstruction "never calls the
+OU fit." Today's OU fit (`_compute_mr_diagnostics`) is *interleaved* with level
+construction in the current code — called from inside `_finalize_batch_states`
+(`:507-514`) and `compute_analytics_from_weights` (`:671-678`) — because both
+functions compute level/z-score and MR diagnostics together for trading/logging
+purposes. R3's claim is about the *new, dedicated* reconstruction function (C5),
+whose job is exact-fidelity level/z-score reproduction only — it is correct that
+this narrower function need not call the OU fit, but that's a scope decision for
+C5, not a description of how the existing pipeline is structured today.
