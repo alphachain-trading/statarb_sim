@@ -605,6 +605,62 @@ SIGNED_FEATURE_NAMES: frozenset[str] = frozenset([
 ])
 
 
+# ── Spread level ─────────────────────────────────────────────────────────────
+#
+# F2 C3, R2: every spread-level consumer -- batch analytics, compute_analytics_-
+# from_weights, get_level_series, and the reconstruction function -- calls this
+# one function. Callers resolve which residual model to apply (always the
+# candidate's own asof-frozen model, per F2_spec.md R1) and over which history
+# (always the full aligned-returns history, matching the disk-cache convention
+# that predates this function -- series.py's docstring); this function only
+# does the part that varies per caller: weights times residuals, then a cumsum.
+# Six independent inline copies of exactly this pattern existed before this
+# function (F2_spec.md §3.8) -- this is the one place it is allowed to live now.
+
+def compute_spread_level(
+    residuals: pd.DataFrame,
+    weights_by_ticker: dict[str, float],
+) -> tuple[pd.Series, pd.Series]:
+    """
+    Spread return and level from a residual matrix and a weight dict.
+
+    Parameters
+    ----------
+    residuals
+        Residual-return matrix (columns = tickers). Callers resolve which
+        model produced it and over which history it was applied -- this
+        function is agnostic to both.
+    weights_by_ticker
+        {ticker: weight}. Frozen candidate weights, realized fill weights, or
+        effective mark-to-market weights, depending on the caller -- this is
+        the one thing that varies per call site (F2_spec.md D2). Every key
+        must be a column of `residuals`.
+
+    Returns
+    -------
+    (spread_return, level) -- both pd.Series indexed like `residuals`, named
+    "spread_return" and "level". level = cumsum(spread_return).
+
+    Raises
+    ------
+    KeyError if any weighted ticker is missing from `residuals`'s columns.
+    """
+    tickers = list(weights_by_ticker.keys())
+    missing = [t for t in tickers if t not in residuals.columns]
+    if missing:
+        raise KeyError(f"weights reference tickers not in residuals columns: {missing}")
+
+    w = np.asarray([weights_by_ticker[t] for t in tickers], dtype=float)
+    spread_return = residuals.loc[:, tickers].to_numpy(dtype=float) @ w
+    level = np.cumsum(spread_return)
+
+    idx = residuals.index
+    return (
+        pd.Series(spread_return, index=idx, name="spread_return"),
+        pd.Series(level, index=idx, name="level"),
+    )
+
+
 def direction_correct(value: float | None, sign: float) -> float | None:
     """
     Apply direction correction to a single raw feature value.

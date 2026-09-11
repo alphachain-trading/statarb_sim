@@ -3,7 +3,7 @@ Spread-level and stock-residual series persistence.
 
 Precomputes, once, the residual-return series per ticker and the spread level
 series per candidate so that the simulator can *load* levels from disk instead
-of recomputing ``_get_residuals @ weights -> cumsum`` on every step.
+of recomputing ``_get_asof_residuals @ weights -> cumsum`` on every step.
 
 Layout (under ``panel_dir``):
 

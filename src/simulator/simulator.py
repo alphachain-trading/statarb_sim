@@ -621,6 +621,7 @@ class Simulator:
 
             entry_analytics = self.signal_generator.compute_analytics_from_weights(
                 date=date,
+                asof_date=ref.asof_date,
                 group_id=action.group_id,
                 candidate_id=action.candidate_id,
                 spread_id=action.spread_id,
@@ -710,6 +711,7 @@ class Simulator:
                 continue
             out[pos.candidate_id] = self.signal_generator.compute_analytics_from_weights(
                 date=date,
+                asof_date=pos.entry_asof_date,
                 group_id=pos.group_id,
                 candidate_id=pos.candidate_id,
                 spread_id=pos.spread_id,
@@ -747,6 +749,7 @@ class Simulator:
             )
             dy_a = self.signal_generator.compute_analytics_from_weights(
                 date=date,
+                asof_date=pos.entry_asof_date,
                 group_id=pos.group_id,
                 candidate_id=pos.candidate_id,
                 spread_id=pos.spread_id,

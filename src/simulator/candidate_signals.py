@@ -7,6 +7,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from src.analytics.spread_primitives import compute_spread_level
 from src.simulator.config import MRDiagnosticsConfig, ZScoreConfig
 from src.simulator.types import CandidateAnalyticsState, CandidateRef, ZScoreComponent
 from src.data.returns import GroupReturnBundle, build_group_return_bundle
@@ -14,9 +15,7 @@ from src.data.universe_marketdata import UniverseMarketData
 from src.residuals.causal_residuals import (
     CausalResidualConfig,
     FittedCausalResidualModel,
-    _slice_fit_window,
     apply_causal_residual_model,
-    fit_causal_residual_model,
 )
 
 try:
@@ -28,6 +27,15 @@ logger = logging.getLogger(__name__)
 
 # Max number of persisted spread level series to hold in memory (LRU).
 _SPREAD_SERIES_CACHE_MAX = 4096
+
+# Max number of asof-frozen full-history residual matrices to hold in memory
+# (LRU). F2 R2's cache is one matrix per (group_id, residual_key, asof_date),
+# evicted when no tracked candidate or open position refers to it; an LRU
+# bound is used here instead of precise ref-counted eviction, since
+# F2_spec.md P4 measured a peak of only 164 concurrently-live keys on a real
+# run — well under this bound, so LRU eviction is not expected to ever fire
+# in practice at that scale, only to cap memory in a pathological case.
+_ASOF_RESIDUAL_CACHE_MAX = 4096
 
 
 def _rolling_mean_std(
@@ -128,7 +136,8 @@ class CandidateSignalGenerator:
         z_score_configs = {"exp_hl63_mh126": ZScoreConfig(...), "exp_hl126_mh252": ZScoreConfig(...)}
         residual_configs = {"exp_hl63_mh126": CausalResidualConfig(...), ...}
 
-    Residuals are reconstructed once per (group_id, residual_key, date) and shared
+    Residuals are reconstructed once per (group_id, residual_key, asof_date) —
+    the candidate's own frozen refit date, never "today" (F2 R1) — and shared
     across all z-score configs that use the same residual_key.
     """
     z_score_configs: dict[str, ZScoreConfig]
@@ -153,7 +162,7 @@ class CandidateSignalGenerator:
     )
 
     _bundle_cache: dict[str, GroupReturnBundle] = dc_field(default_factory=dict, init=False, repr=False)
-    _residual_cache: dict[tuple[str, str], tuple[pd.Timestamp, pd.DataFrame]] = dc_field(default_factory=dict, init=False, repr=False)
+    _asof_residual_cache: "OrderedDict[tuple[str, str, pd.Timestamp], pd.DataFrame]" = dc_field(default_factory=OrderedDict, init=False, repr=False)
     _spread_series_cache: "OrderedDict[str, pd.Series]" = dc_field(default_factory=OrderedDict, init=False, repr=False)
 
     def _get_z_score_config(self, timescale_label: str) -> ZScoreConfig:
@@ -165,15 +174,6 @@ class CandidateSignalGenerator:
                 f"Available: {sorted(self.z_score_configs.keys())}"
             )
         return zc
-
-    def _get_residual_config(self, residual_key: str) -> CausalResidualConfig:
-        rc = self.residual_configs.get(residual_key)
-        if rc is None:
-            raise KeyError(
-                f"No CausalResidualConfig for residual_key={residual_key!r}. "
-                f"Available: {sorted(self.residual_configs.keys())}"
-            )
-        return rc
 
     def build_signal_frame(
         self,
@@ -311,9 +311,9 @@ class CandidateSignalGenerator:
         Vectorized z-score computation for all candidates in one (group, timescale).
 
         Builds a (T, n_candidates) level matrix — loaded from persisted spread
-        series when available, otherwise via a single residual matmul — then
-        computes rolling stats across all candidates at once.
-        Falls back to not-ready for candidates with missing tickers.
+        series when available, otherwise via each candidate's own asof-frozen
+        residual matrix — then computes rolling stats across all candidates at
+        once. Falls back to not-ready for candidates with missing tickers.
         """
         # Fast path: load persisted spread level series from disk. Keyed per
         # candidate by (spread_id, asof_date); returns None (→ recompute) if any
@@ -334,27 +334,40 @@ class CandidateSignalGenerator:
                     skip_diagnostics=skip_diagnostics,
                 )
 
-        # Fallback: recompute residuals @ weights -> cumsum.
-        try:
-            residuals = self._get_residuals(group_id, residual_key, date)
-        except ValueError:
-            return {
-                ref.candidate_id: self._not_ready_analytics(ref=ref, date=date)
-                for ref in refs
-            }
-
-        R = residuals.to_numpy(dtype=float)    # (T, n_tickers)
-        col_list = residuals.columns.tolist()
-        col_idx = {c: i for i, c in enumerate(col_list)}
-
-        # Partition refs into valid (all members present) and invalid
+        # Fallback: recompute residuals @ weights -> cumsum via the shared
+        # spread_primitives.compute_spread_level primitive (F2 R2), always
+        # against each candidate's own asof-frozen model (F2 R1) — never
+        # "today" (`date`). Refs sharing (group_id, residual_key) can still
+        # carry different asof_date values: an open position keeps its own
+        # frozen ref while a newer candidate becomes active for the same
+        # spread (candidate_activation.py's pair-mode rule), so group by
+        # asof_date within the batch and resolve each date's full-history
+        # residual matrix once (cached — see _get_asof_residuals).
         valid_refs: list[CandidateRef] = []
         invalid_refs: list[CandidateRef] = []
+        level_by_id: dict[str, pd.Series] = {}
+        spread_return_by_id: dict[str, pd.Series] = {}
+
+        refs_by_asof: dict[pd.Timestamp, list[CandidateRef]] = {}
         for ref in refs:
-            if all(m in col_idx for m in ref.members):
+            refs_by_asof.setdefault(pd.Timestamp(ref.asof_date), []).append(ref)
+
+        for asof_date, asof_refs in refs_by_asof.items():
+            try:
+                residuals = self._get_asof_residuals(group_id, residual_key, asof_date)
+            except ValueError:
+                invalid_refs.extend(asof_refs)
+                continue
+
+            for ref in asof_refs:
+                if not all(m in residuals.columns for m in ref.members):
+                    invalid_refs.append(ref)
+                    continue
+                weights_by_ticker = dict(zip(ref.members, ref.weights))
+                spread_return, level = compute_spread_level(residuals, weights_by_ticker)
+                spread_return_by_id[ref.candidate_id] = spread_return.loc[:date]
+                level_by_id[ref.candidate_id] = level.loc[:date]
                 valid_refs.append(ref)
-            else:
-                invalid_refs.append(ref)
 
         if not valid_refs:
             return {
@@ -362,22 +375,25 @@ class CandidateSignalGenerator:
                 for ref in invalid_refs
             }
 
-        # Build weight matrix: (n_tickers, n_valid_candidates)
-        n_cands = len(valid_refs)
-        W = np.zeros((len(col_list), n_cands), dtype=float)
-        for j, ref in enumerate(valid_refs):
-            for member, weight in zip(ref.members, ref.weights):
-                W[col_idx[member], j] = weight
-
-        # Vectorized spread levels: (T, n_cands)
-        spread_returns = R @ W
-        levels = np.cumsum(spread_returns, axis=0)
+        # Every ref in this batch shares one group_id, so every pre-truncation
+        # series shares one index (bundle.aligned_returns.index); truncating
+        # each to `.loc[:date]` above can only drop trailing (future) rows
+        # from that same shared index, so they still align after truncation —
+        # no union/reindex needed (unlike the disk path, whose persisted
+        # series can have independently-bounded ranges on disk).
+        level_index = level_by_id[valid_refs[0].candidate_id].index
+        levels = np.column_stack([
+            level_by_id[ref.candidate_id].to_numpy(dtype=float) for ref in valid_refs
+        ])
+        spread_returns = np.column_stack([
+            spread_return_by_id[ref.candidate_id].to_numpy(dtype=float) for ref in valid_refs
+        ])
 
         return self._finalize_batch_states(
             valid_refs=valid_refs,
             invalid_refs=invalid_refs,
             levels=levels,
-            level_index=residuals.index,
+            level_index=level_index,
             spread_returns=spread_returns,
             residual_key=residual_key,
             timescale_label=timescale_label,
@@ -586,6 +602,7 @@ class CandidateSignalGenerator:
         self,
         *,
         date: pd.Timestamp,
+        asof_date: pd.Timestamp,
         group_id: str,
         candidate_id: str,
         spread_id: str,
@@ -596,11 +613,20 @@ class CandidateSignalGenerator:
     ) -> CandidateAnalyticsState:
         """
         Compute analytics using an arbitrary weight dict (e.g. realized weights).
+
+        The residual model is always the one frozen at `asof_date` — the
+        candidate's own refit date for a `CandidateRef`-based caller, or a
+        position's own `entry_asof_date` for realized-fill / effective-weight
+        callers (F2 R1/D2) — never "today" (`date`). `date` is only the
+        truncation point for the returned level/z-score/diagnostics; it must
+        be >= asof_date for a caller tracking a live position, since a
+        position's own asof_date never moves after entry.
         """
         date = pd.Timestamp(date)
+        asof_date = pd.Timestamp(asof_date)
 
         try:
-            residuals = self._get_residuals(group_id, residual_key, date)
+            residuals = self._get_asof_residuals(group_id, residual_key, asof_date)
         except ValueError:
             return self._not_ready_analytics_from_fields(
                 candidate_id=candidate_id,
@@ -621,8 +647,10 @@ class CandidateSignalGenerator:
                 residual_key=residual_key,
             )
 
-        rr = residuals.loc[:, tickers].copy()
-        if rr.empty:
+        spread_return_full, level_full = compute_spread_level(residuals, weights_by_ticker)
+        spread_return = spread_return_full.loc[:date]
+        level_series = level_full.loc[:date]
+        if level_series.empty:
             return self._not_ready_analytics_from_fields(
                 candidate_id=candidate_id,
                 group_id=group_id,
@@ -630,10 +658,6 @@ class CandidateSignalGenerator:
                 date=date,
                 residual_key=residual_key,
             )
-
-        w = np.asarray([weights_by_ticker[t] for t in tickers], dtype=float)
-        spread_return = rr.to_numpy(dtype=float) @ w
-        level_series = pd.Series(np.cumsum(spread_return), index=rr.index, name="level")
 
         # Z-score: fast timing window
         z_score, level, roll_mean, roll_std, is_signal_ready, z_components = self._compute_z_score(
@@ -647,7 +671,7 @@ class CandidateSignalGenerator:
             adf_pvalue, mr_score, kappa, half_life = None, None, None, None
         else:
             adf_pvalue, mr_score, kappa, half_life = self._compute_mr_diagnostics(
-                spread_return=spread_return,
+                spread_return=spread_return.to_numpy(dtype=float),
                 level_series=level_series,
             )
 
@@ -787,14 +811,16 @@ class CandidateSignalGenerator:
         """
         Reconstruct the spread level series for a candidate up to date.
 
-        Uses the cached residual matrix (already computed by build_candidate_analytics_states)
-        so this is cheap — one matmul over cached data.
+        The residual model is always the one frozen at ref.asof_date (F2 R1)
+        — never "today" (`date`). Uses the cached asof-keyed residual matrix
+        (F2 R2, _get_asof_residuals) so this is cheap after the first call
+        for that asof_date.
 
         Returns None if residuals are unavailable or tickers are missing.
         Used by EntryFeatureEngine to compute entry features.
         """
         try:
-            residuals = self._get_residuals(ref.group_id, ref.residual_key, date)
+            residuals = self._get_asof_residuals(ref.group_id, ref.residual_key, ref.asof_date)
         except ValueError:
             return None
 
@@ -802,15 +828,9 @@ class CandidateSignalGenerator:
         if missing:
             return None
 
-        w = np.asarray(ref.weights, dtype=float)
-        rr = residuals.loc[:, list(ref.members)].to_numpy(dtype=float)
-        spread_return = rr @ w
-        level_series = pd.Series(
-            np.cumsum(spread_return),
-            index=residuals.index,
-            name="level",
-        )
-        return level_series
+        weights_by_ticker = dict(zip(ref.members, ref.weights))
+        _, level_series = compute_spread_level(residuals, weights_by_ticker)
+        return level_series.loc[:pd.Timestamp(date)]
 
     def _get_bundle(self, group_id: str) -> GroupReturnBundle:
         bundle = self._bundle_cache.get(group_id)
@@ -825,55 +845,59 @@ class CandidateSignalGenerator:
             self._bundle_cache[group_id] = bundle
         return bundle
 
-    def _get_residuals(
+    def _get_asof_residuals(
         self,
         group_id: str,
         residual_key: str,
-        date: pd.Timestamp,
+        asof_date: pd.Timestamp,
     ) -> pd.DataFrame:
         """
-        Cached residual matrix per (group_id, residual_key, date).
+        Full-history residual matrix for the model frozen at a candidate's own
+        asof_date (F2 R1/R2) — never a model fitted or looked up at "today".
 
-        All candidates sharing the same (group_id, residual_key) on the same
-        date share identical residuals. This avoids re-fitting the causal
-        residual model for every candidate.
+        Cached per (group_id, residual_key, asof_date): candidates sharing a
+        refit date within a group share one matrix. LRU-bounded at
+        _ASOF_RESIDUAL_CACHE_MAX rather than precisely ref-counted (R2
+        describes eviction "when no tracked candidate or open position refers
+        to it"; F2_spec.md P4 measured a peak of 164 concurrently-live keys on
+        a real run, well under the LRU bound, so this is equivalent in
+        practice without wiring cache eviction into the simulator's own
+        tracked/open-position bookkeeping).
 
-        When precomputed_residual_params are available, the expensive fit step
-        is skipped entirely — only the cheap apply step runs.  Falls back to
-        live fitting when no precomputed params exist.
+        Raises ValueError if no model was fitted at exactly this asof_date —
+        no live-fit fallback (F2 R2: "a missing asof model raises"). A
+        candidate's own asof_date is always a valid fit_date in
+        precomputed_residual_params by construction (candidates only arise on
+        dates the residual fit grid also covers — series.py's own docstring
+        makes the same observation for the disk-cache path); a raise here
+        means the wrong residual_params were loaded, not a normal condition.
         """
-        cache_key = (group_id, residual_key)
-        cached = self._residual_cache.get(cache_key)
-        if cached is not None and cached[0] == date:
-            return cached[1]
+        asof_date = pd.Timestamp(asof_date)
+        cache_key = (group_id, residual_key, asof_date)
+        cached = self._asof_residual_cache.get(cache_key)
+        if cached is not None:
+            self._asof_residual_cache.move_to_end(cache_key)
+            return cached
+
+        group_params = self.precomputed_residual_params.get((group_id, residual_key))
+        if group_params is None or asof_date not in group_params:
+            raise ValueError(
+                f"No residual model for group_id={group_id!r} residual_key={residual_key!r} "
+                f"asof_date={asof_date} — F2 R2: the asof-frozen model is required at "
+                f"panel-build time; there is no live-fit fallback here."
+            )
+        model = group_params[asof_date]
 
         bundle = self._get_bundle(group_id)
-        residual_config = self._get_residual_config(residual_key)
-
-        # Try precomputed params first (cheap path)
-        group_params = self.precomputed_residual_params.get(cache_key)
-        if group_params is not None and date in group_params:
-            model = group_params[date]
-        else:
-            # Fallback: live fit (expensive path)
-            model = fit_causal_residual_model(
-                bundle=bundle,
-                date=date,
-                cfg=residual_config,
-            )
-
-        aligned = _slice_fit_window(
-            bundle=bundle,
-            date=date,
-            cfg=residual_config,
-        )
         residuals = apply_causal_residual_model(
             model=model,
-            aligned_returns=aligned,
+            aligned_returns=bundle.aligned_returns,
             rf_series=bundle.risk_free_returns if model.subtract_risk_free else None,
         )
 
-        self._residual_cache[cache_key] = (date, residuals)
+        self._asof_residual_cache[cache_key] = residuals
+        if len(self._asof_residual_cache) > _ASOF_RESIDUAL_CACHE_MAX:
+            self._asof_residual_cache.popitem(last=False)
 
         return residuals
 
