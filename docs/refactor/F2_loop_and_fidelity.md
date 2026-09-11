@@ -1,7 +1,7 @@
 # Track F2 — Artifact layer: loop, series, fidelity
 
-**Changes results:** structurally it must not, but this is the half where it could.
-Commit 1 relocates where scoring happens.
+**Changes results:** yes, in exactly one commit (C3 in `F2_spec.md`, Review
+amendments R1). Everything else must not move `B_baseline.txt`.
 
 **Depends on:** F1.
 
@@ -100,6 +100,9 @@ unit test. **Run it every time.** The bugs it catches look sporadic, which is ex
 why sampling the test itself would defeat it.
 
 ## Spread level and reconstruction
+
+**[decided]** The residual model and the weights are both frozen at the candidate's
+`asof_date`. See `F2_spec.md`, Review amendments R1.
 
 Every refit date delivers new residuals and new hedge ratios, cumsummed into a new
 spread level series over the whole history. Each `spread_id` has one level series per

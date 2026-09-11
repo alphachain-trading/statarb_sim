@@ -16,7 +16,7 @@ be folded into the implementation session as a stop-and-report first step.
 | D | Config hygiene | no | — | merged |
 | E | Terminology | no | D | merged |
 | F1 | Artifact schema | no | C, D, E | merged |
-| F2 | Loop, series, fidelity | no | F1 | |
+| F2 | Loop, series, fidelity | **yes** (one commit) | F1 | |
 | I | Data preparation flags | **yes** | — | |
 | G | Hedge mode | **yes** | B, D, I | |
 | H | Occupancy policy | **yes** | G | deferred |
@@ -35,8 +35,8 @@ land before G.
 Remaining: **F2 → I → G**. H only when a run actually needs multiple sleeves in
 one run; the guard added in Track A is the trigger.
 
-I could run in parallel with F1 or F2 — different files, no overlap — but not
-alongside G, which it must precede.
+I must not run in parallel with F2: its loader wiring touches `run_panel_batch`,
+which F2 deletes (`F2_spec.md`, overlap note). I must precede G.
 
 ## Standing rules for every track
 
