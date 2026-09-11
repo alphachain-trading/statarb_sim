@@ -521,3 +521,41 @@ no assertion tying them together.
 Severity: result-affecting, magnitude unmeasured
 Suggested track: new, result-changing; decide which window governs before G's
 baseline.
+
+## `portfolio_mean_reversion.py`'s `fz_analytics` parameter is populated from `analytics_by_id`, not `fz_analytics_by_id`
+Found during: track F2 (implementation pre-check, P2)
+Location: `src/simulator/traders/portfolio_mean_reversion.py:76,81,128,148-152`
+(`_maybe_close`'s `fz_analytics` parameter, read from `diagnostics.get(candidate_id)`,
+`diagnostics = live_diagnostics_by_candidate_id or {}`); caller
+`simulator.py:360-364` (`self.trader.generate_actions(...,
+live_diagnostics_by_candidate_id=analytics_by_id)`)
+What: The trader's `_maybe_close` names its parameter `fz_analytics`, matching the
+naming of `simulator.py`'s own `fz_analytics_by_id` (built separately at
+`simulator.py:346-351,701-720` from each open position's *realized fill* weights).
+But the trader never receives `fz_analytics_by_id` — `generate_actions` is only ever
+called with `live_diagnostics_by_candidate_id=analytics_by_id`, the *frozen candidate
+weight* path (`_batch_analytics_for_group`). So `_maybe_close`'s `fz_analytics.mr_score`
+is actually the frozen-weight `mr_score`, not a realized-fill one, despite the name.
+`fz_analytics_by_id` itself is real and computed every day but is currently read only
+by `_build_diagnostics_log_entries` (logging), never by any trading decision.
+Severity: cosmetic (the naming is misleading; not itself a wrong computation — see the
+next entry for where this naming confusion masks a real result-affecting issue)
+Suggested track: new — rename one of the two, or wire `fz_analytics_by_id` into the
+trader if the realized-fill mr_score was actually intended for the deterioration stop
+
+## The deterioration stop compares mr_score from two different weight bases
+Found during: track F2 (implementation pre-check, P2)
+Location: `src/simulator/traders/portfolio_mean_reversion.py:145-153` (deterioration
+stop: `fz_analytics.mr_score < mr_deterioration_threshold * live_pos.entry_mr_score`);
+`fz_analytics.mr_score` traces to `analytics_by_id` → `_batch_analytics_for_group`,
+frozen candidate weights (`CandidateRef.weights`); `live_pos.entry_mr_score` is set at
+`simulator.py:650` from `entry_analytics = compute_analytics_from_weights(...,
+weights_by_ticker=realized_weights_by_ticker)` — actual fill weights, which can differ
+from the frozen candidate weights (rounding to whole units, partial fills).
+What: The deterioration stop's ratio compares an mr_score computed on the candidate's
+frozen theoretical weights (numerator, refreshed daily) against an mr_score computed
+on the position's realized fill weights at entry (denominator, fixed once at entry) —
+two different spreads' worth of mr_score in one ratio, not a before/after comparison
+of the same spread under the same weights.
+Severity: result-affecting, magnitude unmeasured
+Suggested track: new
