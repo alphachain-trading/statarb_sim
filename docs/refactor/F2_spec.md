@@ -682,3 +682,114 @@ result-affecting if they ever silently diverged
 Suggested track: none -- resolved by F2's series/ deletion; recorded as a process
 note about what B_baseline.txt has and hasn't been validating
 ```
+
+---
+
+## Review amendments (decided after the spec session; these override the brief and the sections above)
+
+### R1. Spread-level definition [decided]
+
+Today the spread level has two definitions:
+
+- **Disk path** (`series.py`, read by `_try_batch_levels_from_disk`): residual model
+  frozen at the candidate's `asof_date`, applied over the full history, times the
+  frozen weights.
+- **Recompute path** (`candidate_signals.py::_get_residuals`): residual model fitted
+  at today's date t, times the frozen weights.
+
+Which one runs is chosen per (group, day) by whether files exist. It is
+all-or-nothing, and the only signal is a warning. `compute_analytics_from_weights` and
+`get_level_series` always recompute. §2.3's "first proof the two agree" and Part 4
+commit 3's neutrality claim are withdrawn: the two paths compute different things by
+construction.
+
+**Decided: frozen-at-asof is the only definition.** A candidate is the model and the
+weights, both fitted at `asof_date`. Each subsequent day extends its level by one
+out-of-sample residual. Reasons:
+
+- The weights and the MR diagnostics that selected the candidate were fitted on the
+  asof level.
+- Under the daily model, the residual at t is in-sample, because the fit window
+  includes t.
+- One position has one level series, so entry z and exit z are measured on the same
+  series.
+- Fresh information enters through the outer refit, as new candidates.
+
+Refitting the residual model during a hold is a research question for after the
+post-G baseline, not for this track.
+
+**Consequence:** F2 changes results in exactly one commit, C3.
+
+### R2. One spread-level function
+
+Every level consumer calls one function in `src/analytics/spread_primitives.py`:
+- batch analytics
+- `compute_analytics_from_weights`
+- `get_level_series`
+- the reconstruction function (C5).
+
+The function computes residuals from the asof model, times the weights, then a
+cumsum. Its apply window matches the disk path exactly, as established by pre-check
+P1.
+
+Residual matrices are held in memory, one full-history matrix per
+`(group_id, residual_key, asof_date)`. A matrix is evicted when no tracked candidate
+and no open position refers to it. Slicing at t is exact because the apply is row-wise
+(`series.py:19-23`).
+
+A missing asof model raises. It does not fall back to a live fit.
+
+### R3. OU-fit consolidation leaves F2
+
+Part 4 commit 6 is removed. Reconstructing level and z-score never calls the OU fit,
+so the brief's "no third implementation" rule holds without consolidating.
+
+The `mr_diag_lb` / `MRDiagnosticsConfig.lookback` question is result-changing. It goes
+to `found.md`.
+
+### R4. Loop migration as expand–contract
+
+This replaces Part 4 commits 4 and 5, and resolves the sequencing tension.
+
+- **C6a.** Build the in-simulator candidate generator, not wired in. Add an
+  exact-equality test (`check_exact=True`) against `run_panel_batch` output on the
+  harness universes, covering all scored candidates including invalid rows, weights,
+  and residual params.
+- **C6b.** Wire it in, and switch the harness `## counts` to the generator's output.
+  This is neutral by C6a's test; `B_baseline.txt` must not move.
+- **C6c.** Delete the offline path. Any grep supporting the deletion includes
+  notebooks.
+
+### R5. Fidelity test before the migration
+
+Build it on the current path (§3.3), then keep it green through C6a–c.
+
+### R6. Correction to §1.1
+
+`_build_simulation_dates` (`simulator.py:922-943`) is a range bound, not an
+intersection. It takes the market dates between the minimum and maximum panel
+`asof_date`, clipped to the run window. The migration must reproduce the same start
+and end.
+
+### R7. C4 exactness caveat
+
+The disk path derives spread returns as `np.diff(levels)`, while the recompute path
+uses them directly. The two differ at rounding level, and both feed MR diagnostics. A
+moved row at C4 gets explained, not assumed away.
+
+### R8. Daily fit grid
+
+After C3, list every remaining consumer of fits on non-outer dates. Whether the
+migrated loop fits only on outer dates is decided at C6a, on that evidence.
+
+### R9. Commit order (supersedes Part 4)
+
+| # | Commit | Results |
+|---|---|---|
+| C1 | Delete dead code: `create_causal_residuals`, `_compute_candidate_analytics`, and the unused import at `candidate_signals.py:19` | neutral |
+| C2 | `≤ t` tests: (a) `entry_asof_date <= entry_date`; (b) a perturb-the-future test on `_slice_fit_window` | neutral |
+| C3 | R1 + R2: the single frozen-at-asof level function, all consumers repointed, a missing asof model raises | **changes results.** Explain the `B_baseline.txt` and `performance_metrics.json` diffs |
+| C4 | Delete the `series/` cache, its writers, and `series.py` (§2.5 list) | expected neutral, with the R7 caveat |
+| C5 | Reconstruction function; debug-sample config (pair count, seed, optional id tuple, no defaults); zero-tolerance fidelity test for candidate and position view; perturb-the-future `≤ t` test on reconstruction; `remove_residual_pcs > 0` raises | neutral |
+| C6a–c | Loop migration, per R4 | neutral |
+| C7 | Re-execute notebooks `01`, `02`, `03`; fix any notebook-only callers | — |
