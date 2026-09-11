@@ -63,6 +63,19 @@ reasoning, it should be written down and the flag should not be settable there a
 all. If it is an accident, it is a real defect: a snapshot minted with different
 trimming than the runs that read it.
 
+**Snapshot wiring of the loader call sites (reassigned from F2).** The call sites
+this track unifies are still not wired to Track C's snapshot layer. Two `found.md`
+entries depend on that wiring: "`UniverseDataLoader.load`'s in-place cache-hit
+resync remains live…" and "`DataConfig.universe_name` reintroduces the defect Track
+D removed". Wire the call sites to `ensure_market_snapshot` /
+`load_market_snapshot`, decide `UniverseDataLoader.load`'s role for them, and
+remove the `universe_name` default and the `snapshot_id` `None` sentinel per Track
+D's rule.
+
+Snapshot data can differ from a local cache (`found.md`, series staleness axis 1),
+so the wiring is not neutral by construction. It lands in commits separate from
+the flag unification, each with its own `B_baseline.txt` check.
+
 **Measure the unification.** Whatever value wins, at least three paths change. Use
 `B_baseline.txt`, and note the same caveat Track B's `found.md` entry raises: the two
 harness universes have no internal gaps over the harness range, so they may not
@@ -72,7 +85,8 @@ see the effect. Report the count of trimmed observations per group before and af
 ## Out of scope
 
 - Any change to the residual, hedge, or z-score estimation stages.
-- Track C's snapshot mechanism itself. Only the flag it passes.
+- Track C's snapshot mechanism itself. Only the flag it passes, and the wiring of
+  its consumers (see Scope).
 - The `_make_sqrt_w` position-weighting defect in `found.md`. Adjacent — also about
   gaps — but a different stage and a different fix.
 

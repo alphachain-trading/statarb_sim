@@ -270,9 +270,10 @@ scopes wiring `run_me.py`/panel_batch/simulator_factory to the snapshot
 layer to Track F), so all three keep resyncing in place today.
 Severity: result-affecting, live today (not hypothetical — any local cache
 whose yaml's member list is edited will resync silently on next load)
-Suggested track: F, when these three call sites are wired to
-`ensure_market_snapshot`/`load_market_snapshot` and `UniverseDataLoader.load`'s
-role for them is decided
+Suggested track: I (reassigned from F2 before its spec session: these are the same
+three loader call sites as I's flag unification). Wire them to
+`ensure_market_snapshot`/`load_market_snapshot` there, and decide
+`UniverseDataLoader.load`'s role for them.
 
 ## `ensure_universe_data` was not actually dead — notebook-only caller missed by a .py-only grep
 Found during: track C (universe-model correction)
@@ -491,4 +492,5 @@ D's enumeration could not have caught either — both postdate it. The rule it
 established should extend to strings and sentinels that select data, not only to
 numbers.
 Severity: result-affecting, dormant today
-Suggested track: F2, alongside wiring the snapshot layer
+Suggested track: I (reassigned from F2 before its spec session), alongside wiring
+the snapshot layer

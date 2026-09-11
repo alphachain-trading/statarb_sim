@@ -150,6 +150,9 @@ partition.
 - `start_after_nan` / `check_for_corruptions`. Track I.
 - `zscore_key`, occupancy, sleeve identity. Track H.
 - Cross-run reuse of anything.
+- Snapshot-layer wiring of the loader call sites, `UniverseDataLoader.load`'s
+  in-place resync, and the `DataConfig.universe_name` / `snapshot_id` defaults.
+  Track I.
 
 ## Acceptance
 
