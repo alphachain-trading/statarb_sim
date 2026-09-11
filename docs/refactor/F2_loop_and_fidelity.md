@@ -31,13 +31,11 @@ rather than an error, applied uniformly across every trade. An off-by-one here i
 exactly the failure the fidelity test exists to catch, which is why commit 3 should
 follow closely rather than sitting at the end.
 
-## 2. `series/` — delete the cache, keep optional generation
+## 2. `series/` — delete the cache; reconstruct on demand
 
-**[decided]** Two separate things wear one name, and only one dies.
-
-**The cache dies.** The read path at `candidate_signals.py:539-542,576`, the
-`skip-if-exists` at `series.py:192-193,233-234`, and the shared `panel_dir` scope.
-The filename key is `(group_id, ticker)` / `(spread_id, asof_date)` with
+**[decided]** The cache dies: the read path at `candidate_signals.py:539-542,576`,
+the `skip-if-exists` at `series.py:192-193,233-234`, and the shared `panel_dir`
+scope. The filename key is `(group_id, ticker)` / `(spread_id, asof_date)` with
 **`residual_key` absent**, so writing a panel under a different residual config
 silently reuses the old files and the reader cannot detect it. This is `found.md`'s
 staleness axis 2, and it is the one axis that can produce wrong numbers today.
@@ -51,25 +49,23 @@ The recompute cost is 1.7 ms per candidate's full-history residual reconstructio
 measured on real data. At that price the cache buys little against the staleness
 risk it carries.
 
-**Optional generation stays.** A run may write its own series — for plots,
-inspection, `simrun_microscope` — into its own `simrun_dir`, never a shared
-`panel_dir`, and with no `skip-if-exists`. A run writes its series or it writes
-none. Nothing reads them back into a computation.
+**[decided — amended before the F2 spec session; supersedes the earlier "optional
+generation stays"]** No run persists series at all. Series are derived values:
+the reconstruction function this track builds regenerates any residual or
+spread-level series from the run's persisted artifacts, and the fidelity test
+guarantees it equals what the run used. Persisting them as well would be a second
+path to the same data, carrying a config flag and a granularity decision. The only
+consumer ever named for them, `simrun_microscope`, does not exist in `statarb_sim`.
 
-The distinction is the track's own organizing principle: as a run's **output**,
-series are a legitimate created artifact; as another run's **input**, they are the
-failure mode.
+Plots and inspection call the reconstruction function. Every writer of persisted
+series is removed, and every display-only reader is repointed to reconstruction.
+`hierarchical-arb`'s `simrun_microscope` may read persisted series; that is a port
+concern, not a reason to keep them here.
 
-Controlled by a config flag with no default, per Track D's rule.
-
-**Open for the spec session: at what granularity.** Every refit date per spread is
-the complete set but is orders of magnitude larger than the loadings. Only the
-series of positions actually opened is the useful subset for inspection. Decide
-there.
-
-Also open: whether the read-path removal could have landed in F1. The recompute path
-already exists as the non-`panel_dir` branch, so it may not depend on commit 1.
-`F_spec.md` sequences it after; check whether that dependency is real.
+**Open for the spec session:** whether the read-path removal can land as its own
+commit before commit 1. The recompute path already exists as the non-`panel_dir`
+branch, so it may not depend on the loop migration. `F_spec.md` sequences it
+after; check whether that dependency is real.
 
 ## 3. Debug sample and fidelity testing
 
@@ -102,9 +98,6 @@ than refitting). NaN equality is the one exception and is correct by default.
 The test needs a small live run rather than a static fixture, so it is slower than a
 unit test. **Run it every time.** The bugs it catches look sporadic, which is exactly
 why sampling the test itself would defeat it.
-
-If optional series generation is enabled, the fidelity test covers it for free:
-persisted series should equal what the run used.
 
 ## Spread level and reconstruction
 

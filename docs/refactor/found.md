@@ -239,9 +239,9 @@ The point of this entry: E's re-key touches axis 3 only. It does nothing for axi
 
 **Update (post-F spec):** axis 2 is DECIDED. The cache is deleted rather than
 re-keyed — the read path, the skip-if-exists, and the shared `panel_dir` scope all
-go. Optional per-run series generation into `simrun_dir` stays, with no
-skip-if-exists and nothing reading it back into a computation. See
-`F2_loop_and_fidelity.md`.
+go. Optional per-run series generation was dropped as well, before the F2 spec
+session: no run persists series, and plots and inspection reconstruct them on
+demand. See `F2_loop_and_fidelity.md` §2.
 Severity: axis 2 is result-affecting and live; axes 1 and 3 are addressed
 Suggested track: F2
 
