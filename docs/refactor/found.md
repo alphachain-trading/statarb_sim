@@ -28,20 +28,6 @@ it if `build_spread_returns` is ever revived or removed.
 Severity: cosmetic
 Suggested track: new
 
-## `config_hash` changed by `candidate_max_age_days` deletion
-Found during: track A
-Location: `simulation_persistence.py:32-44` (`hash_config`, hashes the full
-serialized `SimulatorConfig`)
-What: Deleting the unused `ActivationConfig.candidate_max_age_days` field changed
-`config_hash`. Harmless in `statarb_sim`, which has no persisted run dirs, but it
-will orphan existing persisted runs when Track A is ported.
-
-Track D removed many further class defaults without changing resolved values, so D
-itself leaves `config_hash` intact — but the same porting hazard applies to any
-future field deletion.
-Severity: result-affecting on port only
-Suggested track: port note — hierarchical-arb
-
 ## Residual fit weights by row position, not date distance
 Found during: track B (spec session, Q8)
 Location: `_make_sqrt_w` in the residual fit
@@ -102,25 +88,6 @@ reviewed whether they are still the right numbers — only that they are now
 visible and version-tracked rather than implicit.
 Severity: result-affecting (values, not mechanism)
 Suggested track: new — a research review of the cost model, after D
-
-## Config classes with zero construction sites
-Found during: track D (follow-up pass, commit 6)
-Location: `SpreadMomentumConfig`, `KellyConfig`, `TimescaleRiskConfig.selection`,
-`CrossTimescaleEntryConfig.same_sign_required` in `src/simulator/config.py`
-What: Four config surfaces with no construction site anywhere in the repo. D removed
-their defaults as trivial no-risk cleanup, but the deeper question is whether they
-should exist at all.
-
-`KellyConfig` in particular: Kelly sizing was tested in `hierarchical-arb` and
-abandoned. A config class for an abandoned approach is the same failure shape as
-`candidate_max_age_days` — surface that looks like a supported feature and is not.
-`CrossTimescaleEntryConfig` likewise encodes cross-timescale gating, which the
-research record lists as neutral-or-harmful.
-
-Deleting them is cheap and they are recoverable from git history. Decide during F,
-when the config surface is being reshaped anyway.
-Severity: cosmetic
-Suggested track: F, or new
 
 ## `allow_long` / `allow_short` defaults deliberately left in place
 Found during: track D (follow-up pass)
@@ -218,49 +185,41 @@ SimulatorConfig itself is deferred.
 Severity: result-affecting
 Suggested track: new (Track A style guard) or H
 
-## `start_after_nan` / `check_for_corruptions` disagree between two config classes
-Found during: track D (spec session, flagged "doubtful"; not covered by the
-follow-up pass, which addressed the trader-side classes only)
-Location: two config classes in `src/simulator/config.py` — identify both when
-picking this up
-What: The same field is pre-set to different values on two different config classes.
-Behaviour therefore depends on which class a run is constructed through.
+## `start_after_nan` / `check_for_corruptions` — four combinations, no caller states either
+Found during: track D (spec session, flagged "doubtful"); extended by track F's spec
+session, which found the fourth combination
+Location: `DataConfig` and `PanelBatchConfig` in `src/simulator/config.py`;
+`market_snapshot.py:277` (hardcoded literal); `UniverseDataLoader.load`'s own
+signature in `src/data/universe_loader.py:36`
+What: These two flags control how raw price data is cleaned before anything else
+runs. There are **four** combinations in the repo, not two, and **no caller
+overrides any of them** — every path takes whatever default it happens to reach.
 
-This is the defect D exists to remove, one level more abstract: not one default too
-many, but two defaults that contradict each other. Unlike a plain default, no bundle
-value can fix it — the two classes have to agree on what the field means, or one of
-them should not carry it.
+| Source | `check_for_corruptions` | `start_after_nan` |
+|---|---|---|
+| `DataConfig` | `True` | `True` |
+| `PanelBatchConfig` | `False` | `True` |
+| `market_snapshot.py:277` | `True` | `False` |
+| `UniverseDataLoader.load` signature | `True` | `True` |
 
-Sequence note: E renames across both classes and F reshapes the config surface, so
-resolving this before F risks doing it twice. But it should not survive F.
+So the panel build and the simulator clean the same raw data differently, and Track
+C's snapshot path introduced a third combination as a hardcoded literal. This is the
+defect D removes, one level more abstract: four silent answers to one semantic
+question, selected by which path the data takes. Because it is data preparation, it
+acts on every candidate, every trade and every result.
+
+**Update:** split out of F into its own **Track I** (`I_data_preparation.md`),
+because it is data preparation rather than artifact layer. It must land **before
+G** — G sweeps six hedge configs, and a preparation difference between panel build
+and simulator would contaminate a comparison whose expected effect is thin.
 Severity: result-affecting, depends on construction path
-Suggested track: new — decide before or during F
+Suggested track: I — before G
 
-## `config_hash` changed by Track E's `sector` -> `group_id` field renames
-Found during: track E
-Location: `src/simulator/simulation_persistence.py:32-44` (`hash_config`, hashes
-the full serialized `SimulatorConfig` via `json.dumps(..., sort_keys=True)`,
-which includes field names, not just values)
-What: Same porting hazard as the `candidate_max_age_days` deletion note above, a
-different trigger. Track E renamed `DataConfig.selected_sectors` ->
-`selected_groups`, `DataConfig.excluded_sectors` -> `excluded_groups`, and
-`DataConfig.sectors` -> `groups` (plus `SectorDataSource` -> `GroupDataSource`,
-which is not itself hashed but travels with the field rename). None of these
-change any resolved value, but `hash_config` serializes field names, so
-`config_hash` changes for every config regardless. Confirmed via
-`tests/test_sweep_defaults.py::test_standard_v1_output_is_hash_stable`, whose
-recorded hash needed updating (`4d36adb0...` -> `9daa71da...`) for exactly this
-reason.
-
-Harmless in `statarb_sim`, which has no persisted run dirs, but will orphan
-existing persisted runs in `hierarchical-arb` when this track's field renames are
-ported, the same way the Track A deletion did.
-Severity: result-affecting on port only
-Suggested track: port note — hierarchical-arb
-
-series/ staleness has three separate axes — only one is being fixed
-
-Found during: track E (review of the (group_id, ticker) re-key) Location: src/residuals/series.py; the series/ artifact directory; stem resolution in run_me.py and the panel builders What: "Series staleness" has been used as one label for three unrelated failure modes. They have different causes and different fixes, and conflating them has already led to one of them looking solved when it is not.
+## `series/` staleness has three separate axes — only one is being fixed
+Found during: track E (review of the `(group_id, ticker)` re-key)
+Location: `src/residuals/series.py`; the `series/` artifact directory; stem
+resolution in `run_me.py` and the panel builders
+What: "Series staleness" has been used as one label for three unrelated failure modes. They have different causes and different fixes, and conflating them has already led to one of them looking solved when it is not.
 
 This entry is reconstructed from the design discussion, not verified against the code. Confirm each axis before acting on it.
 
@@ -276,7 +235,15 @@ Axis 3 — the same ticker in two groups. Residual fits are group-scoped, so a t
 
 Addressed by Track E, which re-keyed to (group_id, ticker). Note this was proactive, not a staleness fix: E also added an assert forbidding multi-group tickers, so the collision cannot currently occur. The re-key exists so that the storage layer needs no change if the restriction ever lifts.
 
-The point of this entry: E's re-key touches axis 3 only. It does nothing for axis 2, and axis 2 is the one that can silently produce wrong numbers today. Do not read "series now keyed by (group_id, ticker)" as "series staleness handled." Severity: axis 2 is result-affecting and live; axes 1 and 3 are addressed Suggested track: axis 2 -> F, alongside the artifact layer redesign
+The point of this entry: E's re-key touches axis 3 only. It does nothing for axis 2, and axis 2 is the one that can silently produce wrong numbers today. Do not read "series now keyed by (group_id, ticker)" as "series staleness handled."
+
+**Update (post-F spec):** axis 2 is DECIDED. The cache is deleted rather than
+re-keyed — the read path, the skip-if-exists, and the shared `panel_dir` scope all
+go. Optional per-run series generation into `simrun_dir` stays, with no
+skip-if-exists and nothing reading it back into a computation. See
+`F2_loop_and_fidelity.md`.
+Severity: axis 2 is result-affecting and live; axes 1 and 3 are addressed
+Suggested track: F2
 
 ## `UniverseDataLoader.load`'s in-place cache-hit resync remains live for its three existing callers
 Found during: track C
@@ -306,21 +273,6 @@ whose yaml's member list is edited will resync silently on next load)
 Suggested track: F, when these three call sites are wired to
 `ensure_market_snapshot`/`load_market_snapshot` and `UniverseDataLoader.load`'s
 role for them is decided
-
-## `config_hash` changed by `DataConfig.universe_name`'s addition
-Found during: track C (universe-model correction)
-Location: `src/simulator/simulation_persistence.py:32-44` (`hash_config`,
-hashes the full serialized `SimulatorConfig`)
-What: Same porting hazard as the two entries above, a third trigger.
-`DataConfig` gained a `universe_name: str = "sp500_v1"` field so it can
-resolve `config/universes/{universe_name}/{group_id}.yaml` after the layout
-migration. No resolved value changes for any existing config (the default
-matches the single migrated universe), but `hash_config` serializes field
-names too, so `config_hash` changes for every config regardless. Confirmed
-via `tests/test_sweep_defaults.py::test_standard_v1_output_is_hash_stable`,
-whose recorded hash needed updating (`9daa71da...` -> `284530b0...`).
-Severity: result-affecting on port only
-Suggested track: port note — hierarchical-arb
 
 ## `ensure_universe_data` was not actually dead — notebook-only caller missed by a .py-only grep
 Found during: track C (universe-model correction)
@@ -396,63 +348,17 @@ rests on the same kind of search and is therefore unverified for notebooks:
   deleted, so check the notebooks for it and restore if needed.
 - Track D classified `SpreadMomentumConfig`, `KellyConfig`,
   `TimescaleRiskConfig.selection` and `CrossTimescaleEntryConfig` as having no
-  construction sites. Nothing was deleted, so the exposure is limited to the
-  reasoning in that entry.
+  construction sites. **F1 commit 1 re-verified including notebooks and deleted
+  all four**, along with the subsystems reachable only through them — a Kelly
+  tracker in `sizing_engine.py`, a cross-timescale trading mode in the pair
+  trader, and a timescale-risk policy in `risk_manager.py`.
 - `build_spread_returns` (`src/residuals/spreads.py:289`) is recorded as
-  callerless on the same basis.
+  callerless on the same basis and has not been re-verified.
 
 Rule going forward: any grep supporting a deletion must include
-`notebooks/**/*.ipynb`. This matters most for Track F, which deletes
-`daily_state` and may delete the four config classes above.
-Severity: process; one instance already found and fixed
-Suggested track: check before any deletion in F
-
-## `config_hash` changed by Track F1 commit 1's dead-config-class deletion
-Found during: track F1 (commit 1)
-Location: `src/simulator/simulation_persistence.py:32-44` (`hash_config`, hashes
-the full serialized `SimulatorConfig`)
-What: Same porting hazard as the entries above, one more trigger. Deleting
-`KellyConfig`, `TimescaleRiskConfig`, and `CrossTimescaleEntryConfig` required
-deleting their owning fields too: `SizingConfig.kelly`,
-`RiskManagerConfig.timescale_risk`, `PairSpreadTraderConfig.cross_ts`. None of
-these fields was ever set to a non-`None` value by any construction site in
-`statarb_sim`, so no resolved value changes for any existing config — but
-`hash_config` serializes field names, so `config_hash` changes for every
-config regardless. Confirmed via
-`tests/test_sweep_defaults.py::test_standard_v1_output_is_hash_stable`, whose
-recorded hash needed updating (`284530b0...` -> `0240fcdf...`).
-
-Note for the port: `hierarchical-arb` may have live, non-`None` construction
-sites for `KellyConfig`/`TimescaleRiskConfig`/`CrossTimescaleEntryConfig`
-that `statarb_sim`'s greps never saw. Re-verify zero construction sites in
-`hierarchical-arb` specifically before porting this deletion — do not assume
-`statarb_sim`'s "zero callers" finding transfers.
-Severity: result-affecting on port only
-Suggested track: port note — hierarchical-arb
-
-## `config_hash` changed by Track F1 commit 2's z_spectra deletion
-Found during: track F1 (commit 2)
-Location: `src/simulator/simulation_persistence.py:32-44` (`hash_config`, hashes
-the full serialized `SimulatorConfig`)
-What: One more trigger in the same family as the entry directly above.
-Deleting `z_spectrum_capture.py` (`ZSpectrumCapture`) required deleting
-`SimulatorConfig.spectrum`/`SpectrumConfig` — per `F1_artifact_schema.md`,
-z_spectra is "residue from an entry-selection experiment that returned null,
-ported from `hierarchical-arb` unnoticed," and this field was never set to a
-non-`None` value by any construction site in `statarb_sim` (confirmed
-including notebooks). No resolved value changes for any existing config, but
-`hash_config` serializes field names, so `config_hash` shifts for every
-config regardless. Confirmed via
-`tests/test_sweep_defaults.py::test_standard_v1_output_is_hash_stable`, whose
-recorded hash needed updating (`0240fcdf...` -> `7a5f6834...`).
-
-Note for the port: `hierarchical-arb` is where `z_spectrum_capture.py` was
-ported *from*, per the brief — check whether it has live, non-`None`
-`SpectrumConfig` construction sites (a real user of the spectrum-capture
-experiment) before porting this deletion there. If it does, this is not a
-result-neutral port.
-Severity: result-affecting on port only
-Suggested track: port note — hierarchical-arb
+`notebooks/**/*.ipynb`. Now a standing rule in `README.md`.
+Severity: process; one instance found and fixed, one class of claim re-verified
+Suggested track: check before any deletion in F2
 
 ## `hedge_key` in weights.parquet is a stand-in, not Track G's real key
 Found during: track F1 (commit 4)
@@ -526,32 +432,63 @@ verified) — the process/documentation error is the finding
 Suggested track: none — process note; relevant context if F2's fidelity
 test session revisits commit 4's neutrality argument
 
-## `config_hash` changed by Track F1 commit 6's `DataConfig.snapshot_id`
-Found during: track F1 (commit 6)
-Location: `src/simulator/simulation_persistence.py:32-44` (`hash_config`)
-What: Same pattern as every prior entry in this family. Adding
-`DataConfig.snapshot_id: str | None = None` changes `hash_config`'s output
-for every config regardless of resolved value (always `None` today, since
-nothing constructs it non-`None` — the snapshot layer isn't wired to
-`stage_download` yet). Confirmed via
-`tests/test_sweep_defaults.py::test_standard_v1_output_is_hash_stable`,
-whose recorded hash needed updating (`7a5f6834...` -> `89b82e76...`).
+## `config_hash` has shifted seven times during this refactor
+Found during: tracks A, C, E, F1
+Location: `src/simulator/simulation_persistence.py:32-44` (`hash_config`, which
+serializes the full `SimulatorConfig` via `json.dumps(..., sort_keys=True)` — field
+NAMES as well as values)
+What: Because field names are hashed, any field added, removed or renamed shifts
+`config_hash` for every config, even when no resolved value changes. Seven such
+changes have landed, each caught by
+`tests/test_sweep_defaults.py::test_standard_v1_output_is_hash_stable`:
+
+| Track | Trigger | Recorded hash |
+|---|---|---|
+| A | `ActivationConfig.candidate_max_age_days` deleted | (pre-chain) |
+| E | `sectors` / `selected_sectors` / `excluded_sectors` renamed to `groups` / … | `4d36adb0` -> `9daa71da` |
+| C | `DataConfig.universe_name` added | `9daa71da` -> `284530b0` |
+| F1.1 | `SizingConfig.kelly`, `RiskManagerConfig.timescale_risk`, `PairSpreadTraderConfig.cross_ts` deleted | `284530b0` -> `0240fcdf` |
+| F1.2 | `SimulatorConfig.spectrum` / `SpectrumConfig` deleted | `0240fcdf` -> `7a5f6834` |
+| F1.6 | `DataConfig.snapshot_id` added | `7a5f6834` -> `89b82e76` |
+| F1.8c | `PersistenceConfig.artifacts` default tuple shortened (a value change, not a field change) | `89b82e76` -> `0bc1e2a0` |
+
+Harmless in `statarb_sim`, which has no persisted run dirs. In `hierarchical-arb`
+every existing persisted run becomes unreachable by hash once these are ported. The
+standing port rule is one atomic commit per fix, which would orphan runs seven times
+in sequence — consider porting the hash-breaking subset as a single batch and
+re-keying once.
+
+**Two port cautions that do NOT transfer automatically.** Both F1 deletions rest on
+"zero construction sites in `statarb_sim`", which says nothing about the other repo:
+
+- `KellyConfig`, `TimescaleRiskConfig`, `CrossTimescaleEntryConfig` — Kelly sizing
+  was actually tested in `hierarchical-arb`, so live non-`None` construction sites
+  are plausible there.
+- `SpectrumConfig` — `z_spectrum_capture.py` was ported *from* `hierarchical-arb`,
+  so that is exactly where a real user of the spectrum-capture experiment would be.
+
+Re-verify in `hierarchical-arb` specifically, including notebooks, before porting
+either deletion. If a construction site exists, the port is not result-neutral.
 Severity: result-affecting on port only
 Suggested track: port note — hierarchical-arb
 
-## `config_hash` changed by Track F1 commit 8c's `PersistenceConfig.artifacts` default
-Found during: track F1 (commit 8c)
-Location: `src/simulator/simulation_persistence.py:32-44` (`hash_config`)
-What: Same pattern, a value change rather than a field addition/removal
-this time. Deleting the `daily_state`/`daily_portfolio_state` writers
-required dropping those two strings from `PersistenceConfig.artifacts`'
-default tuple (`src/simulator/config.py`) — listing artifacts nothing
-writes anymore is exactly the "looks supported and isn't" surface this
-track removes. `hash_config` serializes values, so `config_hash` shifts
-for every config that relies on the class default (as `sweep_defaults.py`'s
-`standard_v1` bundle does — it constructs `PersistenceConfig(enabled=True)`
-without stating `artifacts` explicitly). Confirmed via
-`tests/test_sweep_defaults.py::test_standard_v1_output_is_hash_stable`,
-whose recorded hash needed updating (`89b82e76...` -> `0bc1e2a0...`).
-Severity: result-affecting on port only
-Suggested track: port note — hierarchical-arb
+## `DataConfig.universe_name` reintroduces the defect Track D removed
+Found during: track F1 (review of the config_hash entries)
+Location: `DataConfig` in `src/simulator/config.py`
+What: Track C added `universe_name: str = "sp500_v1"` so the loader can resolve
+`config/universes/{universe_name}/{group_id}.yaml` after the layout migration. That
+default decides which universe a run loads — as result-affecting as anything D
+removed, just not numeric. A caller who omits it silently gets `sp500_v1`, which is
+the failure mode the universe-versioning work exists to prevent: the whole point of
+`sp500_v8` is that the version is stated, not inherited.
+
+`DataConfig.snapshot_id: str | None = None` (F1 commit 6) is the same shape but
+benign today, since nothing constructs it non-`None`. It stops being benign the
+moment the snapshot layer is wired to `stage_download`, at which point an omitted
+`snapshot_id` means "no snapshot binding" rather than an error.
+
+D's enumeration could not have caught either — both postdate it. The rule it
+established should extend to strings and sentinels that select data, not only to
+numbers.
+Severity: result-affecting, dormant today
+Suggested track: F2, alongside wiring the snapshot layer
