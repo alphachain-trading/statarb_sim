@@ -1,0 +1,684 @@
+# Track F2 — spec
+
+Read-only verification session. Per the session's precedence rule: `F2_loop_and_fidelity.md`
+(as amended before this session — series/ decision, loader-wiring reassignment to Track I) is
+the only authoritative document. `F_spec.md` predates the F1/F2 split and the F1 merge; where it
+disagrees with the brief, the brief wins. Every `path:line` below was re-verified against current
+`main` (post F1 merge, commit `5a67f77`) this session — `F_spec.md`'s and the brief's own citations
+were not trusted where they could drift, and several had.
+
+No code was changed. No branch was created.
+
+---
+
+## Part 0 — State after F1
+
+### 0.1 Data flow: data load → trade entry
+
+**Outer-date generation.** `create_pair_candidate_panel` (`src/candidates/pair_candidate_panel_creator.py:650-942`)
+resolves `asof_datetimes` either from an explicit `dates` list (validated against
+`make_ranking_dates`, `:718-732`) or, in the frequency-driven path used by the harness and
+`run_me.py`, at `:740-744`:
+
+```
+asof_datetimes = make_ranking_dates(
+    dates=aligned_index,
+    frequency=frequency,
+    min_history=residual_cfg.eff_min_history(),
+)
+```
+
+where `aligned_index = bundle.aligned_returns.index` (`:693`). `make_ranking_dates`
+(`src/utils/date_utils.py:4-22`) resamples the given index by `frequency`, keeps the last date per
+period, and filters to `>= dates[min_history-1]`.
+
+**Residual fit.** `fit_causal_residual_model` (`src/residuals/causal_residuals.py:451-547`), called
+from the walk loop for every `walk_dates` entry (`pair_candidate_panel_creator.py:812-816`) and,
+via the `fitted_model` parameter, reused inside `_build_pair_candidate_rows_for_date`
+(`:237-241`) on outer dates only.
+
+**Hedge fit.** `_compute_pair_weights` / `_pca_spread_weights`
+(`pair_candidate_panel_creator.py:151-218`), called at `:337-342`.
+
+**MR diagnostics.** `_fast_pair_diagnostics` (`pair_candidate_panel_creator.py:449-552`), called at
+`:362-369`.
+
+**Candidate scoring / persistence.** Candidate row dict built at `:379-406`; leg-weight rows at
+`:413-435`. Persisted via `save_candidate_panel_result` / `save_weights` / `save_residual_params`
+at `:913-940`, writing `{stem}.panel.parquet`, `{stem}_weights.parquet`,
+`{stem}_residual_params.parquet` under `artifacts/candidate_panels/{subdir}/`.
+
+**What the simulator reads.** `run_from_config` (`src/simulator/simulator_factory.py:143-189`):
+`_load_panels` (`:328-424`) loads the panel from disk; `_load_residual_params` (`:462-515`) loads
+`residual_params.parquet` into `precomputed_residual_params`; `_load_weights` (`:518-567`) loads
+`weights.parquet` into `weights_lookup`; then `sim.run(panel)` (`:189`).
+
+**How a candidate arrives.** `CandidateFilter.get_selected_on_date`
+(`src/simulator/candidate_filter.py:43-50`) still uses exact equality —
+`selected_panel["asof_date"] == date` (`:49`). Confirmed unchanged post-F1 (re-verified
+independently by this session's own reading and by the Part 1 fork). Once matched,
+`CandidateActivation` stores the same frozen `CandidateRef` (`types.py:7`, frozen dataclass) until
+the position closes; it is never re-dated.
+
+### 0.2 F1 surfaces F2 builds on
+
+- **`weights.parquet`** — actually written as `{stem}_weights.parquet` (not literally
+  `weights.parquet`) by `save_weights` (`src/candidates/candidate_panel.py:81-111`); loaded via
+  `load_weights` / `weights_lookup_from_df` (`:114-131`), consumed by
+  `simulator_factory.py::_load_weights` (`:518-567`).
+- **`residual_params.parquet`** — `{stem}_residual_params.parquet`; `save_residual_params` /
+  `load_residual_params` (`src/residuals/causal_residuals.py:275-397`), long form, one row per
+  `(fit_date, ticker, factor)`. Loaded via `simulator_factory.py::_load_residual_params`
+  (`:462-515`).
+- **`candidates.parquet`** — actually `{stem}.panel.parquet`
+  (`src/candidates/candidate_panel.py::save_candidate_panel_result`, `:203-229` /
+  `load_candidate_panel_result`, `:232-249`), under `artifacts/candidate_panels/{subdir}/`.
+- **`trades.parquet`'s `entry_asof_date`** — `LiveCandidatePosition.entry_asof_date`
+  (`src/simulator/types.py:144`), `ClosedCandidateTrade.entry_asof_date` (`:188`); set at
+  `simulator.py:643` (open) and `:813` (close); exposed via `SimulationResult.closed_trades_df()`
+  (`simulator.py:136-151`). Persisted as per-year slices,
+  `closed_trades/closed_trades_{year}.parquet` (`simulation_persistence.py:169-188`) — **not** a
+  monolithic `trades.parquet`.
+- **The daily-state reconstruction function F1 added** — `reconstruct_daily_portfolio_state`
+  (`src/simulator/performance/daily_state_reconstruction.py:150-303`), called from
+  `simulator.py:527-537`, feeding `generate_report` (`:539`). It reconstructs **portfolio-level
+  equity/cost state** (`total_equity_gross/net`, `n_live_candidate_positions`, borrow/transaction
+  costs) from raw per-ticker prices, `closed_trades_df`, and still-open positions — explicitly "no
+  residual replay" (module docstring, `:17-32`). **It is not a residual- or spread-level
+  reconstruction** and has no bearing on the fidelity test F2 must build; no such
+  residual/spread-level reconstruction function exists anywhere yet.
+
+### 0.3 A load-bearing finding for the rest of this document
+
+The F1 brief's `## Layout` section describes a unified `simrun_dir/` tree — `config.json`,
+`candidates.parquet`, `weights.parquet`, `residual_params.parquet`, `trades.parquet`, `series/`,
+`performance/` all under one per-run directory. **This does not reflect current on-disk reality.**
+Candidate-panel-side artifacts (`{stem}.panel.parquet`, `{stem}_weights.parquet`,
+`{stem}_residual_params.parquet`) live under `artifacts/candidate_panels/{subdir}/`, keyed by
+panel-build stem and reused across simulation runs; simulation-run-side artifacts (`config.json`,
+per-year `closed_trades/`, `performance/`) live separately under
+`artifacts/simulation_runs/{run_id}/`. F1 changed the **storage format** of the panel-side
+artifacts (parquet, long form) but not their **location/scope** — they are still panel-build-time,
+cross-run-reusable files, not per-simulation-run files. Producing the brief's unified layout is
+exactly what F2 commit 1 (the loop migration) must do: only once candidate/weight/residual-param
+generation moves inside `Simulator.run()` does it become natural for these to live under one
+`simrun_dir`. Confirmed by `simulator_factory.py:503,554` (current panel-dir-based paths) against
+the brief's Layout list.
+
+---
+
+## Part 1 — Loop migration (brief §1)
+
+### 1.1 Outer dates
+
+Confirmed as in 0.1. **Subtlety, load-bearing for commit 1:** `bundle.aligned_returns` (the index
+`make_ranking_dates` is called on) is **not** the simulator's raw price index.
+`build_group_return_bundle` (`src/data/returns.py:65-139`) applies `dropna="any"` by default
+(`:119-120`) across that group's member + proxy + benchmark returns — dropping any date where any
+one of those tickers is missing. `Simulator._market_dates()` (`simulator.py:911-920`) instead calls
+`self.umd.price_matrix(field=..., group_id=None)`, returning the **raw, un-dropna'd, union-of-all-
+tickers** price index (`src/data/universe_marketdata.py:18-27`) — a strict superset, NaN-preserving.
+
+Consequence: the migrated loop cannot call `make_ranking_dates` on `self._market_dates()` directly
+and expect the identical outer-date set. It must first build (or replicate) each group's own
+`GroupReturnBundle.aligned_returns.index` and call `make_ranking_dates` on *that* — per group.
+Outer dates are inherently per-group; `Simulator.run()` today walks one shared `dates` sequence
+across all groups (`_build_simulation_dates`, `:922-943`, currently `market_dates ∩ cp_dates`,
+where `cp_dates` comes from the *loaded panel's* `asof_date` column). Once there is no
+externally-built panel to source `cp_dates` from, the simulator's own per-group outer-date
+computation becomes the only source of that intersection. This is a real design point for commit 1,
+not a triviality — flagged here, not decided.
+
+### 1.2 Daily fits vs. outer-date candidate rows
+
+Re-confirmed: the walk (`pair_candidate_panel_creator.py:789-838`) fits on every `walk_dates` entry
+but builds candidate rows only when `dt in panel_date_set` (outer dates). **One conditional the
+brief and `F_spec.md` don't surface:** `walk_dates = daily_dates if daily_dates is not None else
+asof_datetimes` (`:786`) — `daily_dates` (the daily fit grid) is only computed
+(`persist_residual_params=True` branch, `:762-768`) when that flag is set. In practice it always
+is: `PanelBatchConfig.persist_residual_params: bool = True` by default
+(`src/candidates/panel_batch.py:162`), and the baseline harness sets it explicitly `True`
+(`scripts/b_baseline_harness.py:122`); no caller sets it `False`.
+
+**What consumes the non-outer-date fits — more than a persistence nicety.** The full daily
+`fitted_params` dict is loaded into `precomputed_residual_params`
+(`simulator_factory.py::_load_residual_params`) and read **every simulated trading day**, keyed by
+*today's* simulation date, in `CandidateSignalGenerator._get_residuals`
+(`src/simulator/candidate_signals.py:944-946`): `if date in group_params: model = group_params[date]`.
+So the daily residual-model grid feeds the live z-score/level computation for every tracked
+candidate on every trading day — the spread *weights* stay frozen at the candidate's own
+`asof_date`, but the *residual matrix* is refit daily and looked up by today's date. This refines
+`F_spec.md`'s framing (its own file docstring, `pair_candidate_panel_creator.py:757-759`, calls
+this "persisted for later use," which understates that it's on the critical path of every day's
+signal computation, not an optional convenience). If `date not in group_params`, a live (expensive)
+fit runs as fallback (`candidate_signals.py:949`).
+
+### 1.3 Ticker/group resolution and call sites
+
+`fit_causal_residual_model` resolves `members`/`proxy_name`/`bench_name` from
+`bundle.member_returns.columns` / `bundle.proxy_returns.name` / `bundle.benchmark_returns.name`
+(`causal_residuals.py:477-479`) — separate typed fields on `GroupReturnBundle`
+(`src/data/returns.py:10-33`), not derivable from a flat DataFrame alone.
+
+**All call sites (grep includes `notebooks/**/*.ipynb`, zero notebook hits):**
+
+1. `pair_candidate_panel_creator.py:237` — `bundle` passed in as a parameter.
+2. `pair_candidate_panel_creator.py:812` — same, main walk loop.
+3. `candidate_signals.py:949` — `bundle = self._get_bundle(group_id)` (`:940`), lazily built/cached
+   via `build_group_return_bundle`.
+4. `causal_residuals.py:643`, inside `create_causal_residuals` — **this function has zero callers
+   anywhere** (grepped `src/`, `tests/`, `scripts/`, `run_me.py`, notebooks: only its own
+   definition and an unused import at `candidate_signals.py:19`). Dead code, not previously
+   recorded in `found.md`.
+
+**What "input returns as an argument" precisely implies.** `apply_causal_residual_model`
+(`causal_residuals.py:550-620`) **already** takes `aligned_returns: pd.DataFrame` directly, not a
+bundle — the brief's requirement is narrower than it first reads: only `fit_causal_residual_model`
+(and `_slice_fit_window`, internally coupled to it) is bundle-shaped and needs to change. However, a
+bare `aligned_returns: pd.DataFrame` is **not sufficient** on its own — the fit also needs to know
+which columns are members vs. proxy vs. benchmark, currently read off the bundle's typed fields.
+Any redesign needs explicit additional arguments (`members`, `proxy_name`, `bench_name`) alongside
+the returns frame. This is a real design constraint the brief doesn't spell out, flagged here, not
+decided.
+
+`_slice_fit_window` (`causal_residuals.py:400-425`) has **three** callers, not one:
+`candidate_signals.py:955` (external, apply-step window), plus the two internal-to-
+`causal_residuals.py` callers (`fit_causal_residual_model` at `:466`, dead `create_causal_residuals`
+at `:649`). A signature change here touches `candidate_signals.py:955` too.
+
+**Callers needing to change:** sites 1, 2, 3 above; site 4 is dead and could simply be deleted
+rather than updated.
+
+### 1.4 Primitives commit 1 would call
+
+All of `src/residuals/spreads.py` (`spread_members`, `generate_spread_ids`, `ols_beta_no_intercept`)
+are pure functions on explicit arguments, no module state — **callable unchanged**.
+
+`_pca_spread_weights`, `_compute_pair_weights`, `_fast_pair_diagnostics`
+(`pair_candidate_panel_creator.py:151-218,449-552`) are pure numpy functions on explicit arrays —
+**callable unchanged**, though they currently live as module-private helpers in
+`pair_candidate_panel_creator.py` rather than `spreads.py`; relocating the loop needs either an
+import from that module or a move into `spreads.py` (organizational, not correctness).
+
+`apply_causal_residual_model` — already takes a flat DataFrame — **callable unchanged**.
+
+`make_ranking_dates` — pure function on an index — **callable unchanged**, subject to 1.1's
+per-group-index subtlety (which index it's fed changes the answer, not the function).
+
+`fit_causal_residual_model` and `_slice_fit_window` — **cannot** be called unchanged; both are
+bundle-shaped and the brief mandates the returns-as-argument change (1.3).
+
+### 1.5 The `≤ t` invariant
+
+**No residual/spread-level reconstruction path exists yet** — confirmed `daily_state_reconstruction.py`
+is portfolio-level only (0.2) and is not a candidate for "the reconstruction path" here. The only
+functions that resemble it today are live-path functions the simulator itself calls
+(`candidate_signals.py::get_level_series`, `:869-900`; `compute_analytics_from_weights`,
+`:607-696`) — not an independent, after-the-fact reconstruction verified against a frozen sample.
+Building that is F2's own job (Part 3).
+
+**Half (a) — refit date ≤ t, candidate arrives on its own outer date.** Structural today via three
+facts together, never asserted: `Simulator.run()` walks `dates` chronologically ascending
+(`simulator.py:241`, sourced from `_build_simulation_dates`, `:922-943`); `CandidateFilter
+.get_selected_on_date` uses exact equality (`candidate_filter.py:49`); `CandidateActivation` stores
+the same frozen `CandidateRef` until close, never re-dated (`candidate_activation.py:24,62-78`).
+Confirms `F_spec.md`'s "structural, never asserted" finding still holds post-F1.
+
+**Half (b) — returns passed to the fit at refit date d have max index ≤ d.** Panel-build time:
+`_slice_fit_window`'s `aligned.loc[:pd.Timestamp(date)]` (`causal_residuals.py:406`) — hard
+truncation. Simulation time, recompute fallback: same call, both externally
+(`candidate_signals.py:955-959`) and internally inside `fit_causal_residual_model`
+(`causal_residuals.py:466-470`). Simulation time, **precomputed-params path**: `model =
+group_params[date]` (`candidate_signals.py:946`) is **not re-verified at read time** — it trusts
+whatever was stored under key `date` in `residual_params.parquet` was itself correctly truncated at
+panel-build time. The `≤t` guarantee on this path is inherited, not independently checked at
+consumption — worth stating explicitly.
+
+**Proposed tests (options, not decisions):**
+- Half (a): buildable **today**, pre-migration, no new infrastructure — assert
+  `(closed_trades_df["entry_asof_date"] <= closed_trades_df["entry_date"]).all()` (both columns
+  exist now via F1 commit 7). Could live in a new `tests/test_candidate_arrival_invariant.py`, or
+  fold into `tests/test_track_a_guards.py`. No existing test covers this (grepped `tests/` for
+  `entry_asof_date` comparisons — none).
+- Half (b): no existing test covers `_slice_fit_window`'s truncation (grepped `tests/` for
+  "lookahead" and `_slice_fit_window` — zero hits). Proposed: a "perturb-the-future" test —
+  fit at date d, mutate rows strictly after d, refit, assert identical coefficients. Stronger than
+  an index-bound check since it tests the actual no-lookahead guarantee rather than the presence of
+  a `.loc[:date]` call.
+
+### 1.6 Baseline harness
+
+Confirmed: the `## counts` section is `pr.panel["is_valid"].sum()` / `len(pr.panel)` per
+`(group_id, residual_key)` (`scripts/b_baseline_harness.py:259-262`), where `pr.panel` comes from
+`panel_results = run_panel_batch(cfg)` (`:126`). Trade list from `result.closed_trades_df()`
+(`:238`) after `run_from_config(sim_config)` (`:235`).
+
+`run_panel_batch` (`src/candidates/panel_batch.py`) — confirmed calling `build_group_return_bundle`
+(`:297`) and `create_pair_candidate_panel` (`:321`) per group — is exactly the offline,
+pre-simulation panel-build step this track proposes to relocate into the simulator.
+
+**Yes — commit 1 relocates something the harness reads, structurally, not incidentally, and in two
+separate ways:**
+1. The harness calls `run_panel_batch` **directly**, not through `run_from_config`. If the offline
+   panel-build path is removed (consistent with the "no persisted panel artifact" dissolution goal
+   F1's brief states as context), the harness's `_build_panels()` has nothing left to call.
+2. Even independent of (1): the `## counts` line needs **both valid and total row counts**
+   (`n_valid`/`n_rows`) — the full scored panel including invalid rows. The simulator's own
+   `selected_panel` (post `CandidateFilter.run()`) is already filtered to valid rows only per F1's
+   own artifact design — it structurally cannot supply the denominator the harness's counts line
+   needs. Today that full scored-panel object only exists as a byproduct of the offline walk. After
+   migration, whatever replaces it inside the simulator needs to expose an equivalent full-scored
+   count, or the harness's counts section needs a different source entirely.
+
+This is a real adaptation the brief does not name as its own step. Per the task's own instructions
+(and the standing rule that a harness adaptation must be its own commit, checked neutral on the
+*old* path, before commit 1), this needs to land as a numbered commit ahead of the loop migration —
+see Part 4.
+
+### 1.7 Parallelization constraints
+
+`CandidateSignalGenerator`'s mutable caches — `_bundle_cache` (`candidate_signals.py:176`, keyed by
+`group_id`), `_residual_cache`/`_latest_pc_variance_ratios` (`:177-178`, keyed
+`(group_id, residual_key)`), `_spread_series_cache` (`:179`, keyed by file path) — are all
+group-scoped or group-derived. **No cross-group collision found.** One instance is shared across a
+whole (possibly multi-group) run (`simulator_factory.py:88-97`); this is not a *correctness*
+violation today (keys prevent collision), but a future per-group multiprocessing design would need
+one fresh instance per worker rather than a shared one.
+
+**No current violation**, since commit 1 does not itself implement parallelization (the brief
+explicitly defers it). One structural nuance worth flagging: `RiskManager.approve`
+(`risk_manager.py:29-34`) takes `sized_opens`/`live_positions` mixed **across all groups**, called
+once per day (`simulator.py:401-406`) — the simulator's trading-decision loop is inherently
+cross-group-coupled at the portfolio-risk level. The five parallelization constraints, as stated,
+read as scoped to the candidate-scoring sub-step (residual fit → weights → diagnostics — matching
+"outer at refit frequency, inner daily"), not to the whole per-day loop, which cannot be naively
+parallelized per group given the shared risk manager. Worth the eventual parallelization design
+being explicit about which sub-step the constraints bind.
+
+---
+
+## Part 2 — `series/` (brief §2)
+
+### 2.1 Current path:line (re-verified, drift confirmed)
+
+- **(a) Cache read path** — `candidate_signals.py`: `panel_dir` field (`:167`); gate
+  `if self.panel_dir is not None:` (`:343`); `_spread_series_path` (`:539-542`, **matches** the
+  brief's citation exactly — did not drift); `_try_batch_levels_from_disk`, missing-file check
+  (`:576-577`, **matches** the brief's "576" citation — did not drift).
+- **(b) skip-if-exists** — `series.py`: stock loop `path.exists()` at **`:180-181`**; spread loop at
+  **`:221-222`**. **Drift confirmed**: the F2 brief and `found.md` cite `series.py:192-193,233-234`
+  (inherited unedited from `F_spec.md`) — stale by exactly 12 lines each.
+- **(c) `panel_dir` scope** — threaded from `SimulatorConfig.data.candidate_panel_subdir` through
+  `simulator_factory.py:84-86` (`create_simulator`) into `CandidateSignalGenerator(panel_dir=...)`
+  at `:96`.
+
+Also stale: `F_spec.md`'s notebook citation `02_run_simulation.ipynb:1647` for the writer cell —
+current line is ~1497.
+
+### 2.2 Every writer and reader
+
+**Writers** (`compute_and_persist_series`, `series.py:66-249`), called from:
+- `scripts/b_baseline_harness.py:172` (inside `_persist_series`, `:131-178`, called from `main()`
+  at `:232`).
+- `run_me.py:323` (`_persist_series_multi`, `:275-329`; called at `:351,558`).
+- `run_me.py:538` (`_persist_spread_series`, `:507-544`; called at `:373,561`).
+- `notebooks/howto/02_run_simulation.ipynb`, cell at ~line 1497.
+
+**Readers:**
+- `candidate_signals.py:343-357,539-605` — **feeds a computation** (live z-score/level input for
+  trading decisions on a cache hit).
+- `tests/test_clear_stem_artifacts.py:40-75` — does **not** read series content; only asserts
+  `_clear_stem_artifacts` leaves a manually-planted `series/stock/AAPL.parquet` untouched. Not a
+  real consumer — a stem-scoping guard that happens to reference the directory.
+- `notebooks/howto/03_full_simulation_pipeline.ipynb` — no code reads it, but its committed output
+  log shows `[signals] N/N spread level series missing... recomputing from residuals` warnings —
+  i.e. this notebook's committed run hit the miss branch. Display-only (a captured log).
+- `notebooks/howto/01_create_candidate_panel.ipynb` — no code touches it; two markdown cells
+  describe it in prose as optional/recomputable. Text-only.
+- No other reader found anywhere in `src/`, `tests/`, `scripts/`, `run_me.py`, notebooks.
+
+### 2.3 Does the baseline harness read `series/` today?
+
+**Yes, confirmed end to end.** `_build_sim_config` sets `candidate_panel_subdir=PANEL_SUBDIR`
+(`b_baseline_harness.py:184`) → `panel_dir` resolves non-`None`
+(`simulator_factory.py:84-86,96`) → the disk-read branch in `_batch_analytics_for_group`
+(`candidate_signals.py:343`) is taken on every call. Ordering in `main()`: `_persist_series` runs
+to completion (`:232`) **before** `run_from_config` (`:235`), so every file the disk-read path looks
+for already exists by simulate time.
+
+**Consequence:** the harness's `## counts`/trade-list output today is produced via the disk-read
+branch, not the recompute fallback. Deleting the cache moves the harness onto the recompute path
+exclusively — the harness's "does not move a single row" check for that commit is, in effect, the
+first real test that recompute reproduces exactly what disk-read had been serving.
+
+### 2.4 Can the read-path removal land before commit 1?
+
+**Yes — `F_spec.md`'s sequencing dependency is not real.** The recompute fallback
+(`_batch_analytics_for_group:359-408`) depends only on `self._get_residuals`, which in turn depends
+on `precomputed_residual_params` and `weights_lookup` — both **already loaded independently** of the
+loop migration (F1 artifacts: `simulator_factory.py::_load_residual_params:169,462-515` and
+`::_load_weights:174,518-567`), plus the pre-existing live-fit fallback
+(`fit_causal_residual_model`, untouched by the loop migration). Nothing here depends on where the
+outer/inner loop lives.
+
+Two more pre-existing, cache-independent reconstruction pathways confirm the pattern is already
+live and load-bearing: `compute_analytics_from_weights` (`:607-696`, used by `simulator.py`'s
+`_apply_action`/`_build_live_fz_analytics`/diagnostics-log construction) and `get_level_series`
+(`:869-900`, used by `EntryFeatureEngine`) — **neither ever checks `panel_dir`**; both always
+recompute. The simulator already runs substantial live logic through exactly the "recompute
+residuals @ weights → cumsum" path the brief wants as the only path, with zero dependency on
+commit 1. The amended brief (no run persists series at all) doesn't change this — removing the
+three writer call sites is an equally independent pure deletion.
+
+### 2.5 What removal touches
+
+- **`src/residuals/series.py`** — `compute_and_persist_series` (`:66-249`) is the module's only
+  real product; `sanitize_spread_id`/`spread_series_filename` (`:48-56`) have **zero external
+  callers** (`candidate_signals.py::_spread_series_path` reimplements the same filename logic
+  inline rather than importing it). Once both writer and reader are gone, **the entire module is
+  dead** and deletable outright.
+- **`candidate_signals.py`** — remove `panel_dir` field (`:167`), the disk-fast-path branch in
+  `_batch_analytics_for_group` (`:343-357`), `_spread_series_path`/`_load_spread_series`/
+  `_try_batch_levels_from_disk` (`:539-605`), and `_spread_series_cache`/
+  `_SPREAD_SERIES_CACHE_MAX` (`:31,179`).
+- **`simulator_factory.py`** — remove `panel_dir` resolution and the kwarg at `:84-86,96`.
+- **`run_me.py`** — remove `_persist_series_multi` (`:275-329`), `_persist_spread_series`
+  (`:507-544`), and their four call sites (`:351,373,558,561`).
+- **`scripts/b_baseline_harness.py`** — remove `_persist_series` (`:131-178`) and its call at
+  `:232`. Per 2.3, this changes what the harness exercises — flagged to the implementation session,
+  not decided here.
+- **`notebooks/howto/02_run_simulation.ipynb`** — remove the writer call (~1465-1500) and a now-
+  false "persisted series are reused untouched" claim (~1944); re-execute per standing rule.
+- **`notebooks/howto/01_create_candidate_panel.ipynb`** — reword the two markdown cells
+  (`:28-32,517-521`) from "optional persistence step" to "no run persists series; always
+  reconstructed on demand."
+- **`notebooks/howto/03_full_simulation_pipeline.ipynb`** — no code change, but its committed
+  output (the missing-series warning log) disappears once the disk-read branch is gone; needs
+  re-execution per standing rule even though no notebook *code* changes.
+- **`tests/test_clear_stem_artifacts.py`** — not forced to change (tests stem-scoping, orthogonal
+  to whether anything writes into `series/`), but its docstring/setup references a "separate stage
+  [that] writes the shared series/ tree," which becomes counterfactual prose. A judgment call for
+  the implementation session — not decided here.
+
+---
+
+## Part 3 — Debug sample and fidelity (brief §3 and "Spread level and reconstruction")
+
+### 3.1 Row set
+
+Confirmed computable at a single capture point: `tracked_refs`
+(`simulator.py:288`, = new arrivals ∪ `CandidateActivation.get_active_candidates()`, which returns
+the same frozen `CandidateRef` objects, `candidate_activation.py:62-78`) together with
+`live_positions_by_candidate_id` (carrying `entry_asof_date`, `types.py:144`) give both the
+candidate view and the position view at one point per simulated day (`simulator.py:288-317`).
+
+Re-measured directly from the real run still on disk
+(`artifacts/simulation_runs/20260713_2017_e5ffbe83/`, `meta.json`: `n_closed_trades=3791`,
+`n_trading_days=5920`) — matches `F_spec.md`'s figures exactly: `selected_panel.parquet` **2,041,607**
+rows (candidate-view upper bound, 1186 outer dates × 10 groups); `closed_trades/*.parquet` (3791
+rows) → **3721** unique `(spread_id, entry_date)` pairs (position-view count);
+`daily_portfolio_state.parquet` max concurrent positions **209**, mean **123.87**.
+
+Harness config: candidate view = 1698+2869 = **4567** valid candidate rows; position view = **97**
+trades.
+
+**Nuance not in the brief:** `needed_refs` (`simulator.py:307-311`) means the live loop does *not*
+compute real analytics for every `tracked_ref` every day — a non-live candidate whose spread is
+already occupied by a live position at that timescale gets a placeholder (`:319-336`), not a real
+level/z-score. "Combinations the run actually used" is therefore *narrower* than the panel-row
+upper bound of 2,041,607 / 4567 — matching the brief's own framing more closely than a raw row
+count would, but the true count needs measuring from `analytics_by_id`'s real (non-placeholder)
+entries, not from panel row counts.
+
+### 3.2 Capture point
+
+Today (pre-migration), per day: candidate-view level/z-score/refit-date live in `analytics_by_id`
+(`simulator.py:313-317` → `candidate_signals.py:242-320,322-408`). Per-leg residual returns exist
+only transiently inside `_batch_analytics_for_group` (`:368,395` / `:401-408`) — not returned;
+only `level`/`z_score` survive into `CandidateAnalyticsState`. Refit date = `ref.asof_date`
+(`types.py:18`, already carried on every `CandidateRef`). Position-view uses the **same code path**
+for live candidates' refs — `analytics_by_id[pos.candidate_id]` is what actually drives trading
+decisions (`simulator.py:360-364`).
+
+**Caution for the fidelity test's own design:** `simulator.py` also computes `fz_analytics_by_id`
+(`:348-351` → `_build_live_fz_analytics`, `:701-720`) and `dy_a` (`:744-756`) via
+`compute_analytics_from_weights`, using `pos.realized_weights_by_ticker` (actual fills) and
+`_compute_effective_weights` (current MTM weights) respectively — diagnostics-log-only fields
+(`LiveDiagnosticsLogEntry.fz_*`/`dy_*`), not read by the trader, and sourced from **different
+weights than `weights.parquet`**. The brief's "position view, frozen weights" fidelity target is
+`analytics_by_id`'s output (raw `CandidateRef.weights`, i.e. the `weights.parquet` values), **not**
+these fz/dy diagnostic variants — worth being explicit about so the fidelity test doesn't target
+the wrong computation.
+
+Post-migration, the shape is unchanged (`CandidateRef` + `analytics_by_id`) — commit 1 relocates
+*who* computes this, not what's captured.
+
+### 3.3 Buildable pre-migration?
+
+Reported as fact, not decided, per the brief's own instruction. Structurally yes: `weights.parquet`
+and `residual_params.parquet` already exist today with the schema/semantics the reconstruction
+needs. A fidelity test comparing `analytics_by_id`'s live level/z-score against a reconstruction
+built from those two artifacts reads the same data either side of commit 1 — only *where* the
+files live changes (`candidate_panels/{stem}_*.parquet` today vs. a per-run `simrun_dir` after
+commit 1, per 0.3). The comparison logic (residuals-from-params @ weights → cumsum → z-score)
+should survive the migration unchanged; only the test's file-path plumbing needs updating.
+
+### 3.4 Exactness threats
+
+No `float32` anywhere in the residual/spread/signal pipeline (grepped `src/residuals`,
+`candidate_signals.py`, `pair_candidate_panel_creator.py`, `returns.py` — no hits; all float64).
+Fit: `_wls_multi` (`causal_residuals.py:440-448`) uses `np.linalg.lstsq`, BLAS-backed — the brief's
+guidance to compare persisted beta rather than refit is the correct mitigation; confirmed no other
+lstsq/OLS variant exists for the hedge fit. Beta location: written to `weights.parquet` at
+`pair_candidate_panel_creator.py:417-435`; reconstruction should read it via `weights_lookup`, the
+same dict `CandidateFilter.build_candidate_refs` and `daily_state_reconstruction.py:98-105` already
+consume — confirmed as the intended pattern, not re-fitting.
+
+Index/slicing: live path slices via `.loc[:date]` (`causal_residuals.py:406`) and `.iloc[-lb:]` for
+rolling mode (`:418`); `apply_causal_residual_model` is row-wise/vectorized with no incremental
+state, so a full-history-at-once apply and any date-truncated apply of the same frozen model
+produce identical rows for overlapping dates (confirmed by `series.py`'s own docstring, `:19-23`,
+which relies on exactly this property). `np.cumsum` order: single call, `axis=0`, deterministic —
+`_batch_analytics_for_group` always cumsums the whole available window at once (`:396`), same as a
+from-scratch reconstruction would; no incremental-vs-batch divergence risk found.
+
+### 3.5 Z-score state
+
+Confirmed fresh per call. `_compute_z_score` (`candidate_signals.py:759-817`) builds `rm`/`rs` via
+`.ewm()`/`.rolling()` on the full `level_series` each call; the batched path
+(`_finalize_batch_states:410-535`, via `_rolling_mean_std_last`/`_ewm_mean_std_last:54-136`) is
+likewise a pure function over the full level matrix with no persisted state. Repo-wide grep for any
+cached/carried EWM state: **NOT FOUND**.
+
+### 3.6 PC removal
+
+**NOT FOUND** anywhere — no existing raise for `remove_residual_pcs > 0` in any function today.
+`apply_causal_residual_model` applies PC removal unconditionally when `model.pc_components is not
+None` (`causal_residuals.py:608-614`), no guard. Confirms this is entirely new code the (not-yet-
+built) reconstruction function must add.
+
+### 3.7 Leg count
+
+Pair path is hardcoded to 2 legs (`generate_spread_ids(..., n_legs=2)`,
+`pair_candidate_panel_creator.py:278-281`; `"n_legs": 2` literal at `:390`). The only >2-leg-capable
+code, `build_spread_returns` (`src/residuals/spreads.py:201-284`), still has **zero callers**
+repo-wide (re-confirmed) and itself hardcodes `n_legs=2` internally (`:251-252`, raising
+`NotImplementedError` otherwise). No live portfolio-shaped multi-leg path exists anywhere today;
+`found.md`'s existing "Dead n_legs=2 hardcode" entry still holds exactly as stated.
+
+### 3.8 Single code path
+
+Confirmed two implementations of the same OU-fit math (dx-on-lagged-x OLS via `np.linalg.lstsq`,
+`kappa=-slope`, `half_life=ln2/kappa`, `mr_score=kappa/residual_std`):
+
+- `pair_candidate_panel_creator.py::_fast_pair_diagnostics` (`:449-552`) — panel-build time, takes
+  raw `spread_return`, cumsums internally (`:470`), truncated to the caller's `mr_diag_lb` window.
+- `candidate_signals.py::_compute_mr_diagnostics` (`:819-857`) — simulator runtime, takes a
+  pre-built `level_series`, truncated to `self.diagnostics_config.lookback`
+  (`MRDiagnosticsConfig.lookback`, `config.py:331`).
+
+**Sharper than the brief states:** these are not guaranteed to run over the same window —
+`mr_diag_lb` (panel-build config) and `MRDiagnosticsConfig.lookback` (simulator config) are
+**independently settable**. The two call sites could silently score the same spread over
+different-length windows today, not merely duplicate the same computation. This is a real
+"single source of truth" question beyond code duplication.
+
+`_compute_candidate_analytics` (`candidate_signals.py:698-757`) — checked callers repo-wide
+including notebooks — **has zero callers**. Dead code, not previously flagged in `found.md`.
+
+Other duplicated `np.cumsum(spread_return)`: `_fast_pair_diagnostics:470`,
+`candidate_signals.py:396,662,721(dead),896`, `series.py:240` — six independent call sites, no
+shared "spread level" primitive, despite `src/analytics/spread_primitives.py` existing as exactly
+this kind of shared-primitives module for other signal computations (its own docstring states a
+hard rule that such logic "MUST live here"). `cumsum` itself is trivial; the substantive gap is the
+OU-fit duplication above, per the brief's "Single code path" intent.
+
+Which implementation the reconstruction should call, or whether a third shared primitive needs
+extracting, is not decided here — reported as an open fact for the implementation session.
+
+### 3.9 Fidelity test runtime estimate
+
+Harness timings (`B_baseline.txt`): panel build 10.67s, simulate 12.98s. Row set at harness scale:
+candidate view ≈4567, position view ≈97 (both order-of-magnitude smaller once the `needed_refs`
+narrowing from 3.1 is applied). At ~1.7ms/call (`F_spec.md`'s measured
+`apply_causal_residual_model` cost — a different group's timing, not re-measured this session, used
+only as an order-of-magnitude input), raw reconstruction compute ≈ (4567+97)×1.7ms ≈ **~7.9s**.
+Given per-row Python/dict-lookup overhead likely dominates at this scale (not vectorized across
+candidates the way the live batch path is), a debug-sample fidelity test on the harness config is
+estimated at the **same order of magnitude as the harness's existing panel-build/simulate steps**
+(single digits to ~15s) — consistent with the brief's "small live run... slower than a unit test"
+framing, not a qualitatively slower test. No harness-scale reconstruction was actually measured
+this session (the code doesn't exist yet); this is an estimate, stated as such.
+
+---
+
+## Part 4 — Proposed commit order
+
+Reported as options with dependencies and neutrality classification, per the task's instructions —
+this does not decide anything the brief marks `[decided]`, and does not resolve the open items in
+Parts 2 (series granularity — moot now, no series persists at all) or 3.8 (which OU-fit
+implementation wins).
+
+| # | Commit | Depends on | Could move `B_baseline.txt`? | Other check | Neutrality argument |
+|---|---|---|---|---|---|
+| 1 | `≤t` invariant test, half (a): assert `entry_asof_date <= entry_date` on `closed_trades_df`. | Nothing new — F1 commit 7 fields already exist. | No — pure test addition. | Full suite green. | Structural (asserts a fact already true by construction, per 1.5). |
+| 2 | `≤t` invariant test, half (b): "perturb-the-future" test on `_slice_fit_window`. | Nothing new. | No. | Full suite green. | Structural (tests an existing guarantee, doesn't change behavior). |
+| 3 | Delete `series/` cache read path, both writers, and the now-dead `series.py` module (Part 2.5's full removal list). | Nothing — verified independent of commit 1 (2.4). | **Yes, and must be checked explicitly** — the harness currently runs the disk-read branch (2.3); this is the first real test that recompute reproduces what disk-read was serving. | `B_baseline.txt` before/after, specifically for this commit. | **Empirical, not structural** — the two code paths (cache vs. recompute) are different implementations that are *supposed* to agree; this commit is the first thing that actually proves it, at the harness's scale. |
+| 4 | Baseline-harness adaptation: change `_build_panels`'s counting so the `## counts` denominator (valid + invalid rows) doesn't depend on `run_panel_batch`'s offline output shape. | Needs enough of commit 5's target shape sketched to know what to point the harness at — see sequencing tension below. | Must be checked **neutral on the OLD (pre-migration) path** per the standing rule (commit precedes the change it's adapting for). | `B_baseline.txt` byte-identical before/after this commit alone, on unchanged simulation code. | Empirical (verified by an unchanged-output diff), not structural. |
+| 5 | Outer/inner loop migration into the simulator (the brief's "commit 1"): `fit_causal_residual_model`/`_slice_fit_window` take explicit returns + members/proxy/bench args (1.3); simulator computes per-group outer dates from its own group-scoped bundle index (1.1); candidate/weight/residual-param generation moves inside `Simulator.run()`. | Commits 3 (series deletion must not still be reading the old panel-dir-scoped disk cache) and 4 (harness must already be adapted to check this). | **Yes — the one commit expected to be exercised by, and required to not move, `B_baseline.txt`.** | `B_baseline.txt` (binding), plus commits 1-2's `≤t` tests re-run against the new path. | Structural in intent ("relocates *where*, not *what*"), but per the brief's own framing this is only an expectation until verified — not provable in advance the way commits 1-3 are. |
+| 6 | OU-fit single-code-path consolidation: resolve `_fast_pair_diagnostics` vs. `_compute_mr_diagnostics` duplication, and the `mr_diag_lb` vs. `MRDiagnosticsConfig.lookback` independent-window question (3.8). | Should land before or alongside commit 7, since the reconstruction function needs one canonical implementation to call. | Possibly — depends on which window/implementation is chosen as canonical; not decided here. | `B_baseline.txt` if it changes live behavior; a dedicated before/after diff if the two windows are unified. | Not classifiable without a decision this session doesn't make. |
+| 7 | Debug sample capture + zero-tolerance fidelity test (candidate view and position view), per Part 3. Comparison logic per 3.3 could be prototyped as early as commit 1, but capturing what the *migrated* loop actually used naturally follows commit 5 closely, per the brief's own sequencing note. | Commits 5 (what it's fidelity-testing) and 6 (a single OU-fit implementation to reconstruct against). | No, in itself — new test infrastructure. But this is what would **catch** a regression commit 5's own baseline check missed — sequence it as close after commit 5 as possible. | The fidelity test itself, `check_exact=True`. | N/A — verification infrastructure. |
+| 8 | Re-execute committed notebooks (`01`, `02`, `03`) against the new API surface; fix any notebook-only caller this uncovers. | Everything above that touches a notebook-visible surface. | N/A — verification pass. | Standing rule (README). | N/A. |
+
+**Sequencing tension flagged, not resolved:** commit 4 (harness adaptation) is required by the
+standing rules to land *before* commit 5 and be checked neutral on the *old* path, but its own
+design (what to point the harness's counting at instead of `run_panel_batch`'s output) is most
+naturally informed by what commit 5 will actually expose. This is a real chicken-and-egg the
+implementation session needs to resolve — e.g. by generalizing the harness's counting interface
+first, in a way that's agnostic to panel-build-time-vs-simulator-time sourcing, rather than fully
+committing to the new shape before commit 5 exists. Reported as a fact, not decided.
+
+---
+
+## Out of scope — overlap notes
+
+- Anything in F1's list.
+- `start_after_nan` / `check_for_corruptions`: Track I.
+- `zscore_key`, occupancy, sleeve identity: Track H.
+- Cross-run reuse of anything.
+- Snapshot-layer wiring of the loader call sites, `UniverseDataLoader.load`'s in-place resync, and
+  the `DataConfig.universe_name` / `snapshot_id` defaults: Track I (reassigned in Step 0).
+  **Overlap found:** `panel_batch.py:291` (`run_panel_batch`'s own `UniverseDataLoader.load` call)
+  is one of the three call sites `found.md` reassigns to Track I. If F2 commit 5 (loop migration)
+  removes or obsoletes `run_panel_batch`'s offline panel-building entirely, that call site
+  disappears along with it — whoever implements Track I's wiring should coordinate with F2 rather
+  than wire a call site about to be deleted.
+
+---
+
+## Disagreements between the brief and `F_spec.md`
+
+1. `F_spec.md`'s framing of the daily residual fits as "persisted for later use" (echoing the
+   panel-creator module's own docstring) understates that they are consumed live, every simulated
+   trading day (§1.2). Not a decision conflict, but changes the stakes of getting daily-fit
+   persistence right in the migrated loop.
+2. `F_spec.md`'s and the (pre-Step-0) brief's `series.py` skip-if-exists citations
+   (`:192-193,233-234`) are stale by 12 lines each; current is `:180-181,221-222` (§2.1).
+3. `F_spec.md`'s notebook citation for the series writer cell (`02_run_simulation.ipynb:1647`) is
+   stale; current is ~1497 (§2.1).
+4. `F_spec.md` sequenced the series/ read-path removal *after* the loop migration, flagging the
+   dependency as something to check. Verified **not real** — it can land independently, and even
+   before the loop migration (§2.4).
+5. `F_spec.md` Part 1 §5's "never asserted" finding for the `≤t` invariant still holds post-F1 — no
+   contradiction, re-confirmed as current (§1.5).
+6. Neither the brief nor `F_spec.md` names the baseline-harness adaptation the loop migration
+   forces (§1.6) as its own step — worth surfacing since it changes what "commit order" for this
+   track actually needs to include (§ Part 4, commit 4).
+7. The brief's F1-inherited "Layout" section (unified `simrun_dir`) does not describe current
+   post-F1 reality (§0.3) — not a brief/`F_spec.md` conflict per se, but a gap between what a reader
+   might assume F1 already produced and what actually exists on disk today.
+
+## Anything the brief asks for that cannot be done as described
+
+- "The residual fit must receive its input returns as an argument, not resolve tickers internally
+  by group" (brief §1) is under-specified: a flat `aligned_returns: pd.DataFrame` argument alone
+  cannot supply which columns are members vs. proxy vs. benchmark — that information currently
+  lives only on `GroupReturnBundle`'s typed fields. The signature change needs explicit
+  `members`/`proxy_name`/`bench_name` arguments alongside the returns frame, not just "returns as
+  an argument" (§1.3). Not a blocker, but the brief's phrasing alone under-specifies the actual
+  change.
+- The brief's acceptance criterion "`B_baseline.txt` does not move a single row, checked after
+  commit 1 specifically" presumes the harness can still run commit 1 unmodified. It cannot (§1.6) —
+  a harness-adaptation commit is required first, and the brief doesn't name it.
+
+## Proposed `found.md` entries
+
+```
+## `create_causal_residuals` and `_compute_candidate_analytics` are dead code
+Found during: track F2 (spec session)
+Location: `src/residuals/causal_residuals.py:623-659` (`create_causal_residuals`);
+`src/simulator/candidate_signals.py:698-757` (`_compute_candidate_analytics`)
+What: Both have zero callers repo-wide, including notebooks (grep includes
+`notebooks/**/*.ipynb` per the standing rule). Neither was previously recorded.
+`create_causal_residuals` is a convenience wrapper around `fit_causal_residual_model`
++ `apply_causal_residual_model`; `_compute_candidate_analytics` is a per-candidate
+scalar analytics path duplicating `_batch_analytics_for_group`'s vectorized logic.
+Severity: cosmetic
+Suggested track: F2 (whoever implements commit 5/1.3's signature change should
+decide whether to delete or repurpose `create_causal_residuals`, since it's one of
+`fit_causal_residual_model`'s four call sites and the cheapest one to just remove)
+
+## `mr_diag_lb` and `MRDiagnosticsConfig.lookback` can silently disagree
+Found during: track F2 (spec session, Part 3.8)
+Location: panel-build time, `mr_diag_lb` parameter threaded through
+`pair_candidate_panel_creator.py::_build_pair_candidate_rows_for_date` into
+`_fast_pair_diagnostics` (`:449-552`); simulation time,
+`MRDiagnosticsConfig.lookback` (`src/simulator/config.py:331`) read by
+`candidate_signals.py::_compute_mr_diagnostics` (`:819-857`)
+What: Both implement the same OU-fit math (dx-on-lagged-x OLS -> kappa, half_life,
+mr_score) but are independently configurable, unlike a pure code-duplication
+concern -- the same spread could be scored over different-length windows at
+panel-build time versus at simulation time today, with no assertion tying the two
+together and no caller stating they must match.
+Severity: result-affecting, magnitude unmeasured
+Suggested track: F2 (Part 4 commit 6 in F2_spec.md addresses the duplication; the
+window-agreement question should be decided at the same time, not left implicit)
+
+## The baseline harness exercises the `series/` disk-cache path, not the recompute path
+Found during: track F2 (spec session, Part 2.3)
+Location: `scripts/b_baseline_harness.py:184,232` (sets `candidate_panel_subdir`,
+calls `_persist_series` before `run_from_config`); read side,
+`src/simulator/candidate_signals.py:343-357,560-605`
+What: Track B's own baseline harness has, since its creation, run its simulate step
+through the disk-backed spread-level cache rather than the live recompute path --
+`panel_dir` is set on every harness run, and `_persist_series` populates the cache
+before the simulate stage reads it. `B_baseline.txt`'s neutrality checks to date
+have therefore validated the cache path, not the recompute path the rest of the
+simulator's live logic (`compute_analytics_from_weights`, `get_level_series`)
+already exercises unconditionally.
+Severity: cosmetic today (both paths are believed to agree; F2 commit 3 in
+F2_spec.md is the first thing that actually proves it) -- would have been
+result-affecting if they ever silently diverged
+Suggested track: none -- resolved by F2's series/ deletion; recorded as a process
+note about what B_baseline.txt has and hasn't been validating
+```
