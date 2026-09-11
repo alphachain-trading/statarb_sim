@@ -16,7 +16,6 @@ from src.residuals.causal_residuals import (
     FittedCausalResidualModel,
     _slice_fit_window,
     apply_causal_residual_model,
-    create_causal_residuals,
     fit_causal_residual_model,
 )
 
@@ -29,26 +28,6 @@ logger = logging.getLogger(__name__)
 
 # Max number of persisted spread level series to hold in memory (LRU).
 _SPREAD_SERIES_CACHE_MAX = 4096
-
-
-def _compute_variance_ratios(
-    residuals: np.ndarray,
-    n_report: int = 5,
-) -> tuple[float, ...]:
-    """
-    Compute top-k PC variance ratios from a (T, N) residual matrix.
-
-    Cheap: eigendecomposition of an N×N covariance matrix (e.g. 28×28).
-    """
-    if residuals.shape[0] < 2 or residuals.shape[1] < 2:
-        return ()
-    cov = np.cov(residuals, rowvar=False)
-    eigvals = np.linalg.eigvalsh(cov)[::-1]
-    total = eigvals.sum()
-    if total <= 0:
-        return ()
-    k = min(n_report, len(eigvals))
-    return tuple(float(v / total) for v in eigvals[:k])
 
 
 def _rolling_mean_std(
@@ -175,7 +154,6 @@ class CandidateSignalGenerator:
 
     _bundle_cache: dict[str, GroupReturnBundle] = dc_field(default_factory=dict, init=False, repr=False)
     _residual_cache: dict[tuple[str, str], tuple[pd.Timestamp, pd.DataFrame]] = dc_field(default_factory=dict, init=False, repr=False)
-    _latest_pc_variance_ratios: dict[tuple[str, str], tuple[float, ...]] = dc_field(default_factory=dict, init=False, repr=False)
     _spread_series_cache: "OrderedDict[str, pd.Series]" = dc_field(default_factory=OrderedDict, init=False, repr=False)
 
     def _get_z_score_config(self, timescale_label: str) -> ZScoreConfig:
@@ -618,10 +596,6 @@ class CandidateSignalGenerator:
     ) -> CandidateAnalyticsState:
         """
         Compute analytics using an arbitrary weight dict (e.g. realized weights).
-
-        Reuses the same residualization and OU diagnostic logic as
-        _compute_candidate_analytics but accepts weights keyed by ticker
-        instead of a CandidateRef.
         """
         date = pd.Timestamp(date)
 
@@ -693,67 +667,6 @@ class CandidateSignalGenerator:
             is_signal_ready=is_signal_ready,
             z_components=z_components,
             residual_key=residual_key,
-        )
-
-    def _compute_candidate_analytics(
-        self,
-        *,
-        ref: CandidateRef,
-        date: pd.Timestamp,
-        skip_diagnostics: bool = False,
-    ) -> CandidateAnalyticsState:
-        try:
-            residuals = self._get_residuals(ref.group_id, ref.residual_key, date)
-        except ValueError:
-            return self._not_ready_analytics(ref=ref, date=date)
-
-        members = list(ref.members)
-        missing = [m for m in members if m not in residuals.columns]
-        if missing:
-            return self._not_ready_analytics(ref=ref, date=date)
-
-        rr = residuals.loc[:, members].copy()
-        if rr.empty:
-            return self._not_ready_analytics(ref=ref, date=date)
-
-        w = np.asarray(ref.weights, dtype=float)
-        spread_return = rr.to_numpy(dtype=float) @ w
-        level_series = pd.Series(np.cumsum(spread_return), index=rr.index, name="level")
-
-        # Z-score: fast timing window
-        z_score, level, roll_mean, roll_std, is_signal_ready, z_components = self._compute_z_score(
-            level_series=level_series,
-            residual_key=ref.residual_key,
-            timescale_label=ref.timescale_label,
-        )
-
-        # MR diagnostics: slower structural window (skippable)
-        if skip_diagnostics:
-            adf_pvalue, mr_score, kappa, half_life = None, None, None, None
-        else:
-            adf_pvalue, mr_score, kappa, half_life = self._compute_mr_diagnostics(
-                spread_return=spread_return,
-                level_series=level_series,
-            )
-
-        # Spread momentum — cheap, always compute when signal is ready
-
-        return CandidateAnalyticsState(
-            candidate_id=ref.candidate_id,
-            group_id=ref.group_id,
-            spread_id=ref.spread_id,
-            date=date,
-            z_score=z_score,
-            level=level,
-            roll_mean=roll_mean,
-            roll_std=roll_std,
-            adf_pvalue=adf_pvalue,
-            mr_score=mr_score,
-            kappa=kappa,
-            half_life=half_life,
-            is_signal_ready=is_signal_ready,
-            z_components=z_components,
-            residual_key=ref.residual_key,
         )
 
     def _compute_z_score(
@@ -928,9 +841,6 @@ class CandidateSignalGenerator:
         When precomputed_residual_params are available, the expensive fit step
         is skipped entirely — only the cheap apply step runs.  Falls back to
         live fitting when no precomputed params exist.
-
-        Also stores the latest fitted model's PC variance ratios for
-        regime monitoring.
         """
         cache_key = (group_id, residual_key)
         cached = self._residual_cache.get(cache_key)
@@ -965,22 +875,7 @@ class CandidateSignalGenerator:
 
         self._residual_cache[cache_key] = (date, residuals)
 
-        # Compute PC variance ratios of the CLEANED residuals (post all removals).
-        # This is the true regime indicator: if PC1' is high, there's unexplained
-        # common structure that the model (market + sector + optional PCs) missed.
-        self._latest_pc_variance_ratios[cache_key] = _compute_variance_ratios(
-            residuals.to_numpy(dtype=float),
-        )
-
         return residuals
-
-    def get_pc_variance_ratios(
-        self,
-        group_id: str,
-        residual_key: str = "",
-    ) -> tuple[float, ...] | None:
-        """Return the latest PC variance ratios of cleaned residuals for a (group, timescale)."""
-        return self._latest_pc_variance_ratios.get((group_id, residual_key))
 
     @staticmethod
     def _empty_signal_frame() -> pd.DataFrame:
