@@ -494,3 +494,30 @@ numbers.
 Severity: result-affecting, dormant today
 Suggested track: I (reassigned from F2 before its spec session), alongside wiring
 the snapshot layer
+
+## The spread level had two definitions, chosen by whether cache files existed
+Found during: track F2 (review of F2_spec.md)
+Location: disk path `src/residuals/series.py` + `candidate_signals.py::_try_batch_levels_from_disk`;
+recompute path `candidate_signals.py::_get_residuals`
+What: The disk path uses the residual model frozen at `asof_date`; the recompute
+path uses the model fitted at today's date. The choice was made per (group, day) by
+whether files existed, all-or-nothing, signalled only by a warning.
+`compute_analytics_from_weights` and `get_level_series` always recomputed. So within one
+harness run, trading z-scores used the frozen model while features and diagnostics
+used the daily one.
+Severity: result-affecting
+Suggested track: resolved by F2 C3 (frozen-at-asof, decided).
+Port note: `hierarchical-arb` has the same split, so its research results ran on
+whichever path had cache hits. The May 2026 z-spectrum discrepancy between the
+entry-date-model reconstruction and the simulator may have this cause — unverified.
+
+## `mr_diag_lb` and `MRDiagnosticsConfig.lookback` can silently disagree
+Found during: track F2 (spec session, Part 3.8)
+Location: `pair_candidate_panel_creator.py::_fast_pair_diagnostics` (panel build, window
+`mr_diag_lb`); `candidate_signals.py::_compute_mr_diagnostics` (simulation,
+`MRDiagnosticsConfig.lookback`, `config.py:331`)
+What: The same OU-fit math runs under two independently configurable windows, with
+no assertion tying them together.
+Severity: result-affecting, magnitude unmeasured
+Suggested track: new, result-changing; decide which window governs before G's
+baseline.
