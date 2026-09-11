@@ -15,7 +15,7 @@ be folded into the implementation session as a stop-and-report first step.
 | C | Market snapshot | no | — | merged |
 | D | Config hygiene | no | — | merged |
 | E | Terminology | no | D | merged |
-| F1 | Artifact schema | no | C, D, E | |
+| F1 | Artifact schema | no | C, D, E | merged |
 | F2 | Loop, series, fidelity | no | F1 | |
 | I | Data preparation flags | **yes** | — | |
 | G | Hedge mode | **yes** | B, D, I | |
@@ -32,7 +32,7 @@ land before G.
 
 ## Order
 
-Remaining: **F1 → F2 → I → G**. H only when a run actually needs multiple sleeves in
+Remaining: **F2 → I → G**. H only when a run actually needs multiple sleeves in
 one run; the guard added in Track A is the trigger.
 
 I could run in parallel with F1 or F2 — different files, no overlap — but not
@@ -51,8 +51,11 @@ alongside G, which it must precede.
   it.
 - Finish by reporting the diff. Do not merge.
 
-Exception: spec files are documentation, not track work. A read-only spec session
-commits `{track}_spec.md` to `main` directly and creates no branch.
+Exception: documentation is not track work. A read-only spec session commits
+`{track}_spec.md` to `main` directly and creates no branch. Amendments to briefs,
+`found.md` and this README made outside a track are committed to `main` directly
+when the user instructs it. `found.md` entries written during a track stay on that
+track's branch.
 
 This is not a formality. Tracks I, G, and H change trading results, and a
 result-changing track merged without a reviewed diff is how a tainted baseline gets
