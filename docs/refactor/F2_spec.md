@@ -1437,3 +1437,49 @@ it — C6b's job is neutrality against `B_baseline.txt`, not correctness. Real
 unification (one UMD-loading policy for both scoring and simulating) is Track
 I's job; `found.md`'s existing entry now also names this call site as a second
 place that inherits the fix once Track I lands.
+
+### R11. C6c descoped to Track J
+
+C6c ("delete the offline path", R4) is removed from F2 and becomes **Track J**
+(`docs/refactor/J_retire_offline_panel_path.md`). The offline path stays for
+now: `run_panel_batch`, `PanelBatchConfig`, `create_pair_candidate_panel`'s
+persistence, notebook 01, and notebook 03's panel-build step are all
+untouched by F2.
+
+**Reason.** Before deleting `run_panel_batch`, C6c's own pre-check asked what
+covers its groups × residual-configs sweep under the live-generation
+architecture. Answer: nothing does, today. `sweep_runner.py`'s simulator-level
+sweep requires a pre-built, disk-based panel and has no live-generation
+branch (`SweepConfig.candidate_panel_subdir` is required and rejected empty,
+`sweep_runner.py:93-95`; `_resolve_panel_subdir` enforces it,
+`sweep_runner.py:196-212`; `_build_sim_config` always builds a disk-based
+`DataConfig`, never `candidate_generation`, `sweep_runner.py:217-244` — zero
+references to `candidate_generation` in the file). `run_me.py`'s `residuals`
+stage is a second, real, working production caller of `run_panel_batch`
+(`run_me.py:280,289,300`), not a stub — its module docstring calling this
+stage "NOT YET IMPLEMENTED" is stale (found.md, suggested track J).
+Notebook 03 depends on both: `run_panel_batch` for its panel-build step, then
+`SweepConfig`/`run_sweep` for simulation.
+
+Migrating `sweep_runner.py` and `run_me.py` to live generation is its own
+body of work, not a deletion-adjacent cleanup — this is expand-contract's
+**contract** step deferred, not abandoned. C6a/C6b (the **expand** step: build
+the live generator, wire it in alongside the offline path, prove neutrality)
+stand as committed.
+
+**Two generation paths coexist until Track J lands.** The guard against them
+silently drifting apart is `tests/test_candidate_generation_equivalence.py`
+(`generate_candidates` vs. `create_pair_candidate_panel`, `check_exact=True`),
+which must stay green for the life of the coexistence. It currently covers
+only the harness's two committed universes (`energy_only_v1`,
+`materials_only_v1`) — not a general proof, per the `make_ranking_dates`
+phantom-bin-label defect already on record (found.md), which means the two
+walks can visit different date sets on a universe/frequency this test never
+exercises. Track J must extend it before relying on it to justify deletion.
+
+**Acceptance amendment.** `F2_loop_and_fidelity.md`'s Acceptance section
+("Fidelity test passing... `B_baseline.txt` does not move... Notebooks
+re-executed") is satisfied by the loop migration as **wired in and
+equivalence-tested**, not as the sole path. "The migration" for F2's own
+acceptance purposes means C6a + C6b; C6c's deletion is no longer part of what
+F2 accepts.
