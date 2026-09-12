@@ -6,14 +6,18 @@ create_pair_candidate_panel (the function run_panel_batch itself calls) on the
 Track B baseline harness's two universes (energy, materials) and its own
 config — reused, not reimplemented.
 
-Both calls are given the *same* GroupReturnBundle object, built once per group.
-An earlier version rebuilt the bundle separately for each side and found a
-spurious one-date mismatch (2007-04-06, a market holiday) traceable entirely to
-the bundle reconstruction, not to either walk's own logic — reusing one bundle
-object eliminates that whole noise category and isolates exactly the thing this
-test exists to check: does the outer-date-only walk (candidate_generation.py)
-produce the same candidates, weights, and residual params as the offline walk's
-daily-grid one, at the dates both of them actually visit.
+Both calls are given the *same* GroupReturnBundle object, built once per group
+-- after first confirming, per-test, that rebuilding the bundle a second time
+(fresh loader, fresh UMD, fresh call) produces an identical aligned_returns
+(index, columns, values, dtypes). An earlier version attributed a one-date
+mismatch to "bundle reconstruction noise" and moved to a shared object without
+checking that claim (F2_spec.md E10): rebuilding twice in one process and
+again across two separate processes found zero difference either way -- the
+mismatch was the make_ranking_dates phantom-bin-label defect the whole time
+(found.md), not anything about bundle construction being non-deterministic.
+This assertion keeps that claim checked rather than assumed, since C6b will
+need to decide for itself whether the migrated loop can safely build one
+bundle per group and reuse it.
 
 Covers all scored candidates (including invalid rows, which the panel schema
 carries deliberately — see create_pair_candidate_panel's own docstring),
@@ -97,7 +101,17 @@ class TestCandidateGenerationEquivalence(unittest.TestCase):
 
         for group_id in self.GROUPS:
             with self.subTest(group_id=group_id):
+                # Build twice and check equality before using one -- see
+                # module docstring. This must stay a real check, not an
+                # assumption: F2_spec.md E10 found it genuinely holds (zero
+                # difference, in-process and cross-process), but the earlier
+                # version of this test *assumed* the opposite without
+                # checking and drew the wrong conclusion from it.
                 bundle = _bundle_for(harness, group_id)
+                bundle_rebuilt = _bundle_for(harness, group_id)
+                pd.testing.assert_frame_equal(
+                    bundle.aligned_returns, bundle_rebuilt.aligned_returns, check_exact=True,
+                )
                 stem = f"{group_id}_test"
 
                 offline = create_pair_candidate_panel(

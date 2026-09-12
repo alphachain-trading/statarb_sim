@@ -1360,3 +1360,38 @@ isin(bundle.aligned_returns.index)]`) — scoped to the new function only;
 `make_ranking_dates`/`resolve_asof_datetimes` themselves are unchanged, per
 scope (fixing the shared utility is recorded in found.md as a separate, new
 track, not this one).
+
+### E10 — before C6b: harness re-run, and root-causing the bundle mismatch
+
+**(a) `B_baseline.txt` re-run.** C6a's `resolve_asof_datetimes` extraction
+touches `pair_candidate_panel_creator.py`, which `run_panel_batch` calls — on
+the harness's live path, so "full suite green" doesn't cover it; re-ran the
+harness itself. **Zero-row diff** — only the two timing comment lines changed;
+`## counts`, `## trades` (97), and `## performance metrics` are byte-identical.
+Confirms the extraction is a pure refactor, as claimed at commit time but not
+yet separately checked against the harness.
+
+**(b) The "bundle reconstruction noise" claim in the C6a commit was wrong.**
+Root-caused per E10, rather than left as "spurious": rebuilt the same group's
+bundle twice in one process (fresh `UniverseDataLoader`, fresh `.load()`, fresh
+`build_group_return_bundle` call each time) and separately across two
+independent Python processes (each writing `aligned_returns` to its own
+parquet file, compared after both exited). **Both came back with zero
+difference** — identical index, columns, values, and dtypes, in-process and
+cross-process. This directly rules out `found.md`'s "`UniverseDataLoader.load`'s
+in-place cache-hit resync" entry as the cause here: that mechanism only
+triggers when a yaml's member list changes relative to what's cached, which
+did not happen across any of these rebuilds, and the empirical zero-diff result
+confirms no resync fired. **C6b does not depend on Track I's fix.**
+
+The actual, single cause — for both the original "bundle mismatch" observation
+and the later, correctly-diagnosed one — is the `make_ranking_dates`
+phantom-bin-label defect already recorded in `found.md`. It has nothing to do
+with which bundle object is used; any correctly-built bundle from this data
+produces the same phantom `2007-04-06` label once resampled. The original
+"share one bundle" fix in the C6a commit solved nothing new — the equivalence
+test would have passed with two independently-built bundles all along, since
+they are provably identical. Replaced that framing with an explicit
+determinism assertion in the test itself (build twice, `assert_frame_equal`,
+then use one) — the test's real assumption is now the same thing that was
+empirically checked here, not a claim narrated in a docstring.
