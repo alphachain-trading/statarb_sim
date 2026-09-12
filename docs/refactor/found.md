@@ -583,3 +583,29 @@ for the guard to be protecting against.
 Severity: blocks EQ_ROLLING residual configs entirely
 Suggested track: new, after F2 merges — lifting the guard still needs the explicit
 span parameter the guard's own message calls for; not decided or touched in F2
+
+## A leftover artifacts directory silently serves stale values into a before/after diff
+Found during: track F2 (C4/E6 review)
+Location: `artifacts/candidate_panels/{subdir}/` (e.g.
+`artifacts/candidate_panels/refactor_b_harness/`, `scripts/b_baseline_harness.py`'s
+own `PANEL_SUBDIR`); read by `run_from_config`'s panel/weights/residual-params
+loaders (`simulator_factory.py::_load_panels`/`_load_residual_params`/
+`_load_weights`, all via `discover_group_data_sources`)
+What: This directory accumulates across runs — `run_panel_batch` stamps a fresh
+timestamped stem on every build but never deletes an older one, so multiple stems
+for the same (group_id, residual_key) can coexist indefinitely. This is exactly how
+F2's own E6 measurement first went wrong: `series/` (deleted by C4, so moot for that
+one sub-path) held ~5,235 files from earlier sessions this track, and the pre-C3
+reader found and served them regardless of the harness's populate call being
+skipped that run, making the "before" measurement silently identical to the
+"after" one — a false negative, not a passing check. The mechanism is not
+series/-specific: `candidate_panels/` (panel/weights files) and the
+`_residual_params.parquet` files alongside them accumulate the same way and were
+not cleared by C4, since nothing in F2 writes or removes them per run.
+Severity: result-affecting for any before/after comparison run against this
+directory without first confirming it is empty — not a live bug in shipped
+trading logic, but a standing risk to the *instrument* used to verify one
+Suggested track: F2 adds a guard (E8, this track) that reports and refuses to
+silently proceed; Tracks I and G verify entirely via before/after diffs against
+this same harness and directory, and inherit the same risk until they either reuse
+the guard or adopt their own equivalent
