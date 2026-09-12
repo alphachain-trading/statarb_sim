@@ -1147,3 +1147,161 @@ narrative for "changes results" does, and a new, likely more urgent,
 correctness finding — now shown to be order-dependent and structurally fixed
 by Track I's own snapshot-wiring item — falls out of resolving the
 contradiction.
+
+(H5 subsequently applied the found.md/F2_spec.md/I_data_preparation.md
+corrections proposed above directly to those files, in a separate session —
+see their own commits. This paragraph is left as originally written, as a
+record of what H1-H4 found before that happened.)
+
+---
+
+## Amendment — H6: is the trim grain observable downstream at all?
+
+Read-only. All commands run through the shipped code path; no source files
+changed by this amendment (one comparison script, not committed).
+
+### (a) Testing it directly
+
+**`build_group_return_bundle` consumers.** Loaded materials' own umd twice —
+once with `start_after_nan=True` (today's default, the per-group leading
+trim), once with `start_after_nan=False` (trim skipped entirely, the most
+extreme possible alternative to today's grain — a fully ragged, per-ticker-
+real-inception price frame) — and built the return bundle from each via the
+real `build_group_return_bundle` (`returns.py:65-139`), unmodified. Result:
+
+```
+bundle_trimmed.aligned_returns:   2005-08-12 -> 2026-07-13, shape (5260, 15)
+bundle_untrimmed.aligned_returns: 2005-08-12 -> 2026-07-13, shape (5260, 15)
+indexes identical: True
+max abs diff over the full frame: 0.0
+```
+
+Byte-identical, not merely close. `risk_free_returns` matches too, for a
+reason worth recording precisely rather than assuming: it isn't part of the
+`dropna="any"` set at all (`returns.py:114-120` concatenates only
+member/proxy/benchmark returns before dropping) — but the function's own
+return statement reindexes it onto `aligned.index` regardless
+(`rf_returns.reindex(aligned.index).ffill()`, `returns.py:138`), so it
+inherits the same final index by construction, not by coincidence.
+
+**Why this generalizes beyond "trimmed vs. untrimmed"**, not just this one
+pair of settings: `dropna(how="any")` on the concatenated member/proxy/
+benchmark returns drops every row up to whichever column's own real
+inception is latest, regardless of how much *extra* untrimmed leading data
+any other column happened to carry into the concat. A hypothetical
+per-ticker trim would sit strictly between today's per-group trim (most
+aggressive) and no trim at all (least aggressive, tested above) in how much
+leading data survives per column — since the two extremes already converge
+to the identical result, any intermediate per-ticker policy must too. The
+grain is inert for this consumer not just at these two settings, but for any
+setting, as a consequence of `dropna="any"` being a group-wide, column-order-
+independent operation.
+
+**End-to-end confirmation, not just the bundle in isolation.** Ran the full
+harness with `DataConfig(start_after_nan=False)` — the *simulation*-side
+flag, which `_load_umd` feeds to `create_simulator`'s `umd`, independent of
+`CandidateGenerationConfig`'s own (unchanged) flags — everything else fixed.
+**Zero-row `B_baseline.txt` diff, timing comments only.** Reverted before
+this amendment was written.
+
+**Every consumer of `umd.prices` that does not go through
+`build_group_return_bundle`**, grepped across `src/`, `scripts/`, `run_me.py`
+(`.price_matrix(`, `.prices_for_*(`, `.prices` attribute access,
+`.tickers()`):
+
+| Consumer | path:line | Touches rows before the sim's own start? |
+|---|---|---|
+| `Simulator.run`'s `price_matrix` | `simulator.py:246`, used at `:290` (`price_matrix.loc[date].dropna()`) | No — `date` is always a simulation date from `dates`, itself always after `PANEL_START_DATE`/the candidate panel's own min `asof_date` |
+| `Simulator._preflight_validate` | `simulator.py:953,956` (`price_matrix.loc[dates[0]:dates[-1], ...]`, `.loc[:dates[-1], ...].tail(5)`) | No — sliced to `dates[0]:dates[-1]`, itself post-`_build_simulation_dates` |
+| `Simulator._market_dates` | `simulator.py:975-983` | Structurally yes (returns the umd's own full index), but see below — never the binding constraint in practice |
+| `_merge_umds`'s overlap check | `simulator_factory.py:479-480` (`umds[i].prices[(ticker, "Close")]`) | Compares raw values on the *intersection* of two umds' indexes — grain choice does not create or remove index rows in the intersection region either umd already has in common |
+| `UniverseDataLoader.load`'s own resync branch | `universe_loader.py:58-59,82` | Pre-trim, mutates the live cache; unrelated to the trim's grain |
+| `_build_group_manifest_entry` | `market_snapshot.py:304-305` (`.index.min()/.max()`) | Snapshot-mint-time only, always `start_after_nan=False` (2.1) |
+| `.tickers()` callers (`universe_loader.py:48`, `market_snapshot.py:285`, `simulator_factory.py:469,536,663`) | — | Ticker *names* only, never row/date data — not grain-sensitive by construction |
+
+`_market_dates()`'s structural exposure does not surface in practice:
+`_build_simulation_dates` (`simulator.py:985-1006`) sets
+`start = max(market_dates.min(), cp_dates.min())`. `cp_dates.min()` is the
+candidate panel's own earliest `asof_date`, which is itself bound by the
+*same* group-wide `dropna="any"` consensus (candidate generation walks
+`aligned_returns`, not raw prices) plus whatever additional lookback
+(`hedge_ratio_lb`/`mr_diag_lb`) the panel config requires — so
+`cp_dates.min()` is always at or after the return-level consensus date,
+which the trim can only ever match or precede. `market_dates.min()` can
+therefore never be the larger of the two under any configuration where
+candidate generation requires at least one day of trailing history, which
+every configuration in this repo does. Confirmed, not just argued: the
+full-harness `start_after_nan=False` test above is exactly the case where
+`market_dates.min()` moves from `2005-08-11`/`1998-12-22` (trimmed) to
+`1990-01-02` (untrimmed) for materials/energy respectively, and
+`B_baseline.txt` still didn't move.
+
+### (b) The grain is inert downstream — plainly, and its consequence
+
+**The grain is inert downstream**, for every current consumer, both those
+routed through `build_group_return_bundle` (proven byte-identical, and
+proven to generalize to any intermediate grain policy, not just the two
+settings tested) and those that read `umd.price_matrix` directly (proven
+structurally inert via `_build_simulation_dates`'s `max()`, and confirmed
+empirically end-to-end with the flag flipped on the actual simulation-side
+config).
+
+**Consequence: the flag half of Track I's "changes results" claim does not
+hold.** With `check_for_corruptions` already shown inert (H1) and now
+`start_after_nan`'s grain also shown inert for every real consumer, unifying
+the five sources' flag *values* is, on the evidence gathered across this
+whole spec and its amendments, a Track D no-defaults cleanup — one source of
+truth, no class defaults, no hardcoded literals — with **no measured result
+impact** on any current call site or the harness universes. The
+snapshot-wiring half (Scope item 2) is this track's only result-changing
+work, and only because of the `_merge_umds` order-dependence H4 found, not
+because of anything about the flags themselves.
+
+Proposed correction to `I_data_preparation.md`'s top line (not applied here —
+see the note on H4(d) above for why this session leaves brief edits as
+proposals unless separately instructed to apply them):
+
+> **Changes results:** likely no, for the flag unification itself — both
+> `check_for_corruptions` (H1) and `start_after_nan`'s trim grain (H6) are
+> inert for every current consumer and both harness universes, tested
+> directly rather than assumed. What still changes results is the snapshot
+> wiring (Scope item 2), which fixes the `_merge_umds` order-dependence H4
+> found — a different mechanism from anything this line originally described.
+
+### (c) The grain decision is still open — options, not a decision
+
+Inertness today does not make the choice moot; it changes what the choice is
+*for*. The brief's Scope section still asks this track to "decide the model"
+for `start_after_nan`, and nothing in H1-H6 has decided it. Three options,
+not chosen between here:
+
+1. **Keep the current per-group grain, state it explicitly as the policy.**
+   Zero implementation change — `universe_loader.py:93-106`'s trim already
+   does this. Cheapest, and matches every measurement above. Risk: it is
+   still an arbitrary choice being formalized, not a validated one — inertness
+   was established for today's two gap-free universes and today's consumers
+   only (3.1/3.2's gappy-universe fixture would be the way to check this
+   holds under a real internal gap, which is a different mechanism from the
+   leading-trim grain but worth re-confirming once that fixture exists). A
+   future raw-price consumer added without going through `dropna`-based
+   alignment could reintroduce grain-sensitivity that doesn't exist today.
+2. **Implement a real per-ticker (ragged) trim.** Closer to "don't discard
+   history a consumer doesn't need," and answers the brief's original
+   semantic question on its own terms rather than by showing it doesn't
+   matter. Real implementation cost (the group-wide trim in
+   `universe_loader.py:93-106` would need to become per-column) for a
+   measured **zero** behavior change today, per (a)'s generalization
+   argument — the same `dropna="any"` step downstream would erase the
+   difference immediately for every consumer that goes through it.
+3. **Remove the trim step entirely**, since it is proven inert for every
+   current consumer and both harness universes. Simplest code, removes a
+   step whose only measured effect is a performance/memory saving (dropping
+   unneeded history before it flows further) with zero behavioral necessity
+   demonstrated. Risk: removes a legible, explicit signal that "clean data
+   starts here" from the pipeline, and a future raw-price consumer added
+   without its own NaN discipline would have no leading-trim safety net at
+   all — the same risk as option 1's caveat, just with the current mitigation
+   (however inert) removed rather than kept.
+
+Not decided here, per the brief's own instruction that this is the track's
+call to make once it reaches implementation.
