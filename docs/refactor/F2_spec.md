@@ -1185,9 +1185,51 @@ for anything still tracked from day 1; immediately, for any later-arriving
 candidate evaluated on a non-arrival day).
 
 Per E7's rule this measurement is rounding-scale, so by its letter this stops and
-reports rather than recording-and-proceeding. Not resolved here: whether repeating
-this same comparison on the first day where some tracked candidate's `date` and
-`asof_date` differ would show a model-scale `|Δz|` (supporting the cascade
-explanation from the R1 measurement above) or a similarly rounding-scale one
-(which would support the chaos concern). That is the next diagnostic, proposed but
-not run — awaiting direction before continuing.
+reports rather than recording-and-proceeding. **Superseded by E7b below**, which
+measures divergence as a function of age within one run (no cascade contamination
+possible) rather than relying on cross-run comparison at a single, degenerate day.
+This day-1 result stands as E7b's positive control at age 0.
+
+### E7b — model divergence as a function of age, within one run
+
+Method: one run, at the current (post-C4, shipped) commit — no cross-run
+comparison, so no cascade can contaminate the measurement. Monkey-patched
+`build_candidate_analytics_states` to sample every 9th simulated day (~21 of the
+188 total, spread across the run) and, for every tracked candidate on those days,
+compute `z` twice: `z_asof` from the shipped `_get_asof_residuals(ref.asof_date)`
+path (identical to what the run itself used), and `z_today` — measurement-only,
+never fed back into the run — from the model at `date` looked up the pre-C3 way
+(`group_params[date]`, then `_slice_fit_window` + `apply_causal_residual_model` +
+the same `compute_spread_level`/`_compute_z_score` the shipped path uses, so only
+the model/window differs). `age` = trading-day distance between `ref.asof_date` and
+`date`, measured on the candidate's own group bundle index. 2,867 candidate-day
+observations across 21 sampled days. Scratch script, not committed.
+
+| age (trading days) | n | median \|Δz\| | 90th pct | max | count > 0.01 |
+|---|---|---|---|---|---|
+| 0 | 532 | 0 | 0 | 0 | 0 |
+| 1–5 | 1456 | 0.0076 | 0.064 | 0.443 | 658 (45%) |
+| 6–20 | 271 | 0.0093 | 0.071 | 0.224 | 132 (49%) |
+| 21–60 | 406 | 0.0135 | 0.084 | 0.325 | 226 (56%) |
+| 60+ | 202 | 0.0473 | 0.181 | 0.401 | 166 (82%) |
+
+Largest age observed: 180 trading days.
+
+**`|Δz|` grows with age and is model-scale well within typical holding periods.**
+The harness's own mean holding period (38.9 days, from the same run's performance
+table) falls in the 21–60 bucket, where the median `|Δz|` is already `0.0135` —
+comfortably past the `entry_z=1.75`/`exit_z=0.0` thresholds' sensitivity, and
+`count > 0.01` is a majority in every bucket past age 0. **This confirms E6's
+cascade explanation and rules out chaotic floating-point amplification**: the
+divergence is a real, monotonically-growing function of how stale the "today"
+model is relative to the frozen asof model, not noise. Age 0 (`n=532`, `|Δz|`
+exactly `0`) reproduces E7's day-1 finding within the same run and serves as its
+positive control: at zero age the two lookups are arithmetically identical, which
+is also the confirmation that C3's rewrite into `compute_spread_level` is
+arithmetically equivalent to the old inline `R @ W` + `cumsum` it replaced — the
+rewrite itself introduced no divergence; every observed `|Δz| > 0` is attributable
+to the model choice (asof-frozen vs. today-dated), not to C3's refactor mechanics.
+
+Per E7b's rule: record and proceed. R1's fix in C3 was a real, non-trivial
+correction, sized here — not a cosmetic change validated only by a chaotic
+harness.
