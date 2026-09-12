@@ -1233,3 +1233,66 @@ to the model choice (asof-frozen vs. today-dated), not to C3's refactor mechanic
 Per E7b's rule: record and proceed. R1's fix in C3 was a real, non-trivial
 correction, sized here — not a cosmetic change validated only by a chaotic
 harness.
+
+### E9 — confirming the fidelity test would catch a wrong artifact, not just wrong plumbing
+
+Before C6a: the fidelity test proves the plumbing (which dates, weights, model get
+passed around) by construction, since reconstruction calls the same
+`compute_analytics_from_weights` the run itself calls (R2's "single code path" —
+correct, but also the common-mode blind spot: an error inside that shared function
+is invisible to the test). The remaining question is whether anything *else* is
+shared — specifically, whether the reconstruction-side `CandidateSignalGenerator`
+reads its residual params, weights and returns from disk, or from the run's own
+in-memory state.
+
+**(a) Confirmed independent, with one caveat.** In
+`tests/test_reconstruction_fidelity.py::setUpClass`:
+- `umd = _load_umd(sim_config.data)` (`:96`), `_load_residual_params(sim_config.data, z_configs)`
+  (`:100`), `_load_weights(sim_config.data, z_configs)` (`:101`) are called a
+  *second* time, independently of the `run_from_config(sim_config)` call above them
+  (`:74`) that produced the live run's own generator. Checked both loaders for
+  caching that would silently hand back the same object on a second call — none:
+  `_load_umd` (`simulator_factory.py:191-229`) constructs a fresh `UniverseDataLoader`
+  and calls `.load()` every time, no module-level cache; `_load_residual_params`
+  (`:457-511`) and `_load_weights` (`:513-562`) both go straight to
+  `pd.read_parquet` per call, no caching either. `create_simulator`
+  (`simulator_factory.py:45-97`) constructs a fresh `CandidateSignalGenerator(...)`
+  (`:88-96`) every call, and that class's `_bundle_cache`/`_asof_residual_cache`
+  fields are per-instance (`dc_field(default_factory=...)`, `candidate_signals.py`)
+  — a new instance starts with empty caches regardless of what any other instance
+  has cached. So `sg2` (the reconstruction-side generator) shares no bundle, no
+  asof-residual cache entry, and no params/weights dict object with the run's own
+  generator — everything traces back to a fresh disk read.
+- **Caveat, not covered by (a)'s claim:** `cls.selected_panel = result.selected_panel`
+  (`:102`) *is* taken from the live run's own in-memory `SimulationResult`, not
+  reloaded from disk. This is used only by `reconstruct_candidate_view` (picking
+  the latest `asof_date <= date` for a spread) — not by `reconstruct_level_and_zscore`
+  or `reconstruct_position_view`, and not by weights/residual-params resolution at
+  all. `test_candidate_view_reconstructs_exactly_via_dedicated_function` is
+  therefore not yet a full artifacts-only check; the other tests are.
+
+**(b) Mutation check: confirmed the test fails on a wrong artifact.** Built the
+panel and ran the live simulation once (capturing `debug_sample_df` from the
+original, correct weights). Used `discover_group_data_sources` (the same
+resolution `_load_weights` itself uses) to find the exact `..._weights.parquet`
+file backing the `energy` group — a naive "newest file by mtime in the directory"
+first attempt picked up an unrelated leftover stem from an earlier session (the
+same class of contamination as E8/E6's first attempt), so this matters. Perturbed
+one row: `APA` in spread `APA|VLO`, `asof_date=2006-09-08`, weight `-1.0 -> 0.0`.
+Re-loaded weights fresh from disk (confirmed the mutation was visible:
+`weights_lookup[("APA|VLO", ...)]["APA"] == 0.0`), rebuilt a fresh
+`CandidateSignalGenerator` from it, and reconstructed the same row:
+
+- Expected (captured, correct weights): `z_score=-0.2248`, `level=-1.25e-15`.
+- Reconstructed (mutated weights): `z_score=2.1077`, `level=2.59e-16`.
+- **Mismatch: confirmed.** The fidelity test would have failed.
+
+Restored the original file immediately after (confirmed via a fresh read).
+Scratch script, not committed, per the task.
+
+**Conclusion: the fidelity test is reading artifacts, not memory.** Safe to proceed
+to C6a. The `selected_panel` caveat in (a) is noted for whoever next touches
+`reconstruct_candidate_view`'s own test, not blocking — it affects only which
+`asof_date` a candidate-view query picks, not the residual/weights computation
+once one is chosen, and the dedicated position-view test plus the all-rows test
+already exercise the disk-artifacts-only path for every other function.
