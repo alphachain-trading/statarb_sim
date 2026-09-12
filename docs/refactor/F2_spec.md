@@ -1154,3 +1154,40 @@ sequence — consistent with the brief's own framing of this invariant's failure
 
 **Per E6: this is a large diff.** Reported before proceeding to C5, not folded in
 silently.
+
+### E7 — isolating model effect from cascade
+
+Method: monkey-patched `CandidateSignalGenerator.build_candidate_analytics_states`
+to capture its first call's `(date, candidate_refs, z_score per candidate_id)` and
+raise immediately after, so the run stops on the first simulated day. Ran once at
+the current (post-C4, asof-frozen) commit and once at the pre-C3 commit with the
+same series/-cleared, populate-skipped isolation as the R1 measurement above. Both
+captured the identical 127 candidates on `2006-09-08` (the harness's
+`PANEL_START_DATE`, and the panel's own earliest `asof_date`).
+
+**Result: rounding-scale.** median `|Δz|` = `2.22e-16`, 90th percentile =
+`6.66e-16`, max = `1.78e-15`, 0 of 127 candidates above `1e-6` (let alone `0.01`) —
+machine-epsilon noise, not a model difference.
+
+**This is expected, and does not establish chaos, because day 1 is degenerate for
+this test.** `_build_simulation_dates`'s `start = max(market_dates.min(),
+cp_dates.min())` (`simulator.py:932`, R6) puts the first simulated day exactly at
+the panel's earliest `asof_date` — so for every one of the 127 day-1 candidates,
+`ref.asof_date == date`. The today-dated lookup (`group_params[date]`) and the
+asof-frozen lookup (`group_params[ref.asof_date]`) hit the **same dict key** on day
+1, for every candidate, by construction — not because the two definitions agree,
+but because they have not yet had a chance to disagree. E7's own premise ("no
+position divergence can have occurred yet, so any difference is the model alone")
+is true, but the unstated second half — that the *model itself* has already had a
+chance to diverge by day 1 — does not hold here: it can only diverge from the first
+day some tracked candidate's `date` moves past its own `asof_date` (day 2 onward,
+for anything still tracked from day 1; immediately, for any later-arriving
+candidate evaluated on a non-arrival day).
+
+Per E7's rule this measurement is rounding-scale, so by its letter this stops and
+reports rather than recording-and-proceeding. Not resolved here: whether repeating
+this same comparison on the first day where some tracked candidate's `date` and
+`asof_date` differ would show a model-scale `|Δz|` (supporting the cascade
+explanation from the R1 measurement above) or a similarly rounding-scale one
+(which would support the chaos concern). That is the next diagnostic, proposed but
+not run — awaiting direction before continuing.
