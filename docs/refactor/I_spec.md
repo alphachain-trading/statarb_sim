@@ -751,3 +751,251 @@ Suggested track: I — same commit that does the snapshot wiring and the
 Contradicting-the-brief items are both in Part 1.4/2.2: the "three loader call
 sites" undercount, and "the simulator actually uses" overstating
 `CandidateGenerationConfig`'s current reach.
+
+---
+
+## Amendment — H1/H2/H3: the `check_for_corruptions` vs. merged-UMD contradiction
+
+Read-only. Two live experiments were run against the shipped harness to resolve
+this, then fully reverted (`git status` clean before and after; the committed
+`B_baseline.txt` was never left changed). No implementation followed.
+
+### H1 — the contradiction, resolved empirically
+
+**The contradiction.** This spec's own 1.2 established that `check_for_corruptions`
+only ever calls `print()` (`universe_loader.py:107-109`) and never mutates `umd`.
+But F2's C6b write-up (`F2_spec.md:1421-1423`) states: "Root cause:
+`check_for_corruptions=True` vs `False` changes how the corruption-cleaning step
+treats the raw price data before returns are computed, moving every level and
+hedge ratio slightly" — and both `found.md`'s C6b addendum and this brief's
+fifth-combination paragraph (`I_data_preparation.md:26-31`, added in this
+session's Step 0) carry that attribution forward. `DataConfig` and
+`PanelBatchConfig` differ in exactly one flag value that could plausibly matter
+here (`check_for_corruptions`; `start_after_nan` agrees at `True` for both,
+`force_download` at `False` for both — Part 4's table). Both claims cannot be
+right.
+
+**Experiment 1 — flip the flag, hold the loading mechanism fixed.** Edited
+`scripts/b_baseline_harness.py`'s `CandidateGenerationConfig(...)` call to add
+`check_for_corruptions=True` (from the class default `False`), changing nothing
+else — `generate_candidate_panels_by_group` still loads one `UniverseMarketData`
+per group (current, per-group code, unchanged). Ran
+`python scripts/b_baseline_harness.py --allow-existing-artifacts` before and
+after. **Result: zero-row diff against the unmodified baseline, timing comments
+only.** Same 97 trades, byte-identical `pair_notional`, z-scores, PnL. The flag
+alone does nothing, confirming 1.2 and directly contradicting the "root cause"
+sentence above.
+
+**Experiment 2 — revert to a merged UMD, hold the flags fixed.** Reverted
+`generate_candidate_panels_by_group` to the pre-C6b-fix shape: load each
+selected group's own `UniverseMarketData` exactly as today (same call, same
+`cg.force_download`/`cg.check_for_corruptions`/`cg.start_after_nan` — **values
+held fixed at the current per-group defaults, `False`/`False`/`True`, never
+touched**), then merge them via the existing `_merge_umds`
+(`simulator_factory.py:452-`) before calling `build_group_return_bundle`, instead
+of using each group's own umd directly. Ran the harness before/after with no
+other change. **Result: `pair_notional` moved on nearly every one of the 97
+trades, by rounding-level amounts (materials trades moved more than energy's —
+see below); same 97 trade ids, dates, directions; entry/exit z-scores shifted at
+the same rounding level; `Total Gross PnL` moved from 260753.86 to 260747.72.**
+This is the same shape of movement F2's C6b write-up measured and attributed to
+the flag — reproduced here with the flag values identical throughout, and only
+the merge mechanism changed.
+
+**Conclusion: the flag is inert. `found.md`'s and `F2_spec.md`'s "root cause" is
+wrong. The real mechanism is merged-vs-per-group UMD loading — confirmed further
+by direct inspection, not just inference:**
+
+```
+energy own SPY range:    1998-12-22 → 2026-07-13 (6929 rows)
+materials own SPY range: 2005-08-11 → 2026-07-13 (5261 rows)
+max |Close diff|, energy's own SPY vs. materials' own SPY, over their common dates: 1.24
+merged umd's SPY vs. energy's own SPY: 0.0 (identical — merged keeps umds[0]'s copy)
+```
+
+`energy.yaml:49-50` and `materials.yaml:50-51` both name `SPY` as `benchmark` and
+`^IRX` as `risk_free`. `_merge_umds` (`simulator_factory.py:493-499`) builds
+`merged_prices` from `umds[0].prices` verbatim, then `.join`s only each
+subsequent umd's `new_cols` — columns not already present. Since `SPY`/`^IRX`
+are already present after `umds[0]` (energy, given `GROUPS = ["energy",
+"materials"]`), materials' own independently-loaded `SPY`/`^IRX` are **silently
+discarded**, and every group after the first computes its bundle against
+whichever group loaded first's copy of the shared ticker — even though the two
+copies are not identical (measured: up to $1.24 apart on `SPY`'s `Close`,
+almost certainly two different corporate-action adjustment vintages from two
+separate downloads, i.e. exactly `found.md`'s "series/ staleness axis 1" —
+"market data revised underneath an artifact" — one layer closer to raw price
+data than where that entry already tracks it). This is the real "different
+ticker set reaching `build_group_return_bundle`'s `dropna='any'`" mechanism —
+more precisely, a different *value* for a nominally-shared ticker, not a
+different set of dates, and it explains materials' larger movement directly.
+Energy's own smaller movement (`umds[0]`, whose own columns are untouched by the
+merge — verified: `merged.prices["XOM"]` vs. `energy.prices["XOM"]` is
+zero-diff, identical row count, no extra rows introduced by the outer join) is
+unexplained at this level of precision; plausibly floating-point sensitivity to
+operating on the wider (28-column) merged frame rather than energy's own
+14-column one, but this was not run down further — flagged as residual
+uncertainty, not asserted as understood.
+
+Measured via `.venv/bin/python scripts/b_baseline_harness.py
+--allow-existing-artifacts`, diffed against a saved copy of the reference run,
+plus a standalone script calling the real `UniverseDataLoader`/`_merge_umds`
+directly on the two harness universes — not committed (one-off measurement
+scripts), both edits reverted (`git checkout --`) before this amendment was
+written.
+
+### H2 — consequences
+
+**`found.md`'s C6b addendum needs correction.** Its current text
+(`found.md`, "`start_after_nan` / `check_for_corruptions` — four combinations..."
+entry, "Update (F2 C6b)" paragraph) reads: "First wiring attempt reused
+`run_from_config`'s single merged `umd`... unifying the two combinations above
+by accident. That moved `pair_notional`... Root cause [via `F2_spec.md`]:
+`check_for_corruptions=True` vs `False`..." Proposed replacement text:
+
+> **Update (F2 C6b), corrected (Track I spec, H1):** First wiring attempt reused
+> `run_from_config`'s single merged `umd` for scoring too. That moved
+> `pair_notional` and downstream performance metrics by rounding-level amounts
+> on nearly every trade against `B_baseline.txt` — confirmed real, but **not**
+> caused by the flag mismatch between `DataConfig` and `PanelBatchConfig`.
+> Re-tested directly (Track I spec amendment, H1): flipping
+> `check_for_corruptions` alone, per-group loading held fixed, produces a
+> zero-row diff; reverting to a merged UMD, with the flag values held fixed
+> instead, reproduces the movement. The actual mechanism is `_merge_umds`
+> (`simulator_factory.py:452-499`) silently discarding every group-after-the-
+> first's own copy of a ticker shared across groups (here `SPY`/`^IRX`,
+> referenced as `benchmark`/`risk_free` by both `energy.yaml` and
+> `materials.yaml`) in favor of whichever group loaded first — and the two
+> groups' independently-cached copies of `SPY` are not identical (measured: up
+> to $1.24 apart on `Close`), so the substitution is not a no-op. This is a
+> `found.md` "series staleness axis 1" instance, not a data-preparation-flag
+> issue. `CandidateGenerationConfig`'s own flags were changed anyway (matching
+> `PanelBatchConfig`'s), which is orthogonal but harmless. `F2_spec.md:1421-1423`
+> carries the same wrong "root cause" sentence and should be corrected or
+> annotated to point here.
+
+**A new `found.md` entry is warranted** for the merged-UMD defect itself, since
+it is live today, independent of Track I, and independent of candidate
+generation specifically:
+
+> ## `_merge_umds` silently discards a shared ticker's own per-group data
+> Found during: track I (spec session amendment, H1)
+> Location: `src/simulator/simulator_factory.py:452-499` (`_merge_umds`,
+> the price-join loop: `merged_prices = umds[0].prices.copy()`, then
+> `.join(u.prices[new_cols], how="outer")` for each subsequent umd's
+> **new** columns only)
+> What: When two or more groups share a ticker in a `benchmark`/`proxy_etf`/
+> `risk_free` role (`SPY`/`^IRX`, referenced by both `energy.yaml:49-50` and
+> `materials.yaml:50-51`), the merged `UniverseMarketData` keeps only the
+> first-loaded group's copy of that ticker's price series — every other
+> group's own, independently-loaded copy is discarded, even though the two
+> are not guaranteed identical. Measured on the two harness universes: `SPY`'s
+> `Close` differs by up to $1.24 between energy's own cache and materials' own
+> cache over their common date range (likely divergent corporate-action
+> adjustment vintages from separate downloads — `found.md`'s existing "series/
+> staleness has three separate axes" entry, axis 1, one layer closer to raw
+> price data than where that entry currently points).
+>
+> Live today, not hypothetical: `_load_umd` (`simulator_factory.py:411-449`)
+> calls `_merge_umds` whenever `config.data.resolved_groups()` returns more
+> than one group (`:446-449`), and `run_from_config` calls `_load_umd`
+> **unconditionally** (`:148`) — including on the live-candidate-generation
+> branch, where its output still feeds `create_simulator`'s `umd`
+> (`:203-209`), consumed by `CandidateSignalGenerator._get_bundle`
+> (`candidate_signals.py:733-744`) for every simulated day's residual/z-score
+> computation. The currently-committed `B_baseline.txt` already carries this:
+> its simulation side runs a 2-group (`energy`, `materials`) `DataConfig`
+> through exactly this path, so materials' live trading computations already
+> run against energy's cached `SPY`/`^IRX`, not materials' own. Every
+> production caller of `run_from_config` with more than one selected group is
+> exposed: `run_me.py`'s `stage_simulate` (`run_me.py:440-456`, multi-group
+> supported — see `:448`'s single-group-only fixture-bootstrap branch),
+> `sweep_runner.py`'s simulate step, and `scripts/b_baseline_harness.py`
+> itself. Single-group configs (today's committed `config/demo_materials.yaml`,
+> `selected_groups: [materials]`) are not exposed — `_load_umd` returns
+> `umds[0]` directly without merging when there is only one group
+> (`:446-447`).
+> Severity: result-affecting, live today, independent of Track I's flag
+> unification (unifying `check_for_corruptions`/`start_after_nan`/
+> `force_download` values does not touch `_merge_umds` and would not fix
+> this)
+> Suggested track: new — likely more urgent than Track I's own scope, since
+> it is a correctness bug in a currently-shipped multi-group path, not a
+> preparation-flag inconsistency
+
+**The brief needs two corrections** (`I_data_preparation.md`, both added in
+this session's Step 0 before H1 was run):
+
+1. Lines 3-4, `**Changes results:** likely yes. Unifying five combinations
+   means at least four call paths change behaviour.` — the "at least four call
+   paths change behaviour" consequence was reasoned from the fifth-combination
+   paragraph's (wrong) attribution. Flag unification's actual result-changing
+   surface is narrower: `start_after_nan` (Part 1.1's per-group grain effect,
+   real and measured) and, if the mint's `force_download=True`/
+   `start_after_nan=False` combination is ever touched, the snapshot case
+   (Part 2.1). `check_for_corruptions` unification changes stdout (QC warnings
+   printed or not) but not `B_baseline.txt`'s counts/trades/metrics (Part 4's
+   own table already said this; this amendment confirms it empirically rather
+   than by inference). Proposed: "**Changes results:** likely yes, via
+   `start_after_nan`, not via `check_for_corruptions` (Track I spec amendment,
+   H1) — `start_after_nan`'s per-group grain (Part 1.1) is the mechanism, not
+   the corruption-flag mismatch F2's C6b write-up attributed this to."
+2. Lines 26-31 (the fifth-combination paragraph): "Wiring live candidate
+   generation into the simulator meant the generator would otherwise have
+   inherited `DataConfig`'s flags while the offline walk kept
+   `PanelBatchConfig`'s, which moved `pair_notional` on nearly every trade." —
+   the flag inheritance is accurately described, but "which moved
+   `pair_notional`" mis-attributes cause. Proposed: replace with "...while the
+   offline walk kept `PanelBatchConfig`'s. The pair_notional movement F2's C6b
+   write-up measured when this first wired up came from reusing
+   `run_from_config`'s single **merged** UMD for scoring, not from the flag
+   difference itself (Track I spec amendment, H1: re-tested with the flag
+   difference alone, isolated from the merge — zero movement). Giving
+   `CandidateGenerationConfig` its own fields defaulting to
+   `PanelBatchConfig`'s values fixed the immediate neutrality problem by
+   restoring per-group loading; it was not, and was never going to be, a fix
+   for the flag values themselves, which remain genuinely unreconciled and
+   are this track's business regardless."
+
+**Does Track I shrink?** Not in scope — every item in the amended Scope section
+(flag unification, snapshot wiring, `CandidateGenerationConfig`'s defaults,
+`universe_name`/`snapshot_id` cleanup) is still real, independently-justified
+work; `start_after_nan`'s per-group grain defect (Part 1.1) and the resync/
+staleness defects (Part 2) do not depend on the corrected claim at all. What
+shrinks is the *motivating narrative* for the flag-unification half
+specifically: it was never going to reproduce or fix C6b's observed
+`pair_notional` movement, because that movement's cause (`_merge_umds`) is
+outside the five sources this track unifies. Implementing Track I's flag
+unification in full, exactly as specced, will **not** make a merged-loading run
+and a per-group-loading run agree — that requires a separate fix to
+`_merge_umds` (the new `found.md` entry above), which is arguably more urgent
+than this track since it is live in the currently-shipped multi-group path
+today, not gated behind any of this track's own commits.
+
+### H3 — the brief's stale "third combination" line
+
+`I_data_preparation.md:37-38`: "So the panel build and the simulator clean the
+same raw data differently, and Track C's snapshot path introduced a third
+combination as a hardcoded literal." Stale since this session's Step 0 added
+the fifth row and combination — "third" undercounts by two. The adjacent
+sentence two lines down (`:40-41`, "not one default too many, but four silent
+answers to the same semantic question") has the identical staleness (four,
+not five) and reads as the same oversight repeated. Proposed replacement for
+both:
+
+- Line 38: "...and Track C's snapshot path introduced a **fourth** combination
+  as a hardcoded literal, before F2's C6b added a fifth."
+- Line 41: "...not one default too many, but **five** silent answers to the
+  same semantic question, selected by which path the data happens to take."
+
+### Amendment summary
+
+The flag is inert (measured twice, both directions). `found.md`'s and
+`F2_spec.md`'s "root cause" attribution for C6b's `pair_notional` movement is
+wrong; the real mechanism is `_merge_umds` discarding a shared ticker's
+per-group data, which is live today in every multi-group `run_from_config`
+call, independent of Track I. Proposed corrections given for `found.md`'s C6b
+addendum, a new `found.md` entry, and two lines in the brief; none applied here
+(read-only session, one doc commit). Track I's scope does not shrink; its
+motivating narrative for "changes results" does, and a new, likely more urgent,
+correctness finding falls out of resolving the contradiction.
