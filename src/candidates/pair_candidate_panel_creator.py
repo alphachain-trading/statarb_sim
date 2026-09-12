@@ -647,52 +647,26 @@ def _clear_stem_artifacts(out_dir: Path, stem: str) -> list[Path]:
     return removed
 
 
-def create_pair_candidate_panel(
+def resolve_asof_datetimes(
+    *,
     bundle: GroupReturnBundle,
     residual_cfg: CausalResidualConfig,
-    pair_cfg: PairSpreadConfig,
     frequency: str | None = None,
-    *,
-    hedge_ratio_lb: int,
-    mr_diag_lb: int,
     dates: list[str | pd.Timestamp] | None = None,
-    debug: bool = False,
     start_date: str | None = None,
     end_date: str | None = None,
     max_steps: int | None = None,
-    progress: bool = True,
-    persist_result: bool = False,
-    persist_residual_params: bool = False,
-    persist_result_dir: str = "",
-    persist_result_file_stem: str = "",
-) -> CandidatePanelResult:
+) -> pd.DatetimeIndex:
     """
-    Create a pair spread CandidatePanel at the requested as-of dates.
-
-    hedge_ratio_lb / mr_diag_lb are the two independent candidate-scoring
-    windows (hedge-ratio fit vs mean-reversion diagnostics).
-
-    Same walkforward interface as create_portfolio_candidate_panel.
-
-    Panel schema (candidates.parquet, F1 commit 5): one row per pair per
-    outer refit date, full scored set including invalid rows. The NaN
-    pattern is structured -- a pair rejected at an early gate never reaches
-    the OU fit, so every downstream metric is NaN for that row. why_invalid
-    is authoritative; do not infer the failure reason from which column is
-    NaN. Only the first failure is recorded, so conditioning on a later gate
-    means conditioning on having passed every earlier one.
-
-    Two distinct absence classes, and this table can only carry one. Rows
-    with is_valid=False carry a reason in why_invalid. Pairs skipped by a
-    structural pre-check -- a leg missing from the cleaned window
-    (structural_skip), or a weight-computation exception (weight_fit_failed)
-    -- produce NO ROW AT ALL; they are logged separately (DEBUG) rather than
-    persisted here. Any breadth, coverage, or rejection-rate denominator
-    needs both classes, and this table alone cannot supply the second one.
+    Resolve the outer refit dates, either from an explicit `dates` list
+    (validated against bundle.aligned_returns.index and min_history) or from
+    a frequency-driven walk over the same index. Extracted from
+    create_pair_candidate_panel (F2 C6a) so the in-simulator candidate
+    generator (candidate_generation.py) resolves outer dates identically to
+    the offline path, rather than a second implementation of this logic.
     """
     aligned_index = bundle.aligned_returns.index
 
-    # ── resolve as-of datetimes ──────────────────────────────────────
     if dates is not None:
         if frequency is not None:
             print("frequency will be ignored because explicit dates were provided")
@@ -752,6 +726,63 @@ def create_pair_candidate_panel(
 
     if len(asof_datetimes) == 0:
         raise ValueError("No asof datetimes remain after applying filters.")
+
+    return asof_datetimes
+
+
+def create_pair_candidate_panel(
+    bundle: GroupReturnBundle,
+    residual_cfg: CausalResidualConfig,
+    pair_cfg: PairSpreadConfig,
+    frequency: str | None = None,
+    *,
+    hedge_ratio_lb: int,
+    mr_diag_lb: int,
+    dates: list[str | pd.Timestamp] | None = None,
+    debug: bool = False,
+    start_date: str | None = None,
+    end_date: str | None = None,
+    max_steps: int | None = None,
+    progress: bool = True,
+    persist_result: bool = False,
+    persist_residual_params: bool = False,
+    persist_result_dir: str = "",
+    persist_result_file_stem: str = "",
+) -> CandidatePanelResult:
+    """
+    Create a pair spread CandidatePanel at the requested as-of dates.
+
+    hedge_ratio_lb / mr_diag_lb are the two independent candidate-scoring
+    windows (hedge-ratio fit vs mean-reversion diagnostics).
+
+    Same walkforward interface as create_portfolio_candidate_panel.
+
+    Panel schema (candidates.parquet, F1 commit 5): one row per pair per
+    outer refit date, full scored set including invalid rows. The NaN
+    pattern is structured -- a pair rejected at an early gate never reaches
+    the OU fit, so every downstream metric is NaN for that row. why_invalid
+    is authoritative; do not infer the failure reason from which column is
+    NaN. Only the first failure is recorded, so conditioning on a later gate
+    means conditioning on having passed every earlier one.
+
+    Two distinct absence classes, and this table can only carry one. Rows
+    with is_valid=False carry a reason in why_invalid. Pairs skipped by a
+    structural pre-check -- a leg missing from the cleaned window
+    (structural_skip), or a weight-computation exception (weight_fit_failed)
+    -- produce NO ROW AT ALL; they are logged separately (DEBUG) rather than
+    persisted here. Any breadth, coverage, or rejection-rate denominator
+    needs both classes, and this table alone cannot supply the second one.
+    """
+    asof_datetimes = resolve_asof_datetimes(
+        bundle=bundle,
+        residual_cfg=residual_cfg,
+        frequency=frequency,
+        dates=dates,
+        start_date=start_date,
+        end_date=end_date,
+        max_steps=max_steps,
+    )
+    aligned_index = bundle.aligned_returns.index
 
     # ── resolve daily dates for residual model fitting ──────────────
     # Panel dates (asof_datetimes) are typically W-FRI.

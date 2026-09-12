@@ -610,3 +610,40 @@ Suggested track: F2 adds a guard (E8, this track) that reports and refuses to
 silently proceed; Tracks I and G verify entirely via before/after diffs against
 this same harness and directory, and inherit the same risk until they either reuse
 the guard or adopt their own equivalent
+
+## `make_ranking_dates` can return a resample bin label that is not an actual data date
+Found during: track F2 (C6a equivalence test)
+Location: `src/utils/date_utils.py:4-22` (`make_ranking_dates`) —
+`s.resample(frequency).last().dropna().index` takes `.index` from the *resampled*
+series, whose labels are the bin edges (e.g. every Friday for `"W-FRI"`), not the
+date of whichever row inside that bin actually supplied `.last()`'s value.
+What: When a bin's period label (e.g. a Friday) is itself a date with no row at
+all — a market holiday, confirmed concretely: `2007-04-06` (Good Friday) is
+absent from both `energy_only_v1` and `materials_only_v1`'s
+`aligned_returns.index` — `.last()` still returns the most recent real value
+from earlier in that bin (e.g. Thursday), but the bin's *label*, which is what
+ends up in the returned `DatetimeIndex`, is the Friday. Every caller of
+`make_ranking_dates` can silently receive a date that is not in the index it was
+computed from.
+This was completely masked in the shipped offline panel-build path: `create_pair_
+candidate_panel`'s walk (`pair_candidate_panel_creator.py`, `walk_dates =
+daily_dates if daily_dates is not None else asof_datetimes`) only builds
+candidate rows on outer dates that are *also* present in the daily fit grid —
+itself built by the same `make_ranking_dates(frequency="B", ...)`, which drops
+the holiday's now-empty daily bin via its own `.dropna()`. So the phantom Friday
+is silently skipped end-to-end, and the panel simply has one fewer outer date
+than requested, with no signal that anything was dropped. The in-simulator
+generator (`src/simulator/candidate_generation.py`, C6a) has no daily grid to
+filter through, so it filters phantom dates itself
+(`asof_datetimes[asof_datetimes.isin(bundle.aligned_returns.index)]`) — a local
+workaround, not a fix to `make_ranking_dates` itself, which is unchanged and
+still returns the same phantom labels to every other caller.
+Severity: result-affecting, magnitude unmeasured beyond this one confirmed
+instance — every `make_ranking_dates` caller across the panel-build and
+simulator-config resolution paths (`resolved_groups`,
+`DataConfig.resolved_groups`, the daily grid itself) is exposed in principle;
+only the offline outer/daily interaction happens to self-correct today.
+Suggested track: new — fix `make_ranking_dates` to return the actual date of the
+row `.last()` selected, not the resample bin label; re-audit every caller once
+fixed, since some may be relying (even accidentally, like the offline walk) on
+today's masking behavior

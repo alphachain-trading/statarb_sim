@@ -1296,3 +1296,67 @@ to C6a. The `selected_panel` caveat in (a) is noted for whoever next touches
 `asof_date` a candidate-view query picks, not the residual/weights computation
 once one is chosen, and the dedicated position-view test plus the all-rows test
 already exercise the disk-artifacts-only path for every other function.
+
+### D5 — a fit at date d is a pure function of data ≤ d, no state across the walk
+
+Required before proposing outer-date-only fits for C6a. Two facts together prove it:
+
+- `fit_causal_residual_model(bundle, date, cfg)` (`causal_residuals.py:451-469`)
+  takes exactly those three arguments — no `self`, no accumulator, no prior-model
+  parameter. Its body computes everything fresh from `_slice_fit_window(bundle,
+  date, cfg)` (`:400-425`, a pure `.loc[:date]` slice of `bundle.aligned_returns`,
+  plus an `.iloc[-lookback:]` further slice in rolling mode) and `_wls_multi`
+  (`:440-448`), which calls `np.linalg.lstsq(Xw, Yw, rcond=None)[0]` — a batch
+  least-squares solve on the *current* window's `X`/`Y` alone, no warm-started
+  initial guess, no persisted solver state carried from any other call.
+- The walk loop itself threads no state between iterations:
+  `pair_candidate_panel_creator.py:812-816` — `model = fit_causal_residual_model(
+  bundle=bundle, date=dt, cfg=residual_cfg)` inside `for i, dt in
+  enumerate(walk_dates, start=1):`. `bundle`/`residual_cfg` are the same
+  loop-invariant objects on every iteration; only `dt` varies. `model` is
+  reassigned fresh each iteration and stored into `fitted_params[dt]` (`:820`, a
+  dict keyed by date, for later persistence) — never passed into a subsequent
+  `fit_causal_residual_model` call as a warm start or otherwise.
+
+Together: a fit at outer date `d` is bit-identical whether or not any daily fits
+happened at other dates in between. Outer-date-only fitting changes nothing at
+the dates that still get fit — confirmed empirically too, by C6a's own
+equivalence test below (residual params compared exactly at every outer date).
+
+### C6a — the in-simulator candidate generator, not wired in
+
+Per R4: `src/simulator/candidate_generation.py::generate_candidates` walks outer
+refit dates only (via `resolve_asof_datetimes`, extracted verbatim from
+`create_pair_candidate_panel` into a shared function so both callers resolve
+outer dates identically — `pair_candidate_panel_creator.py`), calling the exact
+same `fit_causal_residual_model` and `_build_pair_candidate_rows_for_date` the
+offline walk already calls. No daily grid, no persistence — purely in-memory,
+not wired into `Simulator.run()`.
+
+`tests/test_candidate_generation_equivalence.py` compares its output against
+`create_pair_candidate_panel` (what `run_panel_batch` itself calls) on the
+harness's own two universes and config, given the *same* `GroupReturnBundle`
+object for both calls (eliminating any bundle-reconstruction noise — see below).
+Checks, `check_exact=True`: all scored candidate rows including invalid ones (set
+equality of columns, then per-column exact value equality), all weight rows, and
+every outer-date residual model's `B_proxy`/`B_stock`/members/proxy/bench/
+subtract_risk_free. **All pass, both groups.**
+
+**A real, previously-latent defect surfaced building this test, not a flaw in
+the generator's own logic.** First attempt (separately-rebuilt bundles per side)
+showed a spurious 1-date mismatch that traced entirely to bundle reconstruction
+noise; fixed by sharing one bundle object. With that fixed, a *second*,
+genuine mismatch remained: `resolve_asof_datetimes` returned an extra outer date
+(`2007-04-06`, Good Friday) that is not actually present in either universe's
+`bundle.aligned_returns.index` — `make_ranking_dates` returns resample bin
+labels, not the actual date of the row `.last()` selected (found.md: "
+`make_ranking_dates` can return a resample bin label that is not an actual data
+date"). The offline walk never notices, because it only builds rows on dates
+also present in its own daily fit grid (also from `make_ranking_dates`, which
+correctly drops the holiday's empty daily bin) — an accidental self-correction,
+not a deliberate check. `generate_candidates` has no daily grid to filter
+through, so it filters phantom dates itself (`asof_datetimes[asof_datetimes.
+isin(bundle.aligned_returns.index)]`) — scoped to the new function only;
+`make_ranking_dates`/`resolve_asof_datetimes` themselves are unchanged, per
+scope (fixing the shared utility is recorded in found.md as a separate, new
+track, not this one).
