@@ -510,6 +510,14 @@ Suggested track: resolved by F2 C3 (frozen-at-asof, decided).
 Port note: `hierarchical-arb` has the same split, so its research results ran on
 whichever path had cache hits. The May 2026 z-spectrum discrepancy between the
 entry-date-model reconstruction and the simulator may have this cause — unverified.
+Magnitude, measured on the F2 baseline harness (`F2_spec.md`, "R1 impact
+measurement"): forcing the pre-C3 recompute (today-dated) path on this harness's 97
+post-fix trades instead gave 115 trades — 37 exist only under the old path, 19 only
+under the fixed path, and every one of the 78 trades common to both by `trade_id`
+has a different entry and/or exit z-score. Not a rounding-level effect: the
+divergence compounds through the run once any one trade's exit timing shifts.
+Whatever `hierarchical-arb` research ran on the recompute path (cache miss) should
+be treated as unreliable until re-run, not just re-checked.
 
 ## `mr_diag_lb` and `MRDiagnosticsConfig.lookback` can silently disagree
 Found during: track F2 (spec session, Part 3.8)

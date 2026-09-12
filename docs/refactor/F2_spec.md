@@ -1120,3 +1120,37 @@ integer share counts (rounded at execution) and are printed to six decimals on
 figures in the thousands — a relative difference on the order of `1e-11` is well
 below both that rounding and that print precision, so they show as unchanged even
 though the same underlying floating-point noise is present there too, in principle.
+
+### R1 impact measurement
+
+What R1's fix (today-dated vs. asof-frozen residual model) was actually worth on
+this harness, isolated from C4's own effect. Method: checked out the commit before
+C3 (`9362e4a`), removed only the harness's `_persist_series` call (skip populating
+the disk cache — a harness-config change, not a flag edit) so the simulator falls
+through to the pre-C3 recompute path (`_get_residuals`, today-dated model), and
+compared the resulting `B_baseline.txt` against the current, post-C4 baseline.
+
+**First attempt was contaminated and discarded.** `artifacts/candidate_panels/
+refactor_b_harness/series/` held ~5,235 leftover files from earlier sessions this
+track. With those present, the reader (`_try_batch_levels_from_disk`, still intact
+at the pre-C3 commit) found them and served the *old, already-correct-per-P1* disk
+values regardless of the harness's own populate call being skipped — so the first
+run measured nothing. Cleared the directory (`rm -rf .../series/`, confirmed 0 files
+both before and after the corrected run) and re-ran.
+
+**Result: large.** 97 trades (post-C4, asof-frozen) vs. **115 trades** (pre-C3
+recompute, today-dated) — 37 trades exist only under the old today-dated path, 19
+exist only under the new asof-frozen path, and of the 78 trades common to both by
+`trade_id`, **all 78** have a different `entry_z_score` and/or `exit_z_score`. No
+trade survives with identical timing and z-scores. This is not the rounding-level
+effect C4 showed — the divergence is structural and compounds through the run:
+`EQ_EXPANDING`'s model drifts slowly day-to-day, so any single day's today-vs-asof
+difference is individually small, but once one trade's exit timing shifts by even
+one day, every later occupancy/activation decision for that spread (and every
+z-score computed off the resulting level series) cascades into a different
+sequence — consistent with the brief's own framing of this invariant's failure mode
+("plausible-looking *better* results rather than an error", `F2_loop_and_fidelity.md`
+§1).
+
+**Per E6: this is a large diff.** Reported before proceeding to C5, not folded in
+silently.
