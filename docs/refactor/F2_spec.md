@@ -1078,3 +1078,25 @@ D6. Two found.md entries, added on the branch; do not fix either:
       weights with an `entry_mr_score` computed on realized fill weights: two different
       spreads in one ratio. Severity: result-affecting, magnitude unmeasured.
       Suggested track: new.
+
+### R10. C3's apply window (recorded, no action)
+
+C3 changed where the level's cumsum starts. The old recompute path applied the model
+to `_slice_fit_window`'s output, so the cumsum started at the slice's first row — and
+in rolling mode the slice was also cut to the last `lookback` rows
+(`causal_residuals.py:417`). C3 applies over the full history and truncates the level
+afterwards, matching the disk path.
+
+The resulting constant offset cancels in every consumer: MR diagnostics demean the
+level and fit an intercept (`candidate_signals.py:771-781`), `adfuller`'s default
+regression carries a constant, and the z-score's rolling mean absorbs it. Nothing
+moves from the offset.
+
+The substantive difference is the row count in rolling mode, where the old recompute
+path computed its statistics over `lookback` rows rather than the full history. That
+is the same non-determinism `SimulatorConfig.__post_init__` raises on
+(`config.py:795-809`), so no reachable config is affected.
+
+C3 removes that guard's cause: both paths now use the full history. Whether the guard
+can be lifted is a separate decision, deferred — it needs the explicit span parameter
+the guard's message describes. **Do not touch the guard in F2.**

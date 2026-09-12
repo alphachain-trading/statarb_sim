@@ -559,3 +559,19 @@ two different spreads' worth of mr_score in one ratio, not a before/after compar
 of the same spread under the same weights.
 Severity: result-affecting, magnitude unmeasured
 Suggested track: new
+
+## `SimulatorConfig`'s EQ_ROLLING guard is likely liftable after F2 C3
+Found during: track F2 (C3 review, R10)
+Location: `src/simulator/config.py:795-809` (`SimulatorConfig.__post_init__`, the
+unconditional raise for `self.residual.window_mode == "rolling"`)
+What: The guard's own message describes the cause as "the z-score's EWM history span
+... inherited from whichever upstream path supplied the residual series — full
+history on the disk-backed path, truncated to the residual lookback on the recompute
+path — so the same (spread_id, date) can yield a different z-score depending on
+whether a cache existed." F2 C3 removed that cause: both the disk path and the
+recompute path now apply the asof-frozen model over the full history and truncate the
+level afterward (F2_spec.md R10) — there is no longer a per-path row-count difference
+for the guard to be protecting against.
+Severity: blocks EQ_ROLLING residual configs entirely
+Suggested track: new, after F2 merges — lifting the guard still needs the explicit
+span parameter the guard's own message calls for; not decided or touched in F2
