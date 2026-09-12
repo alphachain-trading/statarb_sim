@@ -101,6 +101,30 @@ Snapshot data can differ from a local cache (`found.md`, series staleness axis 1
 so the wiring is not neutral by construction. It lands in commits separate from
 the flag unification, each with its own `B_baseline.txt` check.
 
+**This wiring is the structural fix for a live, order-dependent defect, not
+just a staleness-prevention measure** (`I_spec.md`'s H1/H4 amendment).
+`_load_umd`'s multi-group merge (`_merge_umds`, `simulator_factory.py:452-499`)
+silently discards every group-after-the-first's own independently-loaded copy
+of any ticker shared across groups (e.g. `SPY`/`^IRX`, both `benchmark`/
+`risk_free` for energy and materials) whenever more than one group is
+simulated together — proved empirically to be order-dependent at the
+trade-count level, not merely a rounding-level price effect: reversing the
+harness's group list changes the trade count itself, 97 → 98. Binding every
+group in a universe to one frozen snapshot download removes the mechanism
+outright — there is nothing left to merge inconsistently, since every group
+reads from the same one immutable capture. This makes the snapshot-wiring half
+of this track carry more weight than the flag-unification half, which the same
+investigation showed to be largely inert: flipping `check_for_corruptions`
+alone, holding everything else fixed, moves nothing in `B_baseline.txt`.
+
+**Reproducibility consequence for G.** No clean post-refactor baseline
+(README's "A new performance baseline gets defined after G") can be defined
+while a multi-group run's prices depend on which group's cache happened to be
+downloaded first and on `DataConfig.groups`' list order — neither is a
+property of the trading logic G exists to measure. This wiring landing before
+G is not only about staleness; it is what makes G's own baseline reproducible
+at all for any multi-group config.
+
 **Measure the unification.** Whatever value wins, at least three paths change. Use
 `B_baseline.txt`, and note the same caveat Track B's `found.md` entry raises: the two
 harness universes have no internal gaps over the harness range, so they may not
