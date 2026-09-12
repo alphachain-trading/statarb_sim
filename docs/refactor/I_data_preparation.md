@@ -1,6 +1,6 @@
 # Track I — Data preparation flags
 
-**Changes results:** likely yes. Unifying four combinations means at least three
+**Changes results:** likely yes. Unifying five combinations means at least four
 call paths change behaviour.
 
 **Depends on:** nothing structurally. **Must run before G.**
@@ -11,7 +11,7 @@ is data preparation, and it sits upstream of everything.
 ## The finding
 
 `start_after_nan` and `check_for_corruptions` control how raw price data is cleaned
-before anything else runs. There are **four combinations** in the repo, and **no
+before anything else runs. There are **five combinations** in the repo, and **no
 caller overrides any of them** — every path just takes whatever default it happens to
 reach.
 
@@ -21,6 +21,18 @@ reach.
 | `PanelBatchConfig` (`panel_batch.py:102,150-152`) | `False` | `True` |
 | `market_snapshot.py:277` (hardcoded literal) | `True` | `False` |
 | `UniverseDataLoader.load` signature (`universe_loader.py:36`) | `True` | `True` |
+| `CandidateGenerationConfig` (F2 C6b) | inherits `PanelBatchConfig` | inherits `PanelBatchConfig` |
+
+The fifth was added deliberately in F2's C6b. Wiring live candidate generation
+into the simulator meant the generator would otherwise have inherited
+`DataConfig`'s flags while the offline walk kept `PanelBatchConfig`'s, which moved
+`pair_notional` on nearly every trade. Giving `CandidateGenerationConfig` its own
+fields defaulting to `PanelBatchConfig`'s values kept C6b neutral and preserved
+the mismatch rather than resolving it — see `found.md`'s four-combinations entry.
+
+This is now the path the simulator actually uses for candidate generation, so it
+is not a peripheral fifth case. It also conflicts with Track D's no-defaults rule,
+which this track is the one to resolve.
 
 So the panel build and the simulator clean the same raw data differently, and Track
 C's snapshot path introduced a third combination as a hardcoded literal.
@@ -81,6 +93,16 @@ the flag unification, each with its own `B_baseline.txt` check.
 harness universes have no internal gaps over the harness range, so they may not
 exercise NaN handling at all. A universe or date range with real gaps is needed to
 see the effect. Report the count of trimmed observations per group before and after.
+
+## Per-commit baseline checks
+
+Every result-changing commit in this track reports its own `B_baseline.txt` diff
+with an explanation, as F2's C3 did. Not one combined diff at the end.
+
+This track and Track J are both potentially result-changing and both land before
+G. If their changes arrive as one undifferentiated shift, a contaminated G
+comparison cannot be attributed to a cause. Per-commit attribution is what makes
+that recoverable.
 
 ## Out of scope
 
