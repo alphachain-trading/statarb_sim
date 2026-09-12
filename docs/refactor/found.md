@@ -231,6 +231,19 @@ deliberately preserving the split rather than fixing it (F2_spec.md's C6b sectio
 has the full before/after). Track I's eventual unification now has a second call
 site to cover, in addition to the original two.
 
+**Update (F2 C6c):** `CandidateGenerationConfig.force_download`/
+`check_for_corruptions`/`start_after_nan` (`src/simulator/config.py`) default to
+`PanelBatchConfig`'s own values, deliberately, for the neutrality reason above —
+but that is itself a violation of Track D's rule (`D_config_hygiene.md:14-24`:
+"No result-affecting numeric default remains in the config dataclasses or in any
+default factory... No layer above may reinstate a default the layer below
+deliberately omits"). These three flags are exactly the kind of result-affecting
+default Track D's rule targets, and this config adds a **third** silent instance
+of it (`DataConfig`, `PanelBatchConfig`, now `CandidateGenerationConfig`), not a
+second. Deliberate and documented here rather than accidental, but it does not
+make the default itself compliant. Track I's unification now has three call
+sites to cover, not two.
+
 ## `series/` staleness has three separate axes — only one is being fixed
 Found during: track E (review of the `(group_id, ticker)` re-key)
 Location: `src/residuals/series.py`; the `series/` artifact directory; stem
