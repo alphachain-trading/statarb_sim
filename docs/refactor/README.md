@@ -18,6 +18,7 @@ be folded into the implementation session as a stop-and-report first step.
 | F1 | Artifact schema | no | C, D, E | merged |
 | F2 | Loop, series, fidelity | **yes** (one commit) | F1 | |
 | I | Data preparation flags | **yes** | — | |
+| J | Retire offline panel path | possibly | F2 | |
 | G | Hedge mode | **yes** | B, D, I | |
 | H | Occupancy policy | **yes** | G | deferred |
 
@@ -30,13 +31,25 @@ halves.
 Track I was split out of F — it is data preparation, not artifact layer, and it must
 land before G.
 
+Track J was split out of F2 — F2's own C6c ("delete the offline path") found two
+live consumers (`sweep_runner.py`, `run_me.py`'s `residuals` stage) with no
+live-generation equivalent, so migrating them and deleting `run_panel_batch` became
+its own track rather than F2's last commit. See `F2_spec.md` R11 and
+`J_retire_offline_panel_path.md`.
+
 ## Order
 
-Remaining: **F2 → I → G**. H only when a run actually needs multiple sleeves in
+Remaining: **F2 → I → J → G**. H only when a run actually needs multiple sleeves in
 one run; the guard added in Track A is the trigger.
 
-I must not run in parallel with F2: its loader wiring touches `run_panel_batch`,
-which F2 deletes (`F2_spec.md`, overlap note). I must precede G.
+J precedes G because J is potentially result-changing (the equivalence test that
+justifies deleting the offline path covers only two universes today) — it must land
+before G's post-sweep performance baseline is defined, for the same reason I does.
+
+I must not run in parallel with J: Track I's flag unification touches all three of
+`DataConfig`, `PanelBatchConfig`, and `CandidateGenerationConfig`
+(`found.md`, "four combinations" entry) while all three still exist; J deletes
+`PanelBatchConfig`. I must precede both J and G.
 
 ## Standing rules for every track
 
