@@ -7,6 +7,7 @@ from typing import Literal
 import pandas as pd
 
 from src.candidates.candidate_selector import CandidateSelectionConfig
+from src.candidates.pair_candidate_panel_creator import PairSpreadConfig
 from src.residuals.causal_residuals import CausalResidualConfig
 
 _GROUP_ABBREV = {
@@ -778,6 +779,46 @@ class DebugSampleConfig:
             raise ValueError("DebugSampleConfig.spread_ids must not be empty when given.")
 
 
+@dataclass(slots=True, frozen=True)
+class CandidateGenerationConfig:
+    """
+    F2 C6b: config for generating candidates live, inside the simulator, via
+    src.simulator.candidate_generation.generate_candidates -- instead of
+    loading a panel/weights/residual_params built earlier by the offline
+    run_panel_batch path. Mirrors PanelBatchConfig's own per-group scoring
+    parameters, since candidate_generation.py calls the exact same
+    underlying scoring functions PanelBatchConfig's own walk does.
+
+    Opt-in (SimulatorConfig.candidate_generation: ... | None = None):
+    when set, run_from_config generates live instead of loading from disk.
+    Requires SimulatorConfig.residual to be set explicitly (there is no
+    persisted panel metadata to resolve it from) and DataConfig.selected_groups
+    to be a plain list of group_id strings (not the stem-based GroupDataSource
+    discovery the disk-load path uses).
+
+    force_download/check_for_corruptions/start_after_nan default to
+    PanelBatchConfig's own class defaults (False/False/True), not
+    DataConfig's (False/True/True) -- found.md's "four combinations, no
+    caller states either" entry. The offline path built candidate panels
+    (weights, hedge ratios, residual coefficients) under PanelBatchConfig's
+    flags, and simulated under DataConfig's, and that mismatch is baked
+    into every committed B_baseline.txt to date. This config generates
+    candidates under its own explicit UMD load (matching PanelBatchConfig's
+    defaults) so C6b stays neutral against that baseline -- it does not fix
+    the mismatch. Unifying the two is Track I's job, not F2's.
+    """
+    pair_cfg: PairSpreadConfig
+    hedge_ratio_lb: int
+    mr_diag_lb: int
+    frequency: str | None = None
+    start_date: str | None = None
+    end_date: str | None = None
+    max_steps: int | None = None
+    force_download: bool = False
+    check_for_corruptions: bool = False
+    start_after_nan: bool = True
+
+
 TraderConfig = PortfolioMeanReversionConfig | PairSpreadTraderConfig
 
 
@@ -807,6 +848,7 @@ class SimulatorConfig:
     risk_manager: RiskManagerConfig | None = None
     entry_features: EntryFeatureConfig | None = None
     debug_sample: DebugSampleConfig | None = None
+    candidate_generation: CandidateGenerationConfig | None = None
 
     def __post_init__(self) -> None:
         z_configs = self.resolved_z_score_configs()

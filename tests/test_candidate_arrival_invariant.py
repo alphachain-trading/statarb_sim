@@ -33,19 +33,22 @@ class TestEntryAsofDateInvariant(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         import b_baseline_harness as harness
+        from src.simulator.simulator_factory import generate_candidate_panels_by_group, run_from_config
 
-        _, panel_results = harness._build_panels()
+        prelim_sim_config = harness._build_sim_config(harness.GROUPS)
+        panel_results = generate_candidate_panels_by_group(prelim_sim_config)
         active_groups = sorted({
-            group_id for (group_id, _residual_key), pr in panel_results.items()
-            if len(pr.panel) > 0
+            group_id for (group_id, _residual_key), v in panel_results.items()
+            if len(v["panel"]) > 0
         })
         if not active_groups:
             cls.trades_df = None
             return
 
-        sim_config = harness._build_sim_config(active_groups)
-
-        from src.simulator.simulator_factory import run_from_config
+        sim_config = (
+            prelim_sim_config if active_groups == harness.GROUPS
+            else harness._build_sim_config(active_groups)
+        )
         result = run_from_config(sim_config)
         cls.trades_df = result.closed_trades_df()
 

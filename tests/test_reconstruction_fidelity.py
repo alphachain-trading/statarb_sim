@@ -58,6 +58,8 @@ class TestReconstructionFidelity(unittest.TestCase):
     def setUpClass(cls):
         import dataclasses
         import b_baseline_harness as harness
+        from src.candidates.panel_batch import PanelBatchConfig, run_panel_batch
+        from src.simulator.config import DataConfig
         from src.simulator.simulator_factory import (
             run_from_config,
             create_simulator,
@@ -68,12 +70,58 @@ class TestReconstructionFidelity(unittest.TestCase):
             _load_panels,
         )
 
-        _, panel_results = harness._build_panels()
+        # This test's whole point is verifying reconstruction from persisted
+        # (disk) artifacts, independently reloaded from the live run's own
+        # CandidateSignalGenerator instance -- so it deliberately builds
+        # panels via the offline run_panel_batch path (still shipped
+        # alongside F2 C6b's live in-simulator generation; not deleted until
+        # C6c), not via b_baseline_harness's own live-generation
+        # _build_sim_config/generate_candidate_panels_by_group. Reuses the
+        # harness's own small-universe constants/helpers so this stays the
+        # same fixture the harness uses, just built through the disk path.
+        panel_cfg = PanelBatchConfig(
+            residual_configs=[harness._residual_cfg()],
+            hedge_ratio_lb=harness.HEDGE_RATIO_LB,
+            mr_diag_lb=harness.MR_DIAG_LB,
+            selected_groups=harness.GROUPS,
+            universe_name=harness.UNIVERSE_NAME,
+            frequency="W-FRI",
+            start_date=harness.PANEL_START_DATE,
+            max_steps=harness.MAX_STEPS,
+            pair_cfg=harness._pair_cfg(),
+            persist_result=True,
+            persist_residual_params=True,
+            persist_dir_template=harness.PANEL_SUBDIR,
+        )
+        panel_results = run_panel_batch(panel_cfg)
         active_groups = sorted({
             group_id for (group_id, _residual_key), pr in panel_results.items()
             if len(pr.panel) > 0
         })
-        sim_config = harness._build_sim_config(active_groups)
+
+        # Start from the harness's own (C6b, live-generation) sim config for
+        # every field this test doesn't care about (z_score/trader/sizing/
+        # risk_manager/run/entry_features are unchanged by C6b), then swap in
+        # the disk-based data config and clear candidate_generation/residual
+        # so run_from_config takes the offline disk-load branch instead of
+        # live generation. residual must be None here, not just
+        # candidate_generation: _resolve_residual_configs short-circuits to
+        # {"": config.residual} when config.residual is set (simulator_factory.py),
+        # which would key residual_configs by "" instead of the panel's real
+        # residual_key and break the lookup — the live-generation config sets
+        # residual because it has no metadata to resolve it from; the disk
+        # path must not.
+        sim_config = dataclasses.replace(
+            harness._build_sim_config(active_groups),
+            data=DataConfig(
+                candidate_panel_subdir=harness.PANEL_SUBDIR,
+                selected_groups=active_groups,
+                universe_name=harness.UNIVERSE_NAME,
+                data_path=str(harness.DATA_UNIVERSES),
+            ),
+            candidate_generation=None,
+            residual=None,
+        )
         sim_config = dataclasses.replace(
             sim_config,
             debug_sample=DebugSampleConfig(n_pairs=2, seed=0, spread_ids=SAMPLE_SPREAD_IDS),

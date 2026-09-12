@@ -1395,3 +1395,45 @@ they are provably identical. Replaced that framing with an explicit
 determinism assertion in the test itself (build twice, `assert_frame_equal`,
 then use one) — the test's real assumption is now the same thing that was
 empirically checked here, not a claim narrated in a docstring.
+
+### C6b — wiring live generation in; the UMD corruption-flag mismatch
+
+Wired `config.candidate_generation` into `run_from_config` (`_generate_candidates_live`
+→ `generate_candidate_panels_by_group`, `src/simulator/simulator_factory.py`) and
+switched `b_baseline_harness.py`'s `## counts` section to read the generator's
+per-group output instead of calling `run_panel_batch`.
+
+First wiring attempt reused `run_from_config`'s single merged `umd` (loaded under
+`DataConfig`'s flags) for candidate scoring too. That is NOT what the offline
+pipeline did: `run_panel_batch` loads its own UMD per group under
+`PanelBatchConfig`'s flags (`panel_batch.py:150-152`:
+`force_download=False, check_for_corruptions=False, start_after_nan=True`),
+separately from `run_from_config`'s simulation-side load under `DataConfig`'s
+flags (`config.py:207-209`: `force_download=False, check_for_corruptions=True,
+start_after_nan=True`). This is the same asymmetry already recorded in
+`found.md`'s "four combinations, no caller states either" entry — previously
+just an inconsistency; now it has a concrete, measured consequence.
+
+Confirmed by running the harness with the shared-`umd` wiring: `## counts` and
+trade count/ids/dates/directions/z-scores were unchanged (97 trades, identical),
+but `pair_notional` and downstream performance metrics differed by rounding-level
+amounts on nearly every trade — a real, non-zero, non-timing diff against
+`B_baseline.txt`. Root cause: `check_for_corruptions=True` vs `False` changes how
+the corruption-cleaning step treats the raw price data before returns are
+computed, moving every level and hedge ratio slightly.
+
+Fix: added `force_download`/`check_for_corruptions`/`start_after_nan` fields to
+`CandidateGenerationConfig` (`src/simulator/config.py`), defaulting to
+`PanelBatchConfig`'s own values (`False`/`False`/`True`), and changed
+`generate_candidate_panels_by_group` to load its own UMD per group under these
+flags (matching `run_panel_batch`'s per-group `UniverseDataLoader(...).load(...)`
+call exactly), rather than reusing the umd `run_from_config` loaded for
+simulation. Re-ran the harness: `B_baseline.txt` diff is now zero-row — only the
+two timing comment lines changed, `## counts`/`## trades`/`## performance
+metrics` byte-identical.
+
+This deliberately preserves the pre-existing inconsistency rather than fixing
+it — C6b's job is neutrality against `B_baseline.txt`, not correctness. Real
+unification (one UMD-loading policy for both scoring and simulating) is Track
+I's job; `found.md`'s existing entry now also names this call site as a second
+place that inherits the fix once Track I lands.

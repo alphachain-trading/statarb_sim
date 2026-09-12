@@ -75,7 +75,12 @@ from src.simulator.sweep_runner import SweepConfig, dedup_key
 # SimulatorConfig.debug_sample: DebugSampleConfig | None = None (additive,
 # always None in standard_v1 -- the fidelity test's own debug-sample capture
 # is opt-in, not part of any default bundle).
-_PRE_REGISTRY_HASH = "4e493ec7448c3242461eb6ee9874164a"
+#
+# Updated again (4e493ec7... -> 312a5f07...) when Track F2 C6b added
+# SimulatorConfig.candidate_generation: CandidateGenerationConfig | None =
+# None (additive, always None in standard_v1 -- live candidate generation
+# is opt-in; the offline load path stays the default).
+_PRE_REGISTRY_HASH = "312a5f07996e50fe34b0938ac323d0b4"
 
 
 class TestSweepDefaults(unittest.TestCase):

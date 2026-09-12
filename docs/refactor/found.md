@@ -215,6 +215,22 @@ and simulator would contaminate a comparison whose expected effect is thin.
 Severity: result-affecting, depends on construction path
 Suggested track: I — before G
 
+**Update (F2 C6b):** this stopped being purely theoretical. Wiring live candidate
+generation into the simulator (`generate_candidate_panels_by_group`,
+`src/simulator/simulator_factory.py`) initially reused `run_from_config`'s single
+merged `umd` — loaded under `DataConfig`'s flags — for scoring too, unifying the
+two combinations above by accident. That moved `pair_notional` and downstream
+performance metrics by rounding-level amounts on nearly every trade against
+`B_baseline.txt` (trade count/ids/dates/directions/z-scores unchanged; only the
+magnitudes moved) — a measured, non-hypothetical consequence of this entry, not
+just an inconsistency. Fixed for F2's purposes by giving `CandidateGenerationConfig`
+its own `force_download`/`check_for_corruptions`/`start_after_nan` fields
+(defaulting to `PanelBatchConfig`'s values) and having
+`generate_candidate_panels_by_group` load its own per-group UMD under them,
+deliberately preserving the split rather than fixing it (F2_spec.md's C6b section
+has the full before/after). Track I's eventual unification now has a second call
+site to cover, in addition to the original two.
+
 ## `series/` staleness has three separate axes — only one is being fixed
 Found during: track E (review of the `(group_id, ticker)` re-key)
 Location: `src/residuals/series.py`; the `series/` artifact directory; stem
@@ -433,13 +449,13 @@ verified) — the process/documentation error is the finding
 Suggested track: none — process note; relevant context if F2's fidelity
 test session revisits commit 4's neutrality argument
 
-## `config_hash` has shifted eight times during this refactor
+## `config_hash` has shifted nine times during this refactor
 Found during: tracks A, C, E, F1, F2
 Location: `src/simulator/simulation_persistence.py:32-44` (`hash_config`, which
 serializes the full `SimulatorConfig` via `json.dumps(..., sort_keys=True)` — field
 NAMES as well as values)
 What: Because field names are hashed, any field added, removed or renamed shifts
-`config_hash` for every config, even when no resolved value changes. Eight such
+`config_hash` for every config, even when no resolved value changes. Nine such
 changes have landed, each caught by
 `tests/test_sweep_defaults.py::test_standard_v1_output_is_hash_stable`:
 
@@ -453,10 +469,11 @@ changes have landed, each caught by
 | F1.6 | `DataConfig.snapshot_id` added | `7a5f6834` -> `89b82e76` |
 | F1.8c | `PersistenceConfig.artifacts` default tuple shortened (a value change, not a field change) | `89b82e76` -> `0bc1e2a0` |
 | F2.C5 | `SimulatorConfig.debug_sample: DebugSampleConfig \| None` added | `0bc1e2a0` -> `4e493ec7` |
+| F2.C6b | `SimulatorConfig.candidate_generation: CandidateGenerationConfig \| None` added | `4e493ec7` -> `312a5f07` |
 
 Harmless in `statarb_sim`, which has no persisted run dirs. In `hierarchical-arb`
 every existing persisted run becomes unreachable by hash once these are ported. The
-standing port rule is one atomic commit per fix, which would orphan runs eight times
+standing port rule is one atomic commit per fix, which would orphan runs nine times
 in sequence — consider porting the hash-breaking subset as a single batch and
 re-keying once.
 
