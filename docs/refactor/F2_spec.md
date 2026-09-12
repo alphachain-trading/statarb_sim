@@ -1100,3 +1100,23 @@ is the same non-determinism `SimulatorConfig.__post_init__` raises on
 C3 removes that guard's cause: both paths now use the full history. Whether the guard
 can be lifted is a separate decision, deferred — it needs the explicit span parameter
 the guard's message describes. **Do not touch the guard in F2.**
+
+### C4 result — correction: the moved field is `pair_notional`, not `realized_pnl_gross`
+
+The C4 stop report misread `B_baseline.txt`'s column alignment. `TRADE_COLS`
+(`b_baseline_harness.py:82-87`) orders columns as `trade_id, group_id, spread_id,
+entry_date, exit_date, days_open, direction, pair_notional, entry_z_score,
+exit_z_score, realized_pnl_gross, realized_pnl_net`. For trade `20061101:a971fcf5`,
+the value that moved (`154628.238305 -> 154628.238304`) is **`pair_notional`**;
+`realized_pnl_gross` (`2382.007568`) and `realized_pnl_net` (`2275.010938`) are both
+unchanged.
+
+This fits R7 more precisely than the original report claimed: `pair_notional` comes
+from `SizingEngine`'s vol-normalization, which scales `base_pair_notional` by
+`median_roll_std / a.roll_std` — `roll_std` is one step downstream of the level, so
+the same rounding-order difference between `np.diff(levels)` and direct
+`spread_return` propagates directly into it. The two PnL columns are computed from
+integer share counts (rounded at execution) and are printed to six decimals on
+figures in the thousands — a relative difference on the order of `1e-11` is well
+below both that rounding and that print precision, so they show as unchanged even
+though the same underlying floating-point noise is present there too, in principle.
