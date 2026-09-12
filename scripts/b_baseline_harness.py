@@ -29,12 +29,28 @@ answered by the ## counts section (candidate/trade counts), not by the
 
 Usage:
     python scripts/b_baseline_harness.py
+    python scripts/b_baseline_harness.py --allow-existing-artifacts
+
+Artifacts guard (F2 E8, found.md "A leftover artifacts directory silently serves
+stale values into a before/after diff"): PANEL_DIR accumulates across runs —
+run_panel_batch stamps a fresh timestamped stem on every build but never deletes
+an older one, so a before/after comparison against this harness can silently
+read a stale panel/weights/residual-params stem left over from a previous run
+instead of the one this run just built. This is exactly how F2's own R1-impact
+measurement first went wrong. At startup this script reports PANEL_DIR's file
+count and newest mtime and refuses to proceed if it is non-empty, unless
+--allow-existing-artifacts is passed. Guard only — it never deletes anything;
+clear PANEL_DIR by hand (or pass the flag once you've confirmed the leftovers are
+harmless for what you're about to measure).
 """
 from __future__ import annotations
 
+import argparse
+import sys
 import time
+from pathlib import Path
 
-from src.settings import DATA_UNIVERSES, PROJECT_ROOT
+from src.settings import CANDIDATE_PANELS_ROOT, DATA_UNIVERSES, PROJECT_ROOT
 from src.candidates.panel_batch import PanelBatchConfig, run_panel_batch
 from src.candidates.pair_candidate_panel_creator import PairSpreadConfig
 from src.residuals.causal_residuals import CausalResidualConfig, ResidualMode
@@ -78,6 +94,7 @@ MIN_OBS = 252
 PANEL_START_DATE = "2006-09-08"
 
 OUT_PATH = PROJECT_ROOT / "docs" / "refactor" / "B_baseline.txt"
+PANEL_DIR = Path(CANDIDATE_PANELS_ROOT) / PANEL_SUBDIR
 
 TRADE_COLS = [
     "trade_id", "group_id", "spread_id",
@@ -85,6 +102,44 @@ TRADE_COLS = [
     "pair_notional", "entry_z_score", "exit_z_score",
     "realized_pnl_gross", "realized_pnl_net",
 ]
+
+
+def _check_artifacts_dir(*, allow_existing: bool) -> None:
+    """
+    Report PANEL_DIR's contents and refuse to proceed if non-empty, unless
+    explicitly allowed (F2 E8). Guard only — never deletes anything.
+
+    This is the one artifacts directory this harness reads from and writes
+    to: run_panel_batch persists candidate-panel/weights/residual-params
+    files here (persist_dir_template=PANEL_SUBDIR), and run_from_config's
+    loaders (simulator_factory.py::_load_panels/_load_residual_params/
+    _load_weights) discover and read them back from the same place. Nothing
+    in this harness clears it between runs, so files from a previous run —
+    or a previous session, possibly hours or days old — can silently sit
+    alongside, or instead of, the ones this run just built.
+    """
+    if not PANEL_DIR.exists():
+        print(f"[harness] artifacts dir {PANEL_DIR} does not exist yet — nothing to check.")
+        return
+
+    files = [p for p in PANEL_DIR.rglob("*") if p.is_file()]
+    print(f"[harness] artifacts dir: {PANEL_DIR}")
+    print(f"[harness]   file count: {len(files)}")
+    if files:
+        newest = max(files, key=lambda p: p.stat().st_mtime)
+        newest_mtime = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(newest.stat().st_mtime))
+        print(f"[harness]   newest mtime: {newest_mtime} ({newest.name})")
+
+    if files and not allow_existing:
+        sys.exit(
+            f"[harness] {PANEL_DIR} is non-empty ({len(files)} files) — refusing to "
+            "run a before/after comparison against a directory that may contain "
+            "stale panel/weights/residual-params files from a previous run "
+            "(found.md: \"A leftover artifacts directory silently serves stale "
+            "values into a before/after diff\"). Inspect and clear it by hand, or "
+            "pass --allow-existing-artifacts once you've confirmed the leftovers "
+            "are harmless for what you're about to measure."
+        )
 
 
 def _residual_cfg() -> CausalResidualConfig:
@@ -159,6 +214,15 @@ def _build_sim_config(active_groups: list[str]) -> SimulatorConfig:
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--allow-existing-artifacts",
+        action="store_true",
+        help="Proceed even if PANEL_DIR already has files from a previous run (F2 E8).",
+    )
+    args = parser.parse_args()
+    _check_artifacts_dir(allow_existing=args.allow_existing_artifacts)
+
     panel_build_time, panel_results = _build_panels()
 
     active_groups = sorted({
