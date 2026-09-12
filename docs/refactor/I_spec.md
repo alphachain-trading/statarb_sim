@@ -821,11 +821,14 @@ are already present after `umds[0]` (energy, given `GROUPS = ["energy",
 "materials"]`), materials' own independently-loaded `SPY`/`^IRX` are **silently
 discarded**, and every group after the first computes its bundle against
 whichever group loaded first's copy of the shared ticker — even though the two
-copies are not identical (measured: up to $1.24 apart on `SPY`'s `Close`,
-almost certainly two different corporate-action adjustment vintages from two
-separate downloads, i.e. exactly `found.md`'s "series/ staleness axis 1" —
+copies are not identical (measured: up to $1.24 apart on `SPY`'s `Close`;
+H4b below tests the "different download vintages" explanation directly and
+finds it only partly right — a genuine but much smaller adjustment-factor
+drift spans the whole history, while the $1.24 itself is a single-row,
+same-day capture-time artifact, not a classic corporate-action re-adjustment
+shape). This connects to `found.md`'s existing "series/ staleness axis 1" —
 "market data revised underneath an artifact" — one layer closer to raw price
-data than where that entry already tracks it). This is the real "different
+data than where that entry already tracks it. This is the real "different
 ticker set reaching `build_group_return_bundle`'s `dropna='any'`" mechanism —
 more precisely, a different *value* for a nominally-shared ticker, not a
 different set of dates, and it explains materials' larger movement directly.
@@ -891,10 +894,66 @@ generation specifically:
 > group's own, independently-loaded copy is discarded, even though the two
 > are not guaranteed identical. Measured on the two harness universes: `SPY`'s
 > `Close` differs by up to $1.24 between energy's own cache and materials' own
-> cache over their common date range (likely divergent corporate-action
-> adjustment vintages from separate downloads — `found.md`'s existing "series/
-> staleness has three separate axes" entry, axis 1, one layer closer to raw
-> price data than where that entry currently points).
+> cache over their common date range.
+>
+> **Order dependence, proved directly (Track I spec amendment, H4a).** Since
+> `merged_prices = umds[0].prices.copy()` (`:494`), which group's copy of a
+> shared ticker wins depends purely on `config.data.groups`' list order — not
+> on any semantic property of the groups. Confirmed by calling
+> `b_baseline_harness.py`'s own `_build_sim_config` with the group list
+> reversed (`["materials", "energy"]` instead of `["energy", "materials"]`)
+> and running the identical `run_from_config` path: **the trade count itself
+> changes, 97 → 98** — an extra trade (`COP|HAL`, entered 2006-09-08) appears
+> in the reversed run that does not exist in either direction's baseline.
+> Every other originally-listed trade's `pair_notional`/z-scores also shift by
+> the same rounding-level amounts as H1's original (unreversed) merge
+> experiment, but the count change is the sharper fact: this is not a
+> case where the same 97 trades move by a small amount — reordering
+> `DataConfig.groups` changes *which trades exist at all*. A result that
+> depends on which order a config lists its groups in is a config-hygiene
+> defect in its own right (Track D's territory in spirit, though D predates
+> this code), independent of anything about `check_for_corruptions` or any
+> other data-preparation flag.
+>
+> **The vintage hypothesis, tested directly (Track I spec amendment, H4b).**
+> `energy_only_v1/prices_daily.parquet` mtime `2026-07-13 17:14:03 +0200`;
+> `materials_only_v1/prices_daily.parquet` mtime `2026-07-13 15:31:45 +0200`
+> — same day, downloads ~1h42m apart. The divergence is not one clean shape;
+> it is two, superimposed:
+> (1) A genuine but tiny multiplicative drift spans nearly the whole common
+> history for `SPY` only: 6972 of 9198 common dates differ, but by a nearly
+> constant, minuscule ratio (`Close_energy / Close_materials`, mean
+> 0.99999980, std 1.8e-5) — consistent with `auto_adjust=True` recomputing
+> the *entire* cumulative dividend-adjustment factor slightly differently
+> depending on the exact download moment, exactly the "series staleness axis
+> 1" mechanism (`found.md`), just at a far smaller magnitude than the
+> headline $1.24 number suggested.
+> (2) The dominant, materially large divergence — the full $1.24 / 0.165% on
+> `SPY`, and `^IRX`'s only nonzero-diff date at all — is confined to exactly
+> **one row**: the single most recent trading day common to both files
+> (2026-07-13, the day of both downloads). `^IRX` (a T-bill yield with no
+> dividends, splits, or adjustment factor to recompute at all) is
+> bit-for-bit identical to materials' own copy on every other one of its
+> 9198 rows and differs only on that same last date — ruling out corporate-
+> action re-adjustment as the cause for *this* row and pointing instead at
+> the newest bar's close/print still being provisional and settling
+> differently between two downloads taken under two hours apart. So: real
+> (if microscopic) re-adjustment drift across history for adjustable
+> tickers, plus a separate, much larger, single-row instability on the
+> newest bar for every ticker regardless of adjustability — not the clean
+> single-mechanism "re-adjustment vintage" story this entry first proposed.
+>
+> **The existing warning mechanism is already off.** `_merge_umds` has its
+> own overlap-consistency check (`:464-491`, printing a warning when two
+> umds' overlapping-ticker `Close` values differ by more than 1e-6) — but
+> `_load_umd`'s only call site passes `validate_overlap=False` explicitly
+> (`:449`), so this check **never runs** for any production caller today.
+> Even the weak, print-only safeguard that exists in the code is dormant.
+> Per the standing rule (loud failures, never silent fallback,
+> `README.md`'s "The rest" section), a detected mismatch between two
+> supposedly-identical copies of the same ticker should raise, not print —
+> printing has already proven ineffective, since this mismatch shipped in
+> every committed multi-group `B_baseline.txt` to date with nobody noticing.
 >
 > Live today, not hypothetical: `_load_umd` (`simulator_factory.py:411-449`)
 > calls `_merge_umds` whenever `config.data.resolved_groups()` returns more
@@ -918,10 +977,16 @@ generation specifically:
 > Severity: result-affecting, live today, independent of Track I's flag
 > unification (unifying `check_for_corruptions`/`start_after_nan`/
 > `force_download` values does not touch `_merge_umds` and would not fix
-> this)
-> Suggested track: new — likely more urgent than Track I's own scope, since
-> it is a correctness bug in a currently-shipped multi-group path, not a
-> preparation-flag inconsistency
+> this) — and sharper than a magnitude question: H4a shows the *trade count*
+> depends on `DataConfig.groups`' list order, not just trade-level PnL/z-score
+> magnitudes.
+> Suggested track: new (interim fix: make the existing `validate_overlap`
+> mismatch raise instead of print, or pass `validate_overlap=True` at
+> `simulator_factory.py:449` at minimum) or resolved structurally by Track I's
+> snapshot wiring (Scope item 2) — one snapshot binds every group in a
+> universe to one frozen download, leaving nothing for `_merge_umds` to
+> disagree about. Which of the two happens first is a scope decision for
+> whoever owns Track I, not decided here.
 
 **The brief needs two corrections** (`I_data_preparation.md`, both added in
 this session's Step 0 before H1 was run):
@@ -988,14 +1053,97 @@ both:
 - Line 41: "...not one default too many, but **five** silent answers to the
   same semantic question, selected by which path the data happens to take."
 
+### H4 — order dependence, the vintage hypothesis, and the scope decision
+
+Two further measurements, both reverted, no source files left changed (see
+each subsection for method). Full detail and exact numbers are folded into the
+proposed `found.md` entry above, under "Order dependence, proved directly
+(H4a)" and "The vintage hypothesis, tested directly (H4b)" — this section
+gives the methodology and the headline results only.
+
+**(a) Order dependence.** `b_baseline_harness.py`'s own `main()` normalizes
+`active_groups` to alphabetical order before building the simulate-side
+config (`active_groups == GROUPS` gates whether `prelim_sim_config` is reused
+or rebuilt from the sorted list — `b_baseline_harness.py:249-251`), so simply
+editing the module-level `GROUPS` list and rerunning `main()` would not
+actually test order-dependence: the normalization would silently restore
+alphabetical order for the simulate step regardless. Instead, called the
+harness's own `_build_sim_config(["materials", "energy"])` directly (group
+list reversed) and ran it through the identical `run_from_config` →
+`closed_trades_df()` path the harness itself uses, bypassing only the
+`main()`-level active-group bookkeeping. Sanity-checked first: calling
+`_build_sim_config(["energy", "materials"])` (original order) through this
+same direct path reproduces the committed `B_baseline.txt`'s trades table
+byte-for-byte, confirming the shortcut is valid before trusting the reversed
+result. **Reversed: 98 trades, not 97** — a new trade (`COP|HAL`, entered
+2006-09-08) appears that does not exist in the original-order run, on top of
+the same rounding-level `pair_notional`/z-score shifts H1 already found.
+Trade *count* depending on config-list order is a sharper, more concrete
+statement of the defect than a price delta: it is not arguable as
+"immaterial at this precision," the way a rounding-level PnL shift can be
+waved off as noise.
+
+**(b) The vintage hypothesis.** Reported both cache files' mtimes
+(`stat`) and inspected the two independently-cached `SPY`/`^IRX` series
+directly (ratio and diff, per-date, across their full common history — not
+just the aggregate max). Result is not the single clean story either the
+"root cause" text or this spec's own H1 first proposed: a genuine but
+tiny (~1e-6 relative) multiplicative drift spans nearly the whole 33-year
+common history for `SPY` only (consistent with a real, minuscule
+adjustment-factor recalculation between download times), while the dominant,
+materially large divergence — the full $1.24 on `SPY`, and `^IRX`'s *only*
+nonzero-diff date out of 9198 — is confined to exactly one row: the single
+most recent trading day common to both files, the day both downloads
+happened. `^IRX` has no dividends or splits to re-adjust at all, so its
+identical-everywhere-except-that-one-row pattern rules out corporate-action
+re-adjustment as the explanation for the headline number specifically,
+pointing instead at the newest bar's close still being provisional and
+settling differently between two downloads under two hours apart. Reported
+plainly as "both, superimposed," not forced into either the "isolated bad
+row" or the "clean re-adjustment" shape alone, since the evidence supports
+neither exclusively.
+
+**(c)** Done — folded into the proposed `found.md` entry above (H4a/H4b
+subsections, plus the `validate_overlap=False` / loud-failure addition:
+`_load_umd`'s only call to `_merge_umds` passes `validate_overlap=False`
+explicitly at `simulator_factory.py:449`, so the function's own existing
+overlap-mismatch check — which would otherwise print a warning past a 1e-6
+threshold — never runs for any production caller today; per the standing
+loud-failures rule, a real mismatch should raise, not print, especially
+since printing has already shipped silently in every committed multi-group
+baseline to date).
+
+**(d)** `I_data_preparation.md` amended directly in a separate commit (per
+this instruction, not merely proposed as in H1-H3): states the snapshot
+wiring (Scope item 2) as the structural fix — one snapshot binds every group
+in a universe to a single frozen download, so there is nothing left for
+`_merge_umds` to disagree about, and carries more weight than the flag
+unification, which H1 showed to be largely inert. Names the reproducibility
+consequence for G explicitly: no clean post-refactor baseline can be defined
+while trade counts depend on per-group cache vintage and config-list order.
+
+**The scope decision is explicitly not made here.** Whether `_merge_umds`
+gets an interim `raise` inside Track I, or the defect is left to be made
+moot by the snapshot wiring landing, is left to the brief owner, per this
+turn's own closing instruction.
+
 ### Amendment summary
 
 The flag is inert (measured twice, both directions). `found.md`'s and
 `F2_spec.md`'s "root cause" attribution for C6b's `pair_notional` movement is
 wrong; the real mechanism is `_merge_umds` discarding a shared ticker's
-per-group data, which is live today in every multi-group `run_from_config`
-call, independent of Track I. Proposed corrections given for `found.md`'s C6b
-addendum, a new `found.md` entry, and two lines in the brief; none applied here
-(read-only session, one doc commit). Track I's scope does not shrink; its
-motivating narrative for "changes results" does, and a new, likely more urgent,
-correctness finding falls out of resolving the contradiction.
+per-group data — proved to be order-dependent at the trade-count level (H4a),
+not just a rounding-level price effect — and live today in every multi-group
+`run_from_config` call, independent of Track I. The vintage hypothesis is
+partly right: a genuine, tiny adjustment-factor drift plus a separate,
+dominant, single-row newest-bar instability, not one clean re-adjustment
+story (H4b). `_merge_umds`'s own overlap-mismatch check is already dormant
+(`validate_overlap=False`) and should raise, not print, per the standing
+loud-failures rule. Proposed corrections given for `found.md`'s C6b addendum
+and a new `found.md` entry (not applied — found.md itself was not edited);
+`I_data_preparation.md` was amended directly, in a separate commit, per H4(d)'s
+explicit instruction. Track I's scope does not shrink; its motivating
+narrative for "changes results" does, and a new, likely more urgent,
+correctness finding — now shown to be order-dependent and structurally fixed
+by Track I's own snapshot-wiring item — falls out of resolving the
+contradiction.
