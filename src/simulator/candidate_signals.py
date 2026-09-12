@@ -897,7 +897,15 @@ class CandidateSignalGenerator:
 
         self._asof_residual_cache[cache_key] = residuals
         if len(self._asof_residual_cache) > _ASOF_RESIDUAL_CACHE_MAX:
-            self._asof_residual_cache.popitem(last=False)
+            evicted_key, _ = self._asof_residual_cache.popitem(last=False)
+            logger.warning(
+                "[signals] asof residual cache evicted %r at size %d — an LRU bound "
+                "standing in for R2's ref-counted eviction; this key will be "
+                "recomputed if it is still referenced. F2_spec.md P4 measured a peak "
+                "of 164 concurrently-live keys on a real run, well under this bound, "
+                "so a real eviction here is unexpected and worth investigating.",
+                evicted_key, _ASOF_RESIDUAL_CACHE_MAX,
+            )
 
         return residuals
 
