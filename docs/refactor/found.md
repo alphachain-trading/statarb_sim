@@ -677,3 +677,27 @@ Suggested track: new — fix `make_ranking_dates` to return the actual date of t
 row `.last()` selected, not the resample bin label; re-audit every caller once
 fixed, since some may be relying (even accidentally, like the offline walk) on
 today's masking behavior
+
+## `run_me.py`'s module docstring calls the residuals stage "NOT YET IMPLEMENTED" — it is live
+Found during: F2 C6c pre-check (F5), while scoping what depends on `run_panel_batch`
+before deleting it
+Location: `run_me.py:8-9` (module docstring: "residuals -> fit causal residuals +
+build the candidate panel (NOT YET IMPLEMENTED)"); `stage_residuals`
+(`run_me.py:275-308`), which calls `run_panel_batch` for real at `:280,289,300`;
+`_bootstrap_panel_from_fixtures` (`:315-337`) still calls its own copy
+"not-yet-implemented residuals stage" in a comment (`:317,330`)
+What: The docstring and the fixture-bootstrap comment are both stale. `stage_residuals`
+is a real, working pipeline stage: it builds `PanelBatchConfig` (`_make_panel_batch_cfg`,
+`:218-254`), calls `run_panel_batch`, and for the single-group case adopts the
+freshly-built panel's stem as the pipeline's canonical stem (`_extract_panel_stem`,
+`_update_panel_stem`, `:160-215`) so the `simulate` stage resolves what was just built
+instead of the committed fixtures. Nothing about this is a stub — it is a second,
+independent production caller of `run_panel_batch` (`sweep_runner.py` is the other),
+discovered only because Track J's pre-check went looking for every consumer before
+proposing to delete what they depend on.
+Severity: documentation only — no behavior is wrong, the comments describing the
+behavior are wrong, in a way that would have hidden this exact dependency from a
+narrower grep.
+Suggested track: J (`J_retire_offline_panel_path.md`) — fix the docstring/comment
+when `run_me.py`'s `residuals` stage is migrated off `run_panel_batch`, not before;
+fixing the words without fixing the dependency would just relocate the staleness.
