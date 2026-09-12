@@ -51,6 +51,19 @@ could swamp it.
 
 ## Scope
 
+**What this track covers.** Four things, three of them reassigned here after the
+brief was first written:
+
+1. The flag unification itself — the five combinations above.
+2. Snapshot wiring of the loader call sites (reassigned from F2, README commit
+   `b72a82f`), detailed below.
+3. `CandidateGenerationConfig`'s inherited defaults (added by F2's C6b), which Track
+   D's rule makes this track's business.
+4. `DataConfig.universe_name`'s default and the `snapshot_id` `None` sentinel, per
+   the two `found.md` entries named below.
+
+Anything else found stays in `found.md`.
+
 This is behaviour analysis first, unification second. Do not unify before
 understanding what each flag does.
 
