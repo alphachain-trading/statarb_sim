@@ -3,7 +3,6 @@ from __future__ import annotations
 import logging
 from collections import OrderedDict
 from dataclasses import dataclass, field as dc_field
-from pathlib import Path
 import numpy as np
 import pandas as pd
 
@@ -24,9 +23,6 @@ except Exception:  # pragma: no cover
     adfuller = None
 
 logger = logging.getLogger(__name__)
-
-# Max number of persisted spread level series to hold in memory (LRU).
-_SPREAD_SERIES_CACHE_MAX = 4096
 
 # Max number of asof-frozen full-history residual matrices to hold in memory
 # (LRU). F2 R2's cache is one matrix per (group_id, residual_key, asof_date),
@@ -149,11 +145,6 @@ class CandidateSignalGenerator:
     return_method: str = "log"
     dropna: str = "any"
 
-    # Root candidate-panel dir. When set and a persisted spread level series
-    # exists under panel_dir/series/spread/, the batch path loads levels from
-    # disk instead of recomputing residuals @ weights -> cumsum.
-    panel_dir: Path | None = None
-
     # Precomputed fitted residual model params.
     # Key: (group_id, residual_key) → {date: FittedCausalResidualModel}
     # When residual_key="" (single-timescale), legacy key (group_id, "") is used.
@@ -163,7 +154,6 @@ class CandidateSignalGenerator:
 
     _bundle_cache: dict[str, GroupReturnBundle] = dc_field(default_factory=dict, init=False, repr=False)
     _asof_residual_cache: "OrderedDict[tuple[str, str, pd.Timestamp], pd.DataFrame]" = dc_field(default_factory=OrderedDict, init=False, repr=False)
-    _spread_series_cache: "OrderedDict[str, pd.Series]" = dc_field(default_factory=OrderedDict, init=False, repr=False)
 
     def _get_z_score_config(self, timescale_label: str) -> ZScoreConfig:
         """Look up ZScoreConfig by timescale_label (unique per residual_key + zlb)."""
@@ -310,31 +300,12 @@ class CandidateSignalGenerator:
         """
         Vectorized z-score computation for all candidates in one (group, timescale).
 
-        Builds a (T, n_candidates) level matrix — loaded from persisted spread
-        series when available, otherwise via each candidate's own asof-frozen
-        residual matrix — then computes rolling stats across all candidates at
-        once. Falls back to not-ready for candidates with missing tickers.
+        Builds a (T, n_candidates) level matrix via each candidate's own
+        asof-frozen residual matrix, then computes rolling stats across all
+        candidates at once. Falls back to not-ready for candidates with
+        missing tickers.
         """
-        # Fast path: load persisted spread level series from disk. Keyed per
-        # candidate by (spread_id, asof_date); returns None (→ recompute) if any
-        # candidate's series is missing.
-        if self.panel_dir is not None:
-            disk = self._try_batch_levels_from_disk(refs=refs, date=date)
-            if disk is not None:
-                levels, level_index, spread_returns = disk
-                return self._finalize_batch_states(
-                    valid_refs=refs,
-                    invalid_refs=[],
-                    levels=levels,
-                    level_index=level_index,
-                    spread_returns=spread_returns,
-                    residual_key=residual_key,
-                    timescale_label=timescale_label,
-                    date=date,
-                    skip_diagnostics=skip_diagnostics,
-                )
-
-        # Fallback: recompute residuals @ weights -> cumsum via the shared
+        # Recompute residuals @ weights -> cumsum via the shared
         # spread_primitives.compute_spread_level primitive (F2 R2), always
         # against each candidate's own asof-frozen model (F2 R1) — never
         # "today" (`date`). Refs sharing (group_id, residual_key) can still
@@ -416,9 +387,6 @@ class CandidateSignalGenerator:
     ) -> dict[str, CandidateAnalyticsState]:
         """
         Shared downstream: rolling z-scores + MR diagnostics from a level matrix.
-
-        Used by both the disk-backed and residual-recompute paths of
-        _batch_analytics_for_group.
         """
         out: dict[str, CandidateAnalyticsState] = {
             ref.candidate_id: self._not_ready_analytics(ref=ref, date=date)
@@ -527,76 +495,6 @@ class CandidateSignalGenerator:
             )
 
         return out
-
-    # ── Persisted spread-level series (disk-backed level loading) ───────────
-
-    def _spread_series_path(self, spread_id: str, asof_date: pd.Timestamp) -> Path:
-        """Path to a candidate's persisted level series, keyed by (spread_id, asof_date)."""
-        fname = f"{spread_id.replace('|', '_')}__{pd.Timestamp(asof_date).strftime('%Y%m%d')}.parquet"
-        return self.panel_dir / "series" / "spread" / fname
-
-    def _load_spread_series(self, path: Path) -> pd.Series:
-        """Load a persisted 'level' series (full history), with a small LRU cache."""
-        key = str(path)
-        cache = self._spread_series_cache
-        cached = cache.get(key)
-        if cached is not None:
-            cache.move_to_end(key)
-            return cached
-        s = pd.read_parquet(path)["level"]
-        if not isinstance(s.index, pd.DatetimeIndex):
-            s.index = pd.to_datetime(s.index)
-        cache[key] = s
-        if len(cache) > _SPREAD_SERIES_CACHE_MAX:
-            cache.popitem(last=False)
-        return s
-
-    def _try_batch_levels_from_disk(
-        self,
-        *,
-        refs: list[CandidateRef],
-        date: pd.Timestamp,
-    ) -> tuple[np.ndarray, pd.Index, np.ndarray] | None:
-        """
-        Build (levels, level_index, spread_returns) from persisted spread series.
-
-        Returns None (so the caller recomputes from residuals) if refs is empty
-        or any candidate's persisted series is missing. spread_returns are
-        reconstructed from the level differences for the MR diagnostics path.
-        """
-        if not refs:
-            return None
-
-        paths = [(ref, self._spread_series_path(ref.spread_id, ref.asof_date)) for ref in refs]
-        missing = [ref.spread_id for ref, p in paths if not p.exists()]
-        if missing:
-            logger.warning(
-                "[signals] %d/%d spread level series missing under %s on %s "
-                "(e.g. %s); recomputing from residuals.",
-                len(missing), len(paths), self.panel_dir,
-                pd.Timestamp(date).date(), missing[0],
-            )
-            return None
-
-        date = pd.Timestamp(date)
-        series_list = [self._load_spread_series(p).loc[:date] for _, p in paths]
-
-        # Candidates in one (group, timescale) batch share the group's full
-        # aligned-returns index; align defensively on their common index.
-        common_index = series_list[0].index
-        for s in series_list[1:]:
-            if not s.index.equals(common_index):
-                common_index = common_index.union(s.index)
-
-        if len(common_index) == 0:
-            # date precedes the persisted series — let the caller recompute.
-            return None
-
-        levels = np.column_stack([
-            s.reindex(common_index).to_numpy(dtype=float) for s in series_list
-        ])
-        spread_returns = np.diff(levels, axis=0, prepend=0.0)
-        return levels, common_index, spread_returns
 
     def compute_analytics_from_weights(
         self,

@@ -119,9 +119,8 @@ def load_weights(path: str) -> pd.DataFrame:
 def weights_lookup_from_df(df: pd.DataFrame) -> dict[tuple[str, pd.Timestamp], dict[str, float]]:
     """
     Build the {(spread_id, asof_date): {ticker: weight}} lookup consumed by
-    CandidateFilter.build_candidate_refs / compute_and_persist_series, from
-    one or more concatenated weights.parquet frames (as returned by
-    load_weights).
+    CandidateFilter.build_candidate_refs, from one or more concatenated
+    weights.parquet frames (as returned by load_weights).
     """
     lookup: dict[tuple[str, pd.Timestamp], dict[str, float]] = {}
     for (spread_id, asof_date), g in df.groupby(["spread_id", "asof_date"], observed=True):
@@ -151,9 +150,10 @@ def finalize_candidate_panel(panel: pd.DataFrame) -> pd.DataFrame:
     - asof_date and candidate_id remain normal columns
 
     asof_date is the date this candidate's weights (and residual model) were
-    fitted — an outer refit date, not the daily residual-fit grid. Distinct
-    from a residual model's own fit_date (see src.residuals.series), which
-    the two used to share under one column name.
+    fitted — an outer refit date, not the daily residual-fit grid. Historically
+    distinct from a residual model's own fit_date (the two used to share one
+    column name); F2 C3 made the candidate's asof_date the only fit_date any
+    level consumer looks up (F2_spec.md R1).
     """
     if panel.empty:
         return panel.copy()

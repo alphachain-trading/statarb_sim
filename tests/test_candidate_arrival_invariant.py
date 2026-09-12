@@ -44,7 +44,6 @@ class TestEntryAsofDateInvariant(unittest.TestCase):
             return
 
         sim_config = harness._build_sim_config(active_groups)
-        harness._persist_series(sim_config, active_groups)
 
         from src.simulator.simulator_factory import run_from_config
         result = run_from_config(sim_config)

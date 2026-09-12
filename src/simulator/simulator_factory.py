@@ -81,10 +81,6 @@ def create_simulator(
         zc.timescale_label: zc for zc in z_configs
     }
 
-    panel_dir: Path | None = None
-    if config.data.candidate_panel_subdir:
-        panel_dir = Path(CANDIDATE_PANELS_ROOT) / config.data.candidate_panel_subdir
-
     signal_generator = CandidateSignalGenerator(
         z_score_configs=z_score_by_timescale_label,
         diagnostics_config=config.diagnostics,
@@ -93,7 +89,6 @@ def create_simulator(
         price_field=config.data.price_field,
         return_method=config.data.return_method,
         precomputed_residual_params=precomputed_residual_params or {},
-        panel_dir=panel_dir,
     )
 
     if isinstance(config.trader, PortfolioMeanReversionConfig):

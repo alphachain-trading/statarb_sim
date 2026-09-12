@@ -33,14 +33,11 @@ Usage:
 from __future__ import annotations
 
 import time
-from pathlib import Path
 
-from src.settings import CANDIDATE_PANELS_ROOT, CONFIG_UNIVERSE, DATA_UNIVERSES, PROJECT_ROOT
+from src.settings import DATA_UNIVERSES, PROJECT_ROOT
 from src.candidates.panel_batch import PanelBatchConfig, run_panel_batch
-from src.candidates.candidate_panel import load_candidate_panel_result, load_weights, weights_lookup_from_df
 from src.candidates.pair_candidate_panel_creator import PairSpreadConfig
-from src.residuals.causal_residuals import CausalResidualConfig, ResidualMode, load_residual_params
-from src.residuals.series import compute_and_persist_series
+from src.residuals.causal_residuals import CausalResidualConfig, ResidualMode
 from src.simulator.config import (
     SimulatorConfig,
     DataConfig,
@@ -52,9 +49,8 @@ from src.simulator.config import (
     RunConfig,
     PerformanceConfig,
     PersistenceConfig,
-    discover_group_data_sources,
 )
-from src.simulator.simulator_factory import run_from_config, _load_umd
+from src.simulator.simulator_factory import run_from_config
 from src.simulator.sweep_defaults import get_default_bundle, merge_defaults
 from src.simulator.performance.performance_report import _METRICS_ORDER, _fmt_value
 
@@ -128,56 +124,6 @@ def _build_panels() -> tuple[float, dict]:
     return build_time, results
 
 
-def _persist_series(sim_config: SimulatorConfig, active_groups: list[str]) -> None:
-    """Mirror run_me.py's _persist_series_multi for this harness's panel dir."""
-    panel_dir = Path(CANDIDATE_PANELS_ROOT) / PANEL_SUBDIR
-    umd = _load_umd(sim_config.data)
-
-    sources = discover_group_data_sources(
-        panel_dir=panel_dir,
-        universe_dir=CONFIG_UNIVERSE / UNIVERSE_NAME,
-        universe_name=UNIVERSE_NAME,
-        selected_groups=active_groups,
-    )
-
-    for src in sources:
-        result = load_candidate_panel_result(out_dir=panel_dir, stem=src.candidate_panel_stem)
-        panel = result.panel
-
-        if panel.empty:
-            # A group can legitimately produce zero candidate rows (e.g.
-            # min_obs rejecting every pair on every date) — nothing to
-            # persist series for. Excluded from active_groups below too,
-            # so run_from_config never tries to load it.
-            continue
-
-        if src.residual_params_stem is None:
-            print(f"[harness] no residual params for {src.candidate_panel_stem}; skipping series")
-            continue
-        if src.weights_stem is None:
-            print(f"[harness] no weights for {src.candidate_panel_stem}; skipping series")
-            continue
-
-        params_path = panel_dir / f"{src.residual_params_stem}_residual_params.parquet"
-        raw_params = load_residual_params(str(params_path))
-
-        residual_params = {
-            (str(group_id), ""): raw_params
-            for group_id in panel["group_id"].unique()
-        }
-
-        weights_path = panel_dir / f"{src.weights_stem}_weights.parquet"
-        weights_lookup = weights_lookup_from_df(load_weights(str(weights_path)))
-
-        compute_and_persist_series(
-            panel_dir=panel_dir,
-            candidate_panel=panel,
-            residual_params=residual_params,
-            market_data=umd,
-            weights_lookup=weights_lookup,
-        )
-
-
 def _build_sim_config(active_groups: list[str]) -> SimulatorConfig:
     sweep_derived = {
         "data": DataConfig(
@@ -229,7 +175,6 @@ def main() -> None:
         # rejecting every pair on every date) — excluded here so
         # run_from_config never tries to load it.
         sim_config = _build_sim_config(active_groups)
-        _persist_series(sim_config, active_groups)
 
         t0 = time.perf_counter()
         result = run_from_config(sim_config)
