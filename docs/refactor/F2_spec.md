@@ -1418,9 +1418,22 @@ Confirmed by running the harness with the shared-`umd` wiring: `## counts` and
 trade count/ids/dates/directions/z-scores were unchanged (97 trades, identical),
 but `pair_notional` and downstream performance metrics differed by rounding-level
 amounts on nearly every trade — a real, non-zero, non-timing diff against
-`B_baseline.txt`. Root cause: `check_for_corruptions=True` vs `False` changes how
-the corruption-cleaning step treats the raw price data before returns are
-computed, moving every level and hedge ratio slightly.
+`B_baseline.txt`.
+
+**Correction (Track I spec session, H1 — the "root cause" below is wrong):**
+this was originally attributed to "`check_for_corruptions=True` vs `False`
+changes how the corruption-cleaning step treats the raw price data before
+returns are computed, moving every level and hedge ratio slightly." Re-tested
+directly: `check_for_corruptions` never mutates data (`universe_loader.py:
+107-109`, print-only) and flipping it alone, with per-group loading held
+fixed, produces a zero-row `B_baseline.txt` diff. The actual mechanism is
+`_merge_umds` (`simulator_factory.py:452-499`) silently discarding every
+group-after-the-first's own copy of a ticker shared across groups (`SPY`/
+`^IRX`, shared by `energy.yaml`/`materials.yaml`) in favor of whichever group
+loaded first — and the two groups' independently-cached copies of `SPY` are
+not identical. See `found.md`'s "`_merge_umds` silently discards a shared
+ticker's own per-group data" entry for the full mechanism, its
+order-dependence, and the root cause of the price divergence itself.
 
 Fix: added `force_download`/`check_for_corruptions`/`start_after_nan` fields to
 `CandidateGenerationConfig` (`src/simulator/config.py`), defaulting to

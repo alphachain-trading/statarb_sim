@@ -1,7 +1,9 @@
 # Track I — Data preparation flags
 
-**Changes results:** likely yes. Unifying five combinations means at least four
-call paths change behaviour.
+**Changes results:** likely yes, via `start_after_nan`, not via
+`check_for_corruptions` (`I_spec.md`'s H1 amendment) — `start_after_nan`'s
+per-group grain (`I_spec.md` Part 1.1) is the mechanism, not the
+corruption-flag mismatch F2's C6b write-up originally attributed this to.
 
 **Depends on:** nothing structurally. **Must run before G.**
 
@@ -25,20 +27,27 @@ reach.
 
 The fifth was added deliberately in F2's C6b. Wiring live candidate generation
 into the simulator meant the generator would otherwise have inherited
-`DataConfig`'s flags while the offline walk kept `PanelBatchConfig`'s, which moved
-`pair_notional` on nearly every trade. Giving `CandidateGenerationConfig` its own
-fields defaulting to `PanelBatchConfig`'s values kept C6b neutral and preserved
-the mismatch rather than resolving it — see `found.md`'s four-combinations entry.
+`DataConfig`'s flags while the offline walk kept `PanelBatchConfig`'s. The
+`pair_notional` movement F2's C6b write-up measured when this first wired up
+came from reusing `run_from_config`'s single **merged** UMD for scoring, not
+from the flag difference itself (`I_spec.md`'s H1 amendment: re-tested with
+the flag difference alone, isolated from the merge — zero movement). Giving
+`CandidateGenerationConfig` its own fields defaulting to `PanelBatchConfig`'s
+values fixed the immediate neutrality problem by restoring per-group loading;
+it was not, and was never going to be, a fix for the flag values themselves,
+which remain genuinely unreconciled and are this track's business regardless
+— see `found.md`'s four-combinations entry.
 
 This is now the path the simulator actually uses for candidate generation, so it
 is not a peripheral fifth case. It also conflicts with Track D's no-defaults rule,
 which this track is the one to resolve.
 
 So the panel build and the simulator clean the same raw data differently, and Track
-C's snapshot path introduced a third combination as a hardcoded literal.
+C's snapshot path introduced a fourth combination as a hardcoded literal, before
+F2's C6b added a fifth.
 
 This is the failure form Track D removed, one level more abstract: not one default
-too many, but four silent answers to the same semantic question, selected by which
+too many, but five silent answers to the same semantic question, selected by which
 path the data happens to take. And because it is data preparation, it acts on every
 candidate, every trade, and every result.
 

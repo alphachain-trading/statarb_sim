@@ -218,18 +218,39 @@ Suggested track: I — before G
 **Update (F2 C6b):** this stopped being purely theoretical. Wiring live candidate
 generation into the simulator (`generate_candidate_panels_by_group`,
 `src/simulator/simulator_factory.py`) initially reused `run_from_config`'s single
-merged `umd` — loaded under `DataConfig`'s flags — for scoring too, unifying the
-two combinations above by accident. That moved `pair_notional` and downstream
+merged `umd` for scoring too. That moved `pair_notional` and downstream
 performance metrics by rounding-level amounts on nearly every trade against
 `B_baseline.txt` (trade count/ids/dates/directions/z-scores unchanged; only the
-magnitudes moved) — a measured, non-hypothetical consequence of this entry, not
-just an inconsistency. Fixed for F2's purposes by giving `CandidateGenerationConfig`
+magnitudes moved) — a measured, non-hypothetical consequence, not just an
+inconsistency. Fixed for F2's purposes by giving `CandidateGenerationConfig`
 its own `force_download`/`check_for_corruptions`/`start_after_nan` fields
 (defaulting to `PanelBatchConfig`'s values) and having
 `generate_candidate_panels_by_group` load its own per-group UMD under them,
 deliberately preserving the split rather than fixing it (F2_spec.md's C6b section
 has the full before/after). Track I's eventual unification now has a second call
 site to cover, in addition to the original two.
+
+**Update (F2 C6b), corrected (Track I spec session, H1):** The movement above
+was **not** caused by the flag mismatch between `DataConfig` and
+`PanelBatchConfig` — `F2_spec.md:1421-1423`'s "root cause:
+`check_for_corruptions=True` vs `False`..." sentence is wrong and should be
+read in light of this correction. Re-tested directly: flipping
+`check_for_corruptions` alone, with per-group loading held fixed, produces a
+zero-row `B_baseline.txt` diff; reverting to a merged UMD, with the flag
+values held fixed instead, reproduces the movement. The actual mechanism is
+`_merge_umds` (`src/simulator/simulator_factory.py:452-499`) silently
+discarding every group-after-the-first's own copy of a ticker shared across
+groups (here `SPY`/`^IRX`, referenced as `benchmark`/`risk_free` by both
+`energy.yaml` and `materials.yaml`) in favor of whichever group loaded first —
+and the two groups' independently-cached copies of `SPY` are not identical
+(measured: up to $1.24 apart on `Close`), so the substitution is not a no-op.
+This is a "series staleness axis 1" instance (below), not a
+data-preparation-flag issue. `CandidateGenerationConfig`'s own flags were
+changed anyway (matching `PanelBatchConfig`'s), which is orthogonal but
+harmless — the mismatch they were meant to fix was never the cause. See the
+new "`_merge_umds` silently discards a shared ticker's own per-group data"
+entry below for the full mechanism, its order-dependence, and the vintage
+test.
 
 **Update (F2 C6c):** `CandidateGenerationConfig.force_download`/
 `check_for_corruptions`/`start_after_nan` (`src/simulator/config.py`) default to
@@ -243,6 +264,125 @@ of it (`DataConfig`, `PanelBatchConfig`, now `CandidateGenerationConfig`), not a
 second. Deliberate and documented here rather than accidental, but it does not
 make the default itself compliant. Track I's unification now has three call
 sites to cover, not two.
+
+## `_merge_umds` silently discards a shared ticker's own per-group data
+Found during: track I (spec session amendment, H1/H4/H5)
+Location: `src/simulator/simulator_factory.py:452-499` (`_merge_umds`, the
+price-join loop: `merged_prices = umds[0].prices.copy()`, then
+`.join(u.prices[new_cols], how="outer")` for each subsequent umd's **new**
+columns only); `:449` (`_load_umd`'s call, `validate_overlap=False`)
+What: When two or more groups share a ticker in a `benchmark`/`proxy_etf`/
+`risk_free` role (`SPY`/`^IRX`, referenced by both `energy.yaml:49-50` and
+`materials.yaml:50-51`), the merged `UniverseMarketData` keeps only the
+first-loaded group's copy of that ticker's price series — every other
+group's own, independently-loaded copy is discarded, even though the two are
+not guaranteed identical. Measured on the two harness universes: `SPY`'s
+`Close` differs by up to $1.24 between energy's own cache and materials' own
+cache over their common date range.
+
+**Order dependence, proved directly.** Which group's copy of a shared ticker
+wins depends purely on `config.data.groups`' list order, not on any semantic
+property of the groups. Confirmed by calling `b_baseline_harness.py`'s own
+`_build_sim_config` with the group list reversed (`["materials", "energy"]`
+instead of `["energy", "materials"]`) and running the identical
+`run_from_config` path: **the trade count itself changes, 97 → 98** — an
+extra trade (`COP|HAL`, entered 2006-09-08) appears in the reversed run that
+does not exist in either direction's original baseline, on top of the same
+rounding-level `pair_notional`/z-score shifts on the other trades. A result
+that depends on which order a config lists its groups in is a config-hygiene
+defect in its own right, independent of any data-preparation flag.
+
+**Root cause of the price divergence: an unsettled intraday bar, not a
+corporate-action re-adjustment vintage.** `energy_only_v1/prices_daily.parquet`
+mtime `2026-07-13 17:14:03 +02:00` = `2026-07-13 11:14:03 ET`;
+`materials_only_v1/prices_daily.parquet` mtime `2026-07-13 15:31:45 +02:00` =
+`2026-07-13 09:31:45 ET` — both well inside NYSE regular hours (9:30-16:00 ET)
+on a normal Monday trading session, ~1h42m apart. Each file's own last row is
+exactly `2026-07-13` (confirmed independently for both), i.e. the diverging
+row is each file's most recent row, captured while that day's session was
+still open. Two effects are superimposed, not one: (1) a genuine but tiny
+(~1e-6 relative) multiplicative drift spans nearly the whole 33-year common
+history for `SPY` only — 6972/9198 common dates differ by a nearly constant,
+minuscule ratio (mean 0.99999980, std 1.8e-5) — consistent with
+`auto_adjust=True` recomputing the entire cumulative dividend-adjustment
+factor slightly differently depending on the exact download moment (series
+staleness axis 1, below, at a far smaller magnitude than the headline number
+suggests); (2) the dominant, materially large divergence — the full $1.24 /
+0.165% on `SPY`, and `^IRX`'s *only* nonzero-diff date out of 9198 rows at
+all — is confined to exactly that one last row. `^IRX` (a T-bill yield with
+no dividends, splits, or adjustment factor to recompute) is bit-for-bit
+identical to materials' own copy on every other row and differs only on that
+same last date, ruling out corporate-action re-adjustment as the cause of
+the headline number specifically and confirming instead that both downloads
+captured a still-forming intraday bar for the day's own session, which
+naturally differs between two captures taken under two hours apart while the
+market is still moving. **No guard against this was found anywhere in the
+download path**: grepped `universe_loader.py` (`_download_prices`,
+`_download_prices_batch`, `load`) and `market_snapshot.py` (`_download_group`,
+`_mint_snapshot`) for any session/market-hours check before persisting a bar
+— NOT FOUND. `yf.download` is called with `end=None` (`loader_defaults` in
+every committed group yaml) and nothing filters or waits for the current
+session's bar to settle before it is written to `prices_daily.parquet`.
+
+**The existing warning mechanism is already off.** `_merge_umds` has its own
+overlap-consistency check (`:464-491`, printing a warning when two umds'
+overlapping-ticker `Close` values differ by more than 1e-6) — but
+`_load_umd`'s only call site passes `validate_overlap=False` explicitly
+(`:449`), so this check never runs for any production caller today. Per the
+standing loud-failures rule, a detected mismatch should raise, not print —
+printing has already proven ineffective, since this mismatch shipped in
+every committed multi-group `B_baseline.txt` to date with nobody noticing.
+**Deferred:** the mismatch is live today on every multi-group run, so making
+it raise immediately would fire on every such run before the snapshot wiring
+removes the merge entirely — `validate_overlap=True` is being landed first
+(print-only, confirms the mismatch is real and visible) as its own commit on
+a Track I branch; the raise is deferred until the snapshot wiring (or an
+explicit decision to keep the merge and fix it some other way) makes the
+choice deliberate rather than a blocking surprise.
+
+**A separate, mint-time risk follows from the same finding:** the local
+cache can contain an unsettled intraday bar for its most recent date
+whenever a download happens during market hours. `market_snapshot.py`'s
+mint path (`_download_group`, `:250-286`) has the identical exposure —
+minting a snapshot mid-session would freeze that provisional bar
+permanently, immutably, as if it were a settled close, with no signal to a
+later reader that the frozen value was never final. Not yet a guard
+anywhere in the mint or download paths (same NOT FOUND as above).
+Severity: result-affecting, live today
+Suggested track: I, as a guard on the mint and download paths (must precede
+the snapshot wiring, not follow it — freezing an unsettled bar into an
+immutable snapshot is worse than the live cache's version of the same defect,
+since a snapshot cannot self-correct on a later re-download the way the live
+cache eventually does)
+
+Live today, not hypothetical, independent of the above: `_load_umd`
+(`simulator_factory.py:411-449`) calls `_merge_umds` whenever
+`config.data.resolved_groups()` returns more than one group (`:446-449`), and
+`run_from_config` calls `_load_umd` **unconditionally** (`:148`) — including
+on the live-candidate-generation branch, where its output still feeds
+`create_simulator`'s `umd` (`:203-209`), consumed by
+`CandidateSignalGenerator._get_bundle` (`candidate_signals.py:733-744`) for
+every simulated day's residual/z-score computation. The currently-committed
+`B_baseline.txt` already carries this: its simulation side runs a 2-group
+(`energy`, `materials`) `DataConfig` through exactly this path, so materials'
+live trading computations already run against energy's cached `SPY`/`^IRX`,
+not materials' own. Every production caller of `run_from_config` with more
+than one selected group is exposed: `run_me.py`'s `stage_simulate`
+(`run_me.py:440-456`, multi-group supported — see `:448`'s
+single-group-only fixture-bootstrap branch), `sweep_runner.py`'s simulate
+step, and `scripts/b_baseline_harness.py` itself. Single-group configs
+(today's committed `config/demo_materials.yaml`, `selected_groups:
+[materials]`) are not exposed — `_load_umd` returns `umds[0]` directly
+without merging when there is only one group (`:446-447`).
+Severity: result-affecting, live today, independent of Track I's flag
+unification (unifying `check_for_corruptions`/`start_after_nan`/
+`force_download` values does not touch `_merge_umds` and would not fix this)
+— and sharper than a magnitude question: the trade count itself depends on
+`DataConfig.groups`' list order, not just trade-level PnL/z-score magnitudes.
+Suggested track: new/I (interim: `validate_overlap=True` landed, print-only;
+raise deferred per above) or resolved structurally by Track I's snapshot
+wiring — one snapshot binds every group in a universe to one frozen
+download, leaving nothing for `_merge_umds` to disagree about.
 
 ## `series/` staleness has three separate axes — only one is being fixed
 Found during: track E (review of the `(group_id, ticker)` re-key)
