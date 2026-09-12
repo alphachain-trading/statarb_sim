@@ -188,13 +188,25 @@ class Simulator:
     def run(
         self,
         candidate_panel: pd.DataFrame,
+        *,
+        run_id: str | None = None,
     ) -> SimulationResult:
-        run_id = None
+        """
+        run_id: pre-resolved run id to reuse instead of generating a fresh
+        one (F2 C6c). run_from_config's live-generation branch resolves
+        run_id/run_dir before this call, to persist candidate/weights/
+        residual-param artifacts into the same directory this run's own
+        trades/config/performance end up in -- generating a second run_id
+        here would risk a second, empty run_dir if the wall-clock minute
+        ticks over between the two resolutions. None (the default)
+        preserves the original behaviour: generate one internally.
+        """
         run_dir = None
 
         if self.config.persistence.enabled:
             from src.simulator.simulation_persistence import make_run_id, _resolve_run_dir
-            run_id = make_run_id(self.config)
+            if run_id is None:
+                run_id = make_run_id(self.config)
             run_dir = _resolve_run_dir(self.config.persistence, run_id)
             run_dir.mkdir(parents=True, exist_ok=True)
             logger.configure(run_dir / "sim.log")

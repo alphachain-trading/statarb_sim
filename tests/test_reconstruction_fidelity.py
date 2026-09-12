@@ -57,73 +57,45 @@ class TestReconstructionFidelity(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         import dataclasses
+        import tempfile
         import b_baseline_harness as harness
-        from src.candidates.panel_batch import PanelBatchConfig, run_panel_batch
-        from src.simulator.config import DataConfig
+        from src.candidates.candidate_panel import load_candidate_panel_result, load_weights, weights_lookup_from_df
+        from src.residuals.causal_residuals import load_residual_params
+        from src.simulator.config import PersistenceConfig
         from src.simulator.simulator_factory import (
             run_from_config,
             create_simulator,
+            generate_candidate_panels_by_group,
             _load_umd,
-            _resolve_residual_configs,
-            _load_residual_params,
-            _load_weights,
-            _load_panels,
         )
+        from src.simulator.simulation_persistence import _resolve_run_dir
 
-        # This test's whole point is verifying reconstruction from persisted
-        # (disk) artifacts, independently reloaded from the live run's own
-        # CandidateSignalGenerator instance -- so it deliberately builds
-        # panels via the offline run_panel_batch path (still shipped
-        # alongside F2 C6b's live in-simulator generation; not deleted until
-        # C6c), not via b_baseline_harness's own live-generation
-        # _build_sim_config/generate_candidate_panels_by_group. Reuses the
-        # harness's own small-universe constants/helpers so this stays the
-        # same fixture the harness uses, just built through the disk path.
-        panel_cfg = PanelBatchConfig(
-            residual_configs=[harness._residual_cfg()],
-            hedge_ratio_lb=harness.HEDGE_RATIO_LB,
-            mr_diag_lb=harness.MR_DIAG_LB,
-            selected_groups=harness.GROUPS,
-            universe_name=harness.UNIVERSE_NAME,
-            frequency="W-FRI",
-            start_date=harness.PANEL_START_DATE,
-            max_steps=harness.MAX_STEPS,
-            pair_cfg=harness._pair_cfg(),
-            persist_result=True,
-            persist_residual_params=True,
-            persist_dir_template=harness.PANEL_SUBDIR,
-        )
-        panel_results = run_panel_batch(panel_cfg)
+        # F2 C6c (F1): this test's whole point is verifying reconstruction
+        # from persisted artifacts, independently reloaded from the live
+        # run's own CandidateSignalGenerator instance -- previously that
+        # meant the offline run_panel_batch path, the only thing that wrote
+        # candidates/weights/residual_params to disk. Now the live
+        # in-simulator generation path persists them itself, into the run's
+        # own run_dir (persist_live_candidate_artifacts, simulator_factory.py),
+        # so this fixture runs the harness's own live-generation sim_config
+        # with persistence enabled and reloads from run_dir/"candidates"
+        # directly -- no run_panel_batch, no CANDIDATE_PANELS_ROOT.
+        cls._scratch_dir = tempfile.mkdtemp(prefix="f2_reconstruction_fidelity_")
+
+        prelim_sim_config = harness._build_sim_config(harness.GROUPS)
+        panel_results = generate_candidate_panels_by_group(prelim_sim_config)
         active_groups = sorted({
-            group_id for (group_id, _residual_key), pr in panel_results.items()
-            if len(pr.panel) > 0
+            group_id for (group_id, _residual_key), v in panel_results.items()
+            if len(v["panel"]) > 0
         })
 
-        # Start from the harness's own (C6b, live-generation) sim config for
-        # every field this test doesn't care about (z_score/trader/sizing/
-        # risk_manager/run/entry_features are unchanged by C6b), then swap in
-        # the disk-based data config and clear candidate_generation/residual
-        # so run_from_config takes the offline disk-load branch instead of
-        # live generation. residual must be None here, not just
-        # candidate_generation: _resolve_residual_configs short-circuits to
-        # {"": config.residual} when config.residual is set (simulator_factory.py),
-        # which would key residual_configs by "" instead of the panel's real
-        # residual_key and break the lookup — the live-generation config sets
-        # residual because it has no metadata to resolve it from; the disk
-        # path must not.
-        sim_config = dataclasses.replace(
-            harness._build_sim_config(active_groups),
-            data=DataConfig(
-                candidate_panel_subdir=harness.PANEL_SUBDIR,
-                selected_groups=active_groups,
-                universe_name=harness.UNIVERSE_NAME,
-                data_path=str(harness.DATA_UNIVERSES),
-            ),
-            candidate_generation=None,
-            residual=None,
+        sim_config = (
+            prelim_sim_config if active_groups == harness.GROUPS
+            else harness._build_sim_config(active_groups)
         )
         sim_config = dataclasses.replace(
             sim_config,
+            persistence=PersistenceConfig(enabled=True, output_dir=cls._scratch_dir),
             debug_sample=DebugSampleConfig(n_pairs=2, seed=0, spread_ids=SAMPLE_SPREAD_IDS),
         )
 
@@ -141,12 +113,27 @@ class TestReconstructionFidelity(unittest.TestCase):
         # Fresh signal generator, built from persisted artifacts independently
         # of the live run's own instance -- this is the actual reconstruction
         # path, not the same object the run just used.
+        assert result.run_id is not None, "persistence was enabled; run_id must be set"
+        run_dir = _resolve_run_dir(sim_config.persistence, result.run_id)
+        candidates_dir = run_dir / "candidates"
+
+        residual_key = sim_config.residual.key
+        weight_dfs = []
+        cls.precomputed = {}
+        panel_frames = []
+        for group_id in active_groups:
+            stem = f"{group_id}_{residual_key}"
+            panel_result = load_candidate_panel_result(candidates_dir, stem)
+            panel_frames.append(panel_result.panel)
+            weight_dfs.append(load_weights(str(candidates_dir / f"{stem}_weights.parquet")))
+            cls.precomputed[(group_id, residual_key)] = load_residual_params(
+                str(candidates_dir / f"{stem}_residual_params.parquet")
+            )
+
+        cls.weights_lookup = weights_lookup_from_df(pd.concat(weight_dfs, ignore_index=True))
+        residual_configs = {residual_key: sim_config.residual}
+
         umd = _load_umd(sim_config.data)
-        z_configs = sim_config.resolved_z_score_configs()
-        _, metadata_by_key = _load_panels(sim_config.data, z_configs)
-        residual_configs = _resolve_residual_configs(sim_config, metadata_by_key)
-        cls.precomputed = _load_residual_params(sim_config.data, z_configs)
-        cls.weights_lookup = _load_weights(sim_config.data, z_configs)
         cls.selected_panel = result.selected_panel
 
         sim2 = create_simulator(
@@ -157,6 +144,11 @@ class TestReconstructionFidelity(unittest.TestCase):
             weights_lookup=cls.weights_lookup,
         )
         cls.signal_generator = sim2.signal_generator
+
+    @classmethod
+    def tearDownClass(cls):
+        import shutil
+        shutil.rmtree(cls._scratch_dir, ignore_errors=True)
 
     def _is_position_view(self, row) -> bool:
         for entry, exit_ in self.open_intervals.get(row.candidate_id, []):
