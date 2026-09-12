@@ -3,15 +3,16 @@
 Track B baseline harness.
 
 A fixed, small-universe config run end-to-end through the shipped
-run_panel_batch -> run_from_config -> compute_performance path, writing
-trades and summary metrics to a committed text file
-(docs/refactor/B_baseline.txt).
+generate_candidate_panels_by_group -> run_from_config -> compute_performance
+path (F2 C6b: live in-simulator candidate generation, not the offline
+run_panel_batch this harness used before), writing trades and summary metrics
+to a committed text file (docs/refactor/B_baseline.txt).
 
-Reused, not reimplemented (B_spec.md §9): run_panel_batch with max_steps is
-the existing small-universe pattern from tests/test_panel_batch_windows.py
-and notebook 01; compute_performance + _METRICS_ORDER (via
-result.performance, already computed by run_from_config) is the existing
-metrics summary. No new runner, no new metrics code.
+Reused, not reimplemented: generate_candidate_panels_by_group with max_steps
+is the same small-universe pattern the offline path used
+(tests/test_panel_batch_windows.py, notebook 01); compute_performance +
+_METRICS_ORDER (via result.performance, already computed by run_from_config)
+is the existing metrics summary. No new runner, no new metrics code.
 
 Config is fixed and small on purpose: two of the smallest committed group
 universes (energy, 11 equities; materials, 13 equities — B_spec.md §9), an
@@ -29,21 +30,34 @@ answered by the ## counts section (candidate/trade counts), not by the
 
 Usage:
     python scripts/b_baseline_harness.py
+    python scripts/b_baseline_harness.py --allow-existing-artifacts
+
+Artifacts guard (F2 E8, found.md "A leftover artifacts directory silently serves
+stale values into a before/after diff"): retained from before C6b even though
+this harness no longer writes candidate-panel/weights/residual-params files
+itself (live generation, F2 C6b) — PANEL_DIR may still hold leftovers from
+other tools/sessions that share CANDIDATE_PANELS_ROOT, and this guard is cheap
+insurance against ever reading one by accident. At startup this script reports
+PANEL_DIR's file count and newest mtime and refuses to proceed if it is
+non-empty, unless --allow-existing-artifacts is passed. Guard only — it never
+deletes anything; clear PANEL_DIR by hand (or pass the flag once you've
+confirmed the leftovers are harmless for what you're about to measure).
 """
 from __future__ import annotations
 
+import argparse
+import sys
 import time
 from pathlib import Path
 
-from src.settings import CANDIDATE_PANELS_ROOT, CONFIG_UNIVERSE, DATA_UNIVERSES, PROJECT_ROOT
-from src.candidates.panel_batch import PanelBatchConfig, run_panel_batch
-from src.candidates.candidate_panel import load_candidate_panel_result, load_weights, weights_lookup_from_df
+from src.settings import CANDIDATE_PANELS_ROOT, DATA_UNIVERSES, PROJECT_ROOT
 from src.candidates.pair_candidate_panel_creator import PairSpreadConfig
-from src.residuals.causal_residuals import CausalResidualConfig, ResidualMode, load_residual_params
-from src.residuals.series import compute_and_persist_series
+from src.residuals.causal_residuals import CausalResidualConfig, ResidualMode
 from src.simulator.config import (
     SimulatorConfig,
+    CandidateGenerationConfig,
     DataConfig,
+    GroupDataSource,
     ZScoreConfig,
     PairSpreadTraderConfig,
     SizingConfig,
@@ -52,9 +66,8 @@ from src.simulator.config import (
     RunConfig,
     PerformanceConfig,
     PersistenceConfig,
-    discover_group_data_sources,
 )
-from src.simulator.simulator_factory import run_from_config, _load_umd
+from src.simulator.simulator_factory import run_from_config, generate_candidate_panels_by_group
 from src.simulator.sweep_defaults import get_default_bundle, merge_defaults
 from src.simulator.performance.performance_report import _METRICS_ORDER, _fmt_value
 
@@ -82,6 +95,7 @@ MIN_OBS = 252
 PANEL_START_DATE = "2006-09-08"
 
 OUT_PATH = PROJECT_ROOT / "docs" / "refactor" / "B_baseline.txt"
+PANEL_DIR = Path(CANDIDATE_PANELS_ROOT) / PANEL_SUBDIR
 
 TRADE_COLS = [
     "trade_id", "group_id", "spread_id",
@@ -89,6 +103,41 @@ TRADE_COLS = [
     "pair_notional", "entry_z_score", "exit_z_score",
     "realized_pnl_gross", "realized_pnl_net",
 ]
+
+
+def _check_artifacts_dir(*, allow_existing: bool) -> None:
+    """
+    Report PANEL_DIR's contents and refuse to proceed if non-empty, unless
+    explicitly allowed (F2 E8). Guard only — never deletes anything.
+
+    Since F2 C6b this harness no longer reads or writes PANEL_DIR itself
+    (candidates are generated live, in-memory) — kept as cheap insurance
+    against ever picking up a leftover file from another tool or session
+    that shares CANDIDATE_PANELS_ROOT, not because this harness's own run
+    could leave or find anything here any more.
+    """
+    if not PANEL_DIR.exists():
+        print(f"[harness] artifacts dir {PANEL_DIR} does not exist yet — nothing to check.")
+        return
+
+    files = [p for p in PANEL_DIR.rglob("*") if p.is_file()]
+    print(f"[harness] artifacts dir: {PANEL_DIR}")
+    print(f"[harness]   file count: {len(files)}")
+    if files:
+        newest = max(files, key=lambda p: p.stat().st_mtime)
+        newest_mtime = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(newest.stat().st_mtime))
+        print(f"[harness]   newest mtime: {newest_mtime} ({newest.name})")
+
+    if files and not allow_existing:
+        sys.exit(
+            f"[harness] {PANEL_DIR} is non-empty ({len(files)} files) — refusing to "
+            "run a before/after comparison against a directory that may contain "
+            "stale panel/weights/residual-params files from a previous run "
+            "(found.md: \"A leftover artifacts directory silently serves stale "
+            "values into a before/after diff\"). Inspect and clear it by hand, or "
+            "pass --allow-existing-artifacts once you've confirmed the leftovers "
+            "are harmless for what you're about to measure."
+        )
 
 
 def _residual_cfg() -> CausalResidualConfig:
@@ -99,92 +148,45 @@ def _residual_cfg() -> CausalResidualConfig:
     )
 
 
-def _build_panels() -> tuple[float, dict]:
-    cfg = PanelBatchConfig(
-        residual_configs=[_residual_cfg()],
-        hedge_ratio_lb=HEDGE_RATIO_LB,
-        mr_diag_lb=MR_DIAG_LB,
-        selected_groups=GROUPS,
-        universe_name=UNIVERSE_NAME,
-        frequency="W-FRI",
-        start_date=PANEL_START_DATE,
-        max_steps=MAX_STEPS,
-        pair_cfg=PairSpreadConfig(
-            hedge_ratio_methods=["pca"],
-            min_obs=MIN_OBS,
-            min_return_std=1e-8,
-            min_level_std=1e-8,
-            min_kappa=1e-6,
-            max_half_life=126.0,
-            tiny_weight_threshold=1e-6,
-        ),
-        persist_result=True,
-        persist_residual_params=True,
-        persist_dir_template=PANEL_SUBDIR,
-    )
-    t0 = time.perf_counter()
-    results = run_panel_batch(cfg)
-    build_time = time.perf_counter() - t0
-    return build_time, results
-
-
-def _persist_series(sim_config: SimulatorConfig, active_groups: list[str]) -> None:
-    """Mirror run_me.py's _persist_series_multi for this harness's panel dir."""
-    panel_dir = Path(CANDIDATE_PANELS_ROOT) / PANEL_SUBDIR
-    umd = _load_umd(sim_config.data)
-
-    sources = discover_group_data_sources(
-        panel_dir=panel_dir,
-        universe_dir=CONFIG_UNIVERSE / UNIVERSE_NAME,
-        universe_name=UNIVERSE_NAME,
-        selected_groups=active_groups,
+def _pair_cfg() -> PairSpreadConfig:
+    return PairSpreadConfig(
+        hedge_ratio_methods=["pca"],
+        min_obs=MIN_OBS,
+        min_return_std=1e-8,
+        min_level_std=1e-8,
+        min_kappa=1e-6,
+        max_half_life=126.0,
+        tiny_weight_threshold=1e-6,
     )
 
-    for src in sources:
-        result = load_candidate_panel_result(out_dir=panel_dir, stem=src.candidate_panel_stem)
-        panel = result.panel
 
-        if panel.empty:
-            # A group can legitimately produce zero candidate rows (e.g.
-            # min_obs rejecting every pair on every date) — nothing to
-            # persist series for. Excluded from active_groups below too,
-            # so run_from_config never tries to load it.
-            continue
-
-        if src.residual_params_stem is None:
-            print(f"[harness] no residual params for {src.candidate_panel_stem}; skipping series")
-            continue
-        if src.weights_stem is None:
-            print(f"[harness] no weights for {src.candidate_panel_stem}; skipping series")
-            continue
-
-        params_path = panel_dir / f"{src.residual_params_stem}_residual_params.parquet"
-        raw_params = load_residual_params(str(params_path))
-
-        residual_params = {
-            (str(group_id), ""): raw_params
-            for group_id in panel["group_id"].unique()
-        }
-
-        weights_path = panel_dir / f"{src.weights_stem}_weights.parquet"
-        weights_lookup = weights_lookup_from_df(load_weights(str(weights_path)))
-
-        compute_and_persist_series(
-            panel_dir=panel_dir,
-            candidate_panel=panel,
-            residual_params=residual_params,
-            market_data=umd,
-            weights_lookup=weights_lookup,
-        )
-
-
-def _build_sim_config(active_groups: list[str]) -> SimulatorConfig:
+def _build_sim_config(selected_groups: list[str]) -> SimulatorConfig:
     sweep_derived = {
         "data": DataConfig(
-            candidate_panel_subdir=PANEL_SUBDIR,
-            selected_groups=active_groups,
+            # groups set explicitly (not just selected_groups) so
+            # DataConfig.resolved_groups() -- which _load_umd calls -- returns
+            # this list directly rather than falling through to
+            # discover_group_data_sources's stem-based panel-file discovery,
+            # which requires files on disk this live-generation path never
+            # writes. candidate_panel_stem is unused here: _load_umd only
+            # reads universe_config_name, and generate_candidate_panels_by_group
+            # (F2 C6b) reads selected_groups directly, not resolved_groups().
+            groups=[
+                GroupDataSource(universe_config_name=f"{UNIVERSE_NAME}/{gid}.yaml", candidate_panel_stem="")
+                for gid in selected_groups
+            ],
+            selected_groups=selected_groups,
             universe_name=UNIVERSE_NAME,
             data_path=str(DATA_UNIVERSES),
+        ),
+        "residual": _residual_cfg(),
+        "candidate_generation": CandidateGenerationConfig(
+            pair_cfg=_pair_cfg(),
+            hedge_ratio_lb=HEDGE_RATIO_LB,
+            mr_diag_lb=MR_DIAG_LB,
+            frequency="W-FRI",
+            start_date=PANEL_START_DATE,
+            max_steps=MAX_STEPS,
         ),
         "z_score": ZScoreConfig(lookback=21, ddof=1, method="ewm", residual_key=_residual_cfg().key),
         "trader": PairSpreadTraderConfig(entry_z=1.75, exit_z=0.0),
@@ -213,11 +215,27 @@ def _build_sim_config(active_groups: list[str]) -> SimulatorConfig:
 
 
 def main() -> None:
-    panel_build_time, panel_results = _build_panels()
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--allow-existing-artifacts",
+        action="store_true",
+        help="Proceed even if PANEL_DIR already has files from a previous run (F2 E8).",
+    )
+    args = parser.parse_args()
+    _check_artifacts_dir(allow_existing=args.allow_existing_artifacts)
+
+    # F2 C6b: generate candidates live (generate_candidate_panels_by_group),
+    # not via the offline run_panel_batch this harness used before C6b.
+    # active_groups must still be known before building the sim_config that
+    # goes to run_from_config, so generate once against GROUPS, then narrow.
+    t0 = time.perf_counter()
+    prelim_sim_config = _build_sim_config(GROUPS)
+    panel_results = generate_candidate_panels_by_group(prelim_sim_config)
+    panel_build_time = time.perf_counter() - t0
 
     active_groups = sorted({
-        group_id for (group_id, _residual_key), pr in panel_results.items()
-        if len(pr.panel) > 0
+        group_id for (group_id, _residual_key), v in panel_results.items()
+        if len(v["panel"]) > 0
     })
 
     sim_time: float | None = None
@@ -227,9 +245,10 @@ def main() -> None:
     if active_groups:
         # A group can legitimately produce zero candidate rows (e.g. min_obs
         # rejecting every pair on every date) — excluded here so
-        # run_from_config never tries to load it.
-        sim_config = _build_sim_config(active_groups)
-        _persist_series(sim_config, active_groups)
+        # run_from_config's own live generation never tries it again.
+        sim_config = (
+            prelim_sim_config if active_groups == GROUPS else _build_sim_config(active_groups)
+        )
 
         t0 = time.perf_counter()
         result = run_from_config(sim_config)
@@ -256,9 +275,10 @@ def main() -> None:
     n_trades = 0 if trades_df is None else len(trades_df)
 
     lines.append("## counts")
-    for (group_id, residual_key), pr in sorted(panel_results.items()):
-        n_rows = len(pr.panel)
-        n_valid = int(pr.panel["is_valid"].sum()) if n_rows else 0
+    for (group_id, residual_key), v in sorted(panel_results.items()):
+        panel = v["panel"]
+        n_rows = len(panel)
+        n_valid = int(panel["is_valid"].sum()) if n_rows else 0
         lines.append(f"{group_id} / {residual_key}: {n_valid}/{n_rows} valid candidates")
     # Positions-opened / positions-rejected counts are not tracked anywhere
     # in the simulator today (grepped, NOT FOUND) — n_trades and

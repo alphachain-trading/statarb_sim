@@ -193,8 +193,8 @@ def _update_panel_stem(cfg: dict, stem: str) -> None:
 
     Updates the in-memory cfg (so a same-process `--stage all` sees it) and
     rewrites only the `stem:` line in demo_materials.yaml, preserving comments and
-    layout. Downstream (_panel_file, _persist_spread_series, simulate bootstrap)
-    then resolves the panel just built.
+    layout. Downstream (_panel_file, simulate bootstrap) then resolves the panel
+    just built.
     """
     old = cfg["panels"]["stem"]
     cfg["panels"]["stem"] = stem
@@ -272,63 +272,6 @@ def _all_group_panels_exist(cfg: dict) -> bool:
     return True
 
 
-def _persist_series_multi(cfg: dict, sim_config) -> None:
-    """
-    Precompute + persist series for every group panel in the subdir.
-
-    Discovery-based (via discover_group_data_sources) so it scales to any number
-    of groups: one panel triple per group, each keyed by its own group_id. The
-    UMD is loaded once across all selected groups; existing series files are
-    skipped, so reruns are no-ops.
-    """
-    from src.candidates.candidate_panel import load_candidate_panel_result, load_weights, weights_lookup_from_df
-    from src.residuals.causal_residuals import load_residual_params
-    from src.residuals.series import compute_and_persist_series
-    from src.simulator.simulator_factory import _load_umd
-    from src.simulator.config import discover_group_data_sources
-
-    panel_dir = _panel_dir(cfg)
-    umd = _load_umd(sim_config.data)
-
-    sources = discover_group_data_sources(
-        panel_dir=panel_dir,
-        universe_dir=_universe_dir(cfg),
-        universe_name=_universe_name(cfg),
-        selected_groups=_selected_groups(cfg),
-    )
-
-    for src in sources:
-        result = load_candidate_panel_result(out_dir=panel_dir, stem=src.candidate_panel_stem)
-        panel = result.panel
-
-        if src.residual_params_stem is None:
-            print(f"[residuals] no residual params for {src.candidate_panel_stem}; skipping series")
-            continue
-        if src.weights_stem is None:
-            print(f"[residuals] no weights for {src.candidate_panel_stem}; skipping series")
-            continue
-
-        params_path = panel_dir / f"{src.residual_params_stem}_residual_params.parquet"
-        raw_params = load_residual_params(str(params_path))
-
-        # Panel carries no residual_key column → series keyed by (group_id, "").
-        residual_params = {
-            (str(group_id), ""): raw_params
-            for group_id in panel["group_id"].unique()
-        }
-
-        weights_path = panel_dir / f"{src.weights_stem}_weights.parquet"
-        weights_lookup = weights_lookup_from_df(load_weights(str(weights_path)))
-
-        compute_and_persist_series(
-            panel_dir=panel_dir,
-            candidate_panel=panel,
-            residual_params=residual_params,
-            market_data=umd,
-            weights_lookup=weights_lookup,
-        )
-
-
 def stage_residuals(cfg: dict, force: bool) -> None:
     stage = "residuals"
     groups = _selected_groups(cfg)
@@ -344,11 +287,6 @@ def stage_residuals(cfg: dict, force: bool) -> None:
 
         _start(stage)
         run_panel_batch(_make_panel_batch_cfg(cfg))
-
-        # Precompute + persist series for every group panel; the simulator
-        # discovers all panels in the subdir at run time.
-        sim_config = _build_sim_config(cfg)
-        _persist_series_multi(cfg, sim_config)
         _done(stage)
         return
 
@@ -366,11 +304,6 @@ def stage_residuals(cfg: dict, force: bool) -> None:
     # freshly built panel instead of the committed fixtures.
     new_stem = _extract_panel_stem(results, panel_dir)
     _update_panel_stem(cfg, new_stem)
-
-    # Precompute + persist stock-residual and spread-level series so the simulate
-    # stage loads them from disk instead of recomputing residuals each step.
-    sim_config = _build_sim_config(cfg)
-    _persist_spread_series(cfg, sim_config)
 
     _done(stage)
 
@@ -504,46 +437,6 @@ def _build_sim_config(cfg: dict):
     )
 
 
-def _persist_spread_series(cfg: dict, sim_config) -> None:
-    """
-    Precompute and persist stock-residual and spread-level series under the
-    candidate-panel dir, so the simulator can load spread levels from disk
-    instead of recomputing residuals each step. Individual files that already
-    exist are skipped, so this is a no-op on reruns.
-    """
-    from src.candidates.candidate_panel import load_candidate_panel_result, load_weights, weights_lookup_from_df
-    from src.residuals.causal_residuals import load_residual_params
-    from src.residuals.series import compute_and_persist_series
-    from src.simulator.simulator_factory import _load_umd
-
-    panel_dir = _panel_dir(cfg)
-    stem = cfg["panels"]["stem"]
-
-    result = load_candidate_panel_result(out_dir=panel_dir, stem=stem)
-    panel = result.panel
-
-    params_path = panel_dir / f"{stem}_residual_params.parquet"
-    raw_params = load_residual_params(str(params_path))  # {fit_date: FittedCausalResidualModel}
-
-    # Match the simulator's single-timescale keying: residual_key defaults to "".
-    residual_params = {
-        (str(group_id), ""): raw_params
-        for group_id in panel["group_id"].unique()
-    }
-
-    weights_path = panel_dir / f"{stem}_weights.parquet"
-    weights_lookup = weights_lookup_from_df(load_weights(str(weights_path)))
-
-    umd = _load_umd(sim_config.data)
-    compute_and_persist_series(
-        panel_dir=panel_dir,
-        candidate_panel=panel,
-        residual_params=residual_params,
-        market_data=umd,
-        weights_lookup=weights_lookup,
-    )
-
-
 def stage_simulate(cfg: dict, force: bool) -> None:
     # No skip-check: every invocation runs and creates a fresh run dir.
     # --force has no effect here.
@@ -552,13 +445,10 @@ def stage_simulate(cfg: dict, force: bool) -> None:
 
     sim_config = _build_sim_config(cfg)
 
-    if len(_selected_groups(cfg)) > 1:
-        # Multi-group: panels are produced by the residuals stage and discovered
-        # at run time; there are no single-group fixtures to bootstrap from.
-        _persist_series_multi(cfg, sim_config)
-    else:
+    if len(_selected_groups(cfg)) <= 1:
+        # Single-group only: multi-group panels are produced by the residuals
+        # stage and discovered at run time, with no fixtures to bootstrap from.
         _bootstrap_panel_from_fixtures(cfg)
-        _persist_spread_series(cfg, sim_config)
 
     from src.simulator.simulator_factory import run_from_config
     from src.simulator.simulation_persistence import hash_config

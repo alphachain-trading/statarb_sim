@@ -81,10 +81,6 @@ def create_simulator(
         zc.timescale_label: zc for zc in z_configs
     }
 
-    panel_dir: Path | None = None
-    if config.data.candidate_panel_subdir:
-        panel_dir = Path(CANDIDATE_PANELS_ROOT) / config.data.candidate_panel_subdir
-
     signal_generator = CandidateSignalGenerator(
         z_score_configs=z_score_by_timescale_label,
         diagnostics_config=config.diagnostics,
@@ -93,7 +89,6 @@ def create_simulator(
         price_field=config.data.price_field,
         return_method=config.data.return_method,
         precomputed_residual_params=precomputed_residual_params or {},
-        panel_dir=panel_dir,
     )
 
     if isinstance(config.trader, PortfolioMeanReversionConfig):
@@ -155,24 +150,53 @@ def run_from_config(config: SimulatorConfig) -> SimulationResult:
 
     z_configs = config.resolved_z_score_configs()
 
-    print("[run] Loading candidate panels...")
-    t0 = _time.time()
-    panel, metadata_by_key = _load_panels(config.data, z_configs)
-    print(f"[run] Panels loaded in {_time.time() - t0:.1f}s")
+    run_id: str | None = None
+    if config.candidate_generation is not None:
+        # F2 C6b: generate live, inside the simulator, instead of loading a
+        # panel/weights/residual_params built earlier by the offline
+        # run_panel_batch path. Opt-in — every other caller is unaffected.
+        #
+        # F2 C6c: run_id/run_dir are resolved here, before generation, and
+        # threaded through to sim.run() below (run_id=run_id) so persistence
+        # writes candidate/weights/residual-param artifacts into the SAME
+        # run_dir the simulation's own trades/config/performance end up in,
+        # rather than Simulator.run() resolving a second run_id afterwards
+        # (make_run_id includes a minute-resolution timestamp -- resolving
+        # twice risks two different, mismatched directories if a minute
+        # boundary is crossed in between). None/no-op when persistence is
+        # disabled, matching Simulator.run()'s own guard.
+        run_dir: Path | None = None
+        if config.persistence.enabled:
+            from src.simulator.simulation_persistence import make_run_id, _resolve_run_dir
+            run_id = make_run_id(config)
+            run_dir = _resolve_run_dir(config.persistence, run_id)
+            run_dir.mkdir(parents=True, exist_ok=True)
 
-    _assert_fit_input_tickers_available(umd, metadata_by_key)
+        print("[run] Generating candidates live...")
+        t0 = _time.time()
+        panel, residual_configs, precomputed_residual_params, weights_lookup = (
+            _generate_candidates_live(config, run_dir=run_dir)
+        )
+        print(f"[run] Candidates generated in {_time.time() - t0:.1f}s")
+    else:
+        print("[run] Loading candidate panels...")
+        t0 = _time.time()
+        panel, metadata_by_key = _load_panels(config.data, z_configs)
+        print(f"[run] Panels loaded in {_time.time() - t0:.1f}s")
 
-    residual_configs = _resolve_residual_configs(config, metadata_by_key)
+        _assert_fit_input_tickers_available(umd, metadata_by_key)
 
-    print("[run] Loading residual params...")
-    t0 = _time.time()
-    precomputed_residual_params = _load_residual_params(config.data, z_configs)
-    print(f"[run] Residual params loaded in {_time.time() - t0:.1f}s")
+        residual_configs = _resolve_residual_configs(config, metadata_by_key)
 
-    print("[run] Loading weights...")
-    t0 = _time.time()
-    weights_lookup = _load_weights(config.data, z_configs)
-    print(f"[run] Weights loaded in {_time.time() - t0:.1f}s")
+        print("[run] Loading residual params...")
+        t0 = _time.time()
+        precomputed_residual_params = _load_residual_params(config.data, z_configs)
+        print(f"[run] Residual params loaded in {_time.time() - t0:.1f}s")
+
+        print("[run] Loading weights...")
+        t0 = _time.time()
+        weights_lookup = _load_weights(config.data, z_configs)
+        print(f"[run] Weights loaded in {_time.time() - t0:.1f}s")
 
     print("[run] Creating simulator...")
     t0 = _time.time()
@@ -186,7 +210,198 @@ def run_from_config(config: SimulatorConfig) -> SimulationResult:
     print(f"[run] Simulator created in {_time.time() - t0:.1f}s")
 
     print("[run] Starting simulation...")
-    return sim.run(panel)
+    return sim.run(panel, run_id=run_id)
+
+
+# ---------------------------------------------------------------------------
+# F2 C6b — live candidate generation (opt-in, alongside the offline load path)
+# ---------------------------------------------------------------------------
+
+def generate_candidate_panels_by_group(
+    config: SimulatorConfig,
+) -> dict[tuple[str, str], dict[str, Any]]:
+    """
+    Run the in-simulator candidate generator (candidate_generation.py) once
+    per selected group, live — no offline run_panel_batch, no disk.
+
+    Returns {(group_id, residual_key): {"panel": <full scored panel df,
+    including invalid rows>, "weight_rows": [...], "fitted_params": {...}}}.
+
+    Used both by run_from_config's live-generation branch
+    (config.candidate_generation is not None) and directly by callers that
+    need the per-group breakdown before running a simulation — e.g.
+    b_baseline_harness.py's ## counts section, which needs the full scored
+    panel (valid + invalid rows) per group, not just what
+    SimulationResult.selected_panel keeps after CandidateFilter.
+
+    Loads its own UniverseMarketData per group, under
+    config.candidate_generation's own force_download/check_for_corruptions/
+    start_after_nan flags — NOT the umd run_from_config loads under
+    config.data's flags for simulation. The offline pipeline this replaces
+    used two separately-flagged UMD loads (PanelBatchConfig for scoring,
+    DataConfig for simulation; found.md's "four combinations" entry), and
+    every committed B_baseline.txt bakes in that split. Reusing
+    run_from_config's single merged umd for both would silently unify the
+    two and move every trade's pair_notional by rounding-level amounts —
+    caught empirically while building this function. CandidateGenerationConfig's
+    own flags default to PanelBatchConfig's (False/False/True), preserving
+    the split; unifying it for real is Track I's job, not F2's.
+    """
+    cg = config.candidate_generation
+    if cg is None:
+        raise ValueError("config.candidate_generation must be set to generate candidates live.")
+    if config.residual is None:
+        raise ValueError(
+            "config.residual must be set explicitly to generate candidates live "
+            "— there is no persisted panel metadata to resolve it from."
+        )
+    if not config.data.selected_groups:
+        raise ValueError(
+            "config.data.selected_groups must be a non-empty list of group_id "
+            "strings to generate candidates live."
+        )
+
+    from src.data.returns import build_group_return_bundle
+    from src.simulator.candidate_generation import generate_candidates
+
+    residual_cfg = config.residual
+    out: dict[tuple[str, str], dict[str, Any]] = {}
+    for group_id in config.data.selected_groups:
+        yaml_path = Path(CONFIG_UNIVERSE) / config.data.universe_name / f"{group_id}.yaml"
+        loader = UniverseDataLoader(
+            UniverseConfig.from_yaml(yaml_path),
+            data_path=config.data.data_path,
+            progress=False,
+        )
+        umd = loader.load(
+            force_download=cg.force_download,
+            check_for_corruptions=cg.check_for_corruptions,
+            start_after_nan=cg.start_after_nan,
+        )
+        bundle = build_group_return_bundle(
+            umd=umd,
+            group_id=group_id,
+            field=config.data.price_field,
+            return_method=config.data.return_method,
+            dropna="any",
+        )
+        rows, weight_rows, fitted_params = generate_candidates(
+            bundle=bundle,
+            residual_cfg=residual_cfg,
+            pair_cfg=cg.pair_cfg,
+            hedge_ratio_lb=cg.hedge_ratio_lb,
+            mr_diag_lb=cg.mr_diag_lb,
+            frequency=cg.frequency,
+            start_date=cg.start_date,
+            end_date=cg.end_date,
+            max_steps=cg.max_steps,
+        )
+        panel = pd.DataFrame(rows)
+        # Neither create_pair_candidate_panel nor generate_candidates itself
+        # adds this column -- only the offline disk-load path does
+        # (_load_panels, both branches below), deriving it from the
+        # discovered GroupDataSource.residual_key. generate_candidates'
+        # own equivalence test (C6a) never caught its absence because it
+        # compared against create_pair_candidate_panel directly, not against
+        # what _load_panels actually hands the simulator — the real
+        # consumer needs this column to route candidates by residual_key at
+        # all (CandidateFilter, ZScoreConfig resolution).
+        if not panel.empty:
+            panel["residual_key"] = residual_cfg.key
+        out[(group_id, residual_cfg.key)] = {
+            "panel": panel,
+            "weight_rows": weight_rows,
+            "fitted_params": fitted_params,
+        }
+    return out
+
+
+def _generate_candidates_live(
+    config: SimulatorConfig,
+    *,
+    run_dir: Path | None = None,
+) -> tuple[
+    pd.DataFrame,
+    dict[str, CausalResidualConfig],
+    dict[tuple[str, str], dict[pd.Timestamp, FittedCausalResidualModel]],
+    dict[tuple[str, pd.Timestamp], dict[str, float]],
+]:
+    """Combines generate_candidate_panels_by_group's per-group breakdown into
+    the same (panel, residual_configs, precomputed_residual_params,
+    weights_lookup) shape run_from_config's offline-load branch produces.
+
+    run_dir: when given (persistence enabled), persists each group's panel/
+    weights/residual_params into run_dir/"candidates" (F2 C6c) — see
+    persist_live_candidate_artifacts."""
+    by_group = generate_candidate_panels_by_group(config)
+
+    if run_dir is not None:
+        persist_live_candidate_artifacts(by_group, run_dir)
+
+    panels = [v["panel"] for v in by_group.values() if not v["panel"].empty]
+    panel = pd.concat(panels, ignore_index=True) if panels else pd.DataFrame()
+
+    all_weight_rows: list[dict[str, Any]] = []
+    precomputed_residual_params: dict[tuple[str, str], dict[pd.Timestamp, FittedCausalResidualModel]] = {}
+    for key, v in by_group.items():
+        all_weight_rows.extend(v["weight_rows"])
+        precomputed_residual_params[key] = v["fitted_params"]
+
+    weights_lookup = weights_lookup_from_df(pd.DataFrame(all_weight_rows)) if all_weight_rows else {}
+    residual_configs = {config.residual.key: config.residual}
+
+    return panel, residual_configs, precomputed_residual_params, weights_lookup
+
+
+def persist_live_candidate_artifacts(
+    by_group: dict[tuple[str, str], dict[str, Any]],
+    run_dir: Path,
+) -> None:
+    """
+    F2 C6c: persist the live generation path's candidates/weights/residual
+    params into the run's own run_dir (run_dir/"candidates"/{group_id}_
+    {residual_key}...), via candidate_panel.py's/causal_residuals.py's
+    existing writers -- the same ones run_panel_batch uses
+    (pair_candidate_panel_creator.py:944-968), not a second implementation.
+
+    Schema is identical to the offline path's by construction, not just by
+    convention: generate_candidates (candidate_generation.py:102-114) calls
+    the exact same _build_pair_candidate_rows_for_date / fit_causal_residual_
+    model create_pair_candidate_panel's own walk calls
+    (pair_candidate_panel_creator.py:842-869), producing rows/weight_rows/
+    fitted_params in the identical shapes save_candidate_panel_result/
+    save_weights/save_residual_params already accept — weights.parquet's
+    (group_id, residual_key, hedge_key, spread_id, asof_date, ticker) grain
+    and residual_params.parquet's (fit_date, ticker, factor) grain
+    (F1_artifact_schema.md §3-4) can't drift here; there is no separate
+    persistence-side row-building logic to diverge. The only difference from
+    the offline artifacts is density: residual_params.parquet here has one
+    row per OUTER asof_date, not one per daily grid date, since nothing
+    downstream reads fits at non-outer dates (F2_spec.md D5/P3) — same
+    columns, fewer rows.
+    """
+    from src.candidates.candidate_panel import CandidatePanelResult, save_candidate_panel_result, save_weights
+    from src.residuals.causal_residuals import save_residual_params
+
+    out_dir = run_dir / "candidates"
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    for (group_id, residual_key), v in by_group.items():
+        stem = f"{group_id}_{residual_key}"
+        panel = v["panel"]
+        if not panel.empty:
+            save_candidate_panel_result(
+                result=CandidatePanelResult(
+                    panel=panel,
+                    metadata={"group_id": group_id, "residual_key": residual_key},
+                ),
+                out_dir=out_dir,
+                stem=stem,
+            )
+        if v["weight_rows"]:
+            save_weights(v["weight_rows"], str(out_dir / f"{stem}_weights.parquet"))
+        if v["fitted_params"]:
+            save_residual_params(v["fitted_params"], str(out_dir / f"{stem}_residual_params.parquet"))
 
 
 # ---------------------------------------------------------------------------

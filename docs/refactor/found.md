@@ -215,6 +215,35 @@ and simulator would contaminate a comparison whose expected effect is thin.
 Severity: result-affecting, depends on construction path
 Suggested track: I — before G
 
+**Update (F2 C6b):** this stopped being purely theoretical. Wiring live candidate
+generation into the simulator (`generate_candidate_panels_by_group`,
+`src/simulator/simulator_factory.py`) initially reused `run_from_config`'s single
+merged `umd` — loaded under `DataConfig`'s flags — for scoring too, unifying the
+two combinations above by accident. That moved `pair_notional` and downstream
+performance metrics by rounding-level amounts on nearly every trade against
+`B_baseline.txt` (trade count/ids/dates/directions/z-scores unchanged; only the
+magnitudes moved) — a measured, non-hypothetical consequence of this entry, not
+just an inconsistency. Fixed for F2's purposes by giving `CandidateGenerationConfig`
+its own `force_download`/`check_for_corruptions`/`start_after_nan` fields
+(defaulting to `PanelBatchConfig`'s values) and having
+`generate_candidate_panels_by_group` load its own per-group UMD under them,
+deliberately preserving the split rather than fixing it (F2_spec.md's C6b section
+has the full before/after). Track I's eventual unification now has a second call
+site to cover, in addition to the original two.
+
+**Update (F2 C6c):** `CandidateGenerationConfig.force_download`/
+`check_for_corruptions`/`start_after_nan` (`src/simulator/config.py`) default to
+`PanelBatchConfig`'s own values, deliberately, for the neutrality reason above —
+but that is itself a violation of Track D's rule (`D_config_hygiene.md:14-24`:
+"No result-affecting numeric default remains in the config dataclasses or in any
+default factory... No layer above may reinstate a default the layer below
+deliberately omits"). These three flags are exactly the kind of result-affecting
+default Track D's rule targets, and this config adds a **third** silent instance
+of it (`DataConfig`, `PanelBatchConfig`, now `CandidateGenerationConfig`), not a
+second. Deliberate and documented here rather than accidental, but it does not
+make the default itself compliant. Track I's unification now has three call
+sites to cover, not two.
+
 ## `series/` staleness has three separate axes — only one is being fixed
 Found during: track E (review of the `(group_id, ticker)` re-key)
 Location: `src/residuals/series.py`; the `series/` artifact directory; stem
@@ -433,13 +462,13 @@ verified) — the process/documentation error is the finding
 Suggested track: none — process note; relevant context if F2's fidelity
 test session revisits commit 4's neutrality argument
 
-## `config_hash` has shifted seven times during this refactor
-Found during: tracks A, C, E, F1
+## `config_hash` has shifted nine times during this refactor
+Found during: tracks A, C, E, F1, F2
 Location: `src/simulator/simulation_persistence.py:32-44` (`hash_config`, which
 serializes the full `SimulatorConfig` via `json.dumps(..., sort_keys=True)` — field
 NAMES as well as values)
 What: Because field names are hashed, any field added, removed or renamed shifts
-`config_hash` for every config, even when no resolved value changes. Seven such
+`config_hash` for every config, even when no resolved value changes. Nine such
 changes have landed, each caught by
 `tests/test_sweep_defaults.py::test_standard_v1_output_is_hash_stable`:
 
@@ -452,10 +481,12 @@ changes have landed, each caught by
 | F1.2 | `SimulatorConfig.spectrum` / `SpectrumConfig` deleted | `0240fcdf` -> `7a5f6834` |
 | F1.6 | `DataConfig.snapshot_id` added | `7a5f6834` -> `89b82e76` |
 | F1.8c | `PersistenceConfig.artifacts` default tuple shortened (a value change, not a field change) | `89b82e76` -> `0bc1e2a0` |
+| F2.C5 | `SimulatorConfig.debug_sample: DebugSampleConfig \| None` added | `0bc1e2a0` -> `4e493ec7` |
+| F2.C6b | `SimulatorConfig.candidate_generation: CandidateGenerationConfig \| None` added | `4e493ec7` -> `312a5f07` |
 
 Harmless in `statarb_sim`, which has no persisted run dirs. In `hierarchical-arb`
 every existing persisted run becomes unreachable by hash once these are ported. The
-standing port rule is one atomic commit per fix, which would orphan runs seven times
+standing port rule is one atomic commit per fix, which would orphan runs nine times
 in sequence — consider porting the hash-breaking subset as a single batch and
 re-keying once.
 
@@ -510,6 +541,14 @@ Suggested track: resolved by F2 C3 (frozen-at-asof, decided).
 Port note: `hierarchical-arb` has the same split, so its research results ran on
 whichever path had cache hits. The May 2026 z-spectrum discrepancy between the
 entry-date-model reconstruction and the simulator may have this cause — unverified.
+Magnitude, measured on the F2 baseline harness (`F2_spec.md`, "R1 impact
+measurement"): forcing the pre-C3 recompute (today-dated) path on this harness's 97
+post-fix trades instead gave 115 trades — 37 exist only under the old path, 19 only
+under the fixed path, and every one of the 78 trades common to both by `trade_id`
+has a different entry and/or exit z-score. Not a rounding-level effect: the
+divergence compounds through the run once any one trade's exit timing shifts.
+Whatever `hierarchical-arb` research ran on the recompute path (cache miss) should
+be treated as unreliable until re-run, not just re-checked.
 
 ## `mr_diag_lb` and `MRDiagnosticsConfig.lookback` can silently disagree
 Found during: track F2 (spec session, Part 3.8)
@@ -521,3 +560,144 @@ no assertion tying them together.
 Severity: result-affecting, magnitude unmeasured
 Suggested track: new, result-changing; decide which window governs before G's
 baseline.
+
+## `portfolio_mean_reversion.py`'s `fz_analytics` parameter is populated from `analytics_by_id`, not `fz_analytics_by_id`
+Found during: track F2 (implementation pre-check, P2)
+Location: `src/simulator/traders/portfolio_mean_reversion.py:76,81,128,148-152`
+(`_maybe_close`'s `fz_analytics` parameter, read from `diagnostics.get(candidate_id)`,
+`diagnostics = live_diagnostics_by_candidate_id or {}`); caller
+`simulator.py:360-364` (`self.trader.generate_actions(...,
+live_diagnostics_by_candidate_id=analytics_by_id)`)
+What: The trader's `_maybe_close` names its parameter `fz_analytics`, matching the
+naming of `simulator.py`'s own `fz_analytics_by_id` (built separately at
+`simulator.py:346-351,701-720` from each open position's *realized fill* weights).
+But the trader never receives `fz_analytics_by_id` — `generate_actions` is only ever
+called with `live_diagnostics_by_candidate_id=analytics_by_id`, the *frozen candidate
+weight* path (`_batch_analytics_for_group`). So `_maybe_close`'s `fz_analytics.mr_score`
+is actually the frozen-weight `mr_score`, not a realized-fill one, despite the name.
+`fz_analytics_by_id` itself is real and computed every day but is currently read only
+by `_build_diagnostics_log_entries` (logging), never by any trading decision.
+Severity: cosmetic (the naming is misleading; not itself a wrong computation — see the
+next entry for where this naming confusion masks a real result-affecting issue)
+Suggested track: new — rename one of the two, or wire `fz_analytics_by_id` into the
+trader if the realized-fill mr_score was actually intended for the deterioration stop
+
+## The deterioration stop compares mr_score from two different weight bases
+Found during: track F2 (implementation pre-check, P2)
+Location: `src/simulator/traders/portfolio_mean_reversion.py:145-153` (deterioration
+stop: `fz_analytics.mr_score < mr_deterioration_threshold * live_pos.entry_mr_score`);
+`fz_analytics.mr_score` traces to `analytics_by_id` → `_batch_analytics_for_group`,
+frozen candidate weights (`CandidateRef.weights`); `live_pos.entry_mr_score` is set at
+`simulator.py:650` from `entry_analytics = compute_analytics_from_weights(...,
+weights_by_ticker=realized_weights_by_ticker)` — actual fill weights, which can differ
+from the frozen candidate weights (rounding to whole units, partial fills).
+What: The deterioration stop's ratio compares an mr_score computed on the candidate's
+frozen theoretical weights (numerator, refreshed daily) against an mr_score computed
+on the position's realized fill weights at entry (denominator, fixed once at entry) —
+two different spreads' worth of mr_score in one ratio, not a before/after comparison
+of the same spread under the same weights.
+Severity: result-affecting, magnitude unmeasured
+Suggested track: new
+
+## `SimulatorConfig`'s EQ_ROLLING guard is likely liftable after F2 C3
+Found during: track F2 (C3 review, R10)
+Location: `src/simulator/config.py:795-809` (`SimulatorConfig.__post_init__`, the
+unconditional raise for `self.residual.window_mode == "rolling"`)
+What: The guard's own message describes the cause as "the z-score's EWM history span
+... inherited from whichever upstream path supplied the residual series — full
+history on the disk-backed path, truncated to the residual lookback on the recompute
+path — so the same (spread_id, date) can yield a different z-score depending on
+whether a cache existed." F2 C3 removed that cause: both the disk path and the
+recompute path now apply the asof-frozen model over the full history and truncate the
+level afterward (F2_spec.md R10) — there is no longer a per-path row-count difference
+for the guard to be protecting against.
+Severity: blocks EQ_ROLLING residual configs entirely
+Suggested track: new, after F2 merges — lifting the guard still needs the explicit
+span parameter the guard's own message calls for; not decided or touched in F2
+
+## A leftover artifacts directory silently serves stale values into a before/after diff
+Found during: track F2 (C4/E6 review)
+Location: `artifacts/candidate_panels/{subdir}/` (e.g.
+`artifacts/candidate_panels/refactor_b_harness/`, `scripts/b_baseline_harness.py`'s
+own `PANEL_SUBDIR`); read by `run_from_config`'s panel/weights/residual-params
+loaders (`simulator_factory.py::_load_panels`/`_load_residual_params`/
+`_load_weights`, all via `discover_group_data_sources`)
+What: This directory accumulates across runs — `run_panel_batch` stamps a fresh
+timestamped stem on every build but never deletes an older one, so multiple stems
+for the same (group_id, residual_key) can coexist indefinitely. This is exactly how
+F2's own E6 measurement first went wrong: `series/` (deleted by C4, so moot for that
+one sub-path) held ~5,235 files from earlier sessions this track, and the pre-C3
+reader found and served them regardless of the harness's populate call being
+skipped that run, making the "before" measurement silently identical to the
+"after" one — a false negative, not a passing check. The mechanism is not
+series/-specific: `candidate_panels/` (panel/weights files) and the
+`_residual_params.parquet` files alongside them accumulate the same way and were
+not cleared by C4, since nothing in F2 writes or removes them per run.
+Severity: result-affecting for any before/after comparison run against this
+directory without first confirming it is empty — not a live bug in shipped
+trading logic, but a standing risk to the *instrument* used to verify one
+Suggested track: F2 adds a guard (E8, this track) that reports and refuses to
+silently proceed; Tracks I and G verify entirely via before/after diffs against
+this same harness and directory, and inherit the same risk until they either reuse
+the guard or adopt their own equivalent
+
+## `make_ranking_dates` can return a resample bin label that is not an actual data date
+Found during: track F2 (C6a equivalence test)
+Location: `src/utils/date_utils.py:4-22` (`make_ranking_dates`) —
+`s.resample(frequency).last().dropna().index` takes `.index` from the *resampled*
+series, whose labels are the bin edges (e.g. every Friday for `"W-FRI"`), not the
+date of whichever row inside that bin actually supplied `.last()`'s value.
+What: When a bin's period label (e.g. a Friday) is itself a date with no row at
+all — a market holiday, confirmed concretely: `2007-04-06` (Good Friday) is
+absent from both `energy_only_v1` and `materials_only_v1`'s
+`aligned_returns.index` — `.last()` still returns the most recent real value
+from earlier in that bin (e.g. Thursday), but the bin's *label*, which is what
+ends up in the returned `DatetimeIndex`, is the Friday. Every caller of
+`make_ranking_dates` can silently receive a date that is not in the index it was
+computed from.
+This was completely masked in the shipped offline panel-build path: `create_pair_
+candidate_panel`'s walk (`pair_candidate_panel_creator.py`, `walk_dates =
+daily_dates if daily_dates is not None else asof_datetimes`) only builds
+candidate rows on outer dates that are *also* present in the daily fit grid —
+itself built by the same `make_ranking_dates(frequency="B", ...)`, which drops
+the holiday's now-empty daily bin via its own `.dropna()`. So the phantom Friday
+is silently skipped end-to-end, and the panel simply has one fewer outer date
+than requested, with no signal that anything was dropped. The in-simulator
+generator (`src/simulator/candidate_generation.py`, C6a) has no daily grid to
+filter through, so it filters phantom dates itself
+(`asof_datetimes[asof_datetimes.isin(bundle.aligned_returns.index)]`) — a local
+workaround, not a fix to `make_ranking_dates` itself, which is unchanged and
+still returns the same phantom labels to every other caller.
+Severity: result-affecting, magnitude unmeasured beyond this one confirmed
+instance — every `make_ranking_dates` caller across the panel-build and
+simulator-config resolution paths (`resolved_groups`,
+`DataConfig.resolved_groups`, the daily grid itself) is exposed in principle;
+only the offline outer/daily interaction happens to self-correct today.
+Suggested track: new — fix `make_ranking_dates` to return the actual date of the
+row `.last()` selected, not the resample bin label; re-audit every caller once
+fixed, since some may be relying (even accidentally, like the offline walk) on
+today's masking behavior
+
+## `run_me.py`'s module docstring calls the residuals stage "NOT YET IMPLEMENTED" — it is live
+Found during: F2 C6c pre-check (F5), while scoping what depends on `run_panel_batch`
+before deleting it
+Location: `run_me.py:8-9` (module docstring: "residuals -> fit causal residuals +
+build the candidate panel (NOT YET IMPLEMENTED)"); `stage_residuals`
+(`run_me.py:275-308`), which calls `run_panel_batch` for real at `:280,289,300`;
+`_bootstrap_panel_from_fixtures` (`:315-337`) still calls its own copy
+"not-yet-implemented residuals stage" in a comment (`:317,330`)
+What: The docstring and the fixture-bootstrap comment are both stale. `stage_residuals`
+is a real, working pipeline stage: it builds `PanelBatchConfig` (`_make_panel_batch_cfg`,
+`:218-254`), calls `run_panel_batch`, and for the single-group case adopts the
+freshly-built panel's stem as the pipeline's canonical stem (`_extract_panel_stem`,
+`_update_panel_stem`, `:160-215`) so the `simulate` stage resolves what was just built
+instead of the committed fixtures. Nothing about this is a stub — it is a second,
+independent production caller of `run_panel_batch` (`sweep_runner.py` is the other),
+discovered only because Track J's pre-check went looking for every consumer before
+proposing to delete what they depend on.
+Severity: documentation only — no behavior is wrong, the comments describing the
+behavior are wrong, in a way that would have hidden this exact dependency from a
+narrower grep.
+Suggested track: J (`J_retire_offline_panel_path.md`) — fix the docstring/comment
+when `run_me.py`'s `residuals` stage is migrated off `run_panel_batch`, not before;
+fixing the words without fixing the dependency would just relocate the staleness.

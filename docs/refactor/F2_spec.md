@@ -1038,3 +1038,448 @@ purposes. R3's claim is about the *new, dedicated* reconstruction function (C5),
 whose job is exact-fidelity level/z-score reproduction only — it is correct that
 this narrower function need not call the OU fit, but that's a scope decision for
 C5, not a description of how the existing pipeline is structured today.
+
+---
+
+## Pre-check decisions
+
+D1. C1 also deletes the PC variance-ratio mechanism: `_compute_variance_ratios`,
+    `_latest_pc_variance_ratios`, `get_pc_variance_ratios`, and the side-effect call in
+    `_get_residuals`. Basis: P3, zero callers anywhere, including notebooks.
+
+D2. R2 clarified. The residual model is always the candidate's own asof model. The
+    weights are the caller's: frozen candidate weights for `analytics_by_id`, realized
+    fills for `entry_analytics` and `fz_analytics_by_id`, effective weights for `dy_a`.
+    One function, which takes the weights as an argument.
+
+D3. C3 includes a perturb-the-future test on R2's function, because the in-memory
+    matrix holds rows after t by construction. Mutate the returns strictly after t, then
+    assert that level, `z_score`, `roll_std` and the MR diagnostics at t are unchanged,
+    with `check_exact=True`. This is the `≤ t` guard for the change C3 introduces.
+    C5's reconstruction test does not replace it.
+
+D4. C3's diff explanation must account for three paths:
+    - `z_score` and `roll_std`, via `analytics_by_id`;
+    - `entry_mr_score` and `entry_half_life`, via `entry_analytics` (time stop and
+      deterioration stop);
+    - for rolling-mode residual keys, the level's length changes as well (full history
+      instead of the lookback window).
+    State which residual keys the harness uses.
+
+D5. C6a's outer-date-only fits are approved on P3's evidence, on one condition: show
+    at `path:line` that a fit at date d is a pure function of data ≤ d, with no state
+    carried across the walk (no warm start). The equivalence test then compares
+    outer-date params only.
+
+D6. Two found.md entries, added on the branch; do not fix either:
+    - `portfolio_mean_reversion.py`'s `fz_analytics` parameter is populated from
+      `analytics_by_id`, not from `fz_analytics_by_id` (a naming collision).
+    - The deterioration stop compares a current `mr_score` computed on frozen candidate
+      weights with an `entry_mr_score` computed on realized fill weights: two different
+      spreads in one ratio. Severity: result-affecting, magnitude unmeasured.
+      Suggested track: new.
+
+### R10. C3's apply window (recorded, no action)
+
+C3 changed where the level's cumsum starts. The old recompute path applied the model
+to `_slice_fit_window`'s output, so the cumsum started at the slice's first row — and
+in rolling mode the slice was also cut to the last `lookback` rows
+(`causal_residuals.py:417`). C3 applies over the full history and truncates the level
+afterwards, matching the disk path.
+
+The resulting constant offset cancels in every consumer: MR diagnostics demean the
+level and fit an intercept (`candidate_signals.py:771-781`), `adfuller`'s default
+regression carries a constant, and the z-score's rolling mean absorbs it. Nothing
+moves from the offset.
+
+The substantive difference is the row count in rolling mode, where the old recompute
+path computed its statistics over `lookback` rows rather than the full history. That
+is the same non-determinism `SimulatorConfig.__post_init__` raises on
+(`config.py:795-809`), so no reachable config is affected.
+
+C3 removes that guard's cause: both paths now use the full history. Whether the guard
+can be lifted is a separate decision, deferred — it needs the explicit span parameter
+the guard's message describes. **Do not touch the guard in F2.**
+
+### C4 result — correction: the moved field is `pair_notional`, not `realized_pnl_gross`
+
+The C4 stop report misread `B_baseline.txt`'s column alignment. `TRADE_COLS`
+(`b_baseline_harness.py:82-87`) orders columns as `trade_id, group_id, spread_id,
+entry_date, exit_date, days_open, direction, pair_notional, entry_z_score,
+exit_z_score, realized_pnl_gross, realized_pnl_net`. For trade `20061101:a971fcf5`,
+the value that moved (`154628.238305 -> 154628.238304`) is **`pair_notional`**;
+`realized_pnl_gross` (`2382.007568`) and `realized_pnl_net` (`2275.010938`) are both
+unchanged.
+
+This fits R7 more precisely than the original report claimed: `pair_notional` comes
+from `SizingEngine`'s vol-normalization, which scales `base_pair_notional` by
+`median_roll_std / a.roll_std` — `roll_std` is one step downstream of the level, so
+the same rounding-order difference between `np.diff(levels)` and direct
+`spread_return` propagates directly into it. The two PnL columns are computed from
+integer share counts (rounded at execution) and are printed to six decimals on
+figures in the thousands — a relative difference on the order of `1e-11` is well
+below both that rounding and that print precision, so they show as unchanged even
+though the same underlying floating-point noise is present there too, in principle.
+
+### R1 impact measurement
+
+What R1's fix (today-dated vs. asof-frozen residual model) was actually worth on
+this harness, isolated from C4's own effect. Method: checked out the commit before
+C3 (`9362e4a`), removed only the harness's `_persist_series` call (skip populating
+the disk cache — a harness-config change, not a flag edit) so the simulator falls
+through to the pre-C3 recompute path (`_get_residuals`, today-dated model), and
+compared the resulting `B_baseline.txt` against the current, post-C4 baseline.
+
+**First attempt was contaminated and discarded.** `artifacts/candidate_panels/
+refactor_b_harness/series/` held ~5,235 leftover files from earlier sessions this
+track. With those present, the reader (`_try_batch_levels_from_disk`, still intact
+at the pre-C3 commit) found them and served the *old, already-correct-per-P1* disk
+values regardless of the harness's own populate call being skipped — so the first
+run measured nothing. Cleared the directory (`rm -rf .../series/`, confirmed 0 files
+both before and after the corrected run) and re-ran.
+
+**Result: large.** 97 trades (post-C4, asof-frozen) vs. **115 trades** (pre-C3
+recompute, today-dated) — 37 trades exist only under the old today-dated path, 19
+exist only under the new asof-frozen path, and of the 78 trades common to both by
+`trade_id`, **all 78** have a different `entry_z_score` and/or `exit_z_score`. No
+trade survives with identical timing and z-scores. This is not the rounding-level
+effect C4 showed — the divergence is structural and compounds through the run:
+`EQ_EXPANDING`'s model drifts slowly day-to-day, so any single day's today-vs-asof
+difference is individually small, but once one trade's exit timing shifts by even
+one day, every later occupancy/activation decision for that spread (and every
+z-score computed off the resulting level series) cascades into a different
+sequence — consistent with the brief's own framing of this invariant's failure mode
+("plausible-looking *better* results rather than an error", `F2_loop_and_fidelity.md`
+§1).
+
+**Per E6: this is a large diff.** Reported before proceeding to C5, not folded in
+silently.
+
+### E7 — isolating model effect from cascade
+
+Method: monkey-patched `CandidateSignalGenerator.build_candidate_analytics_states`
+to capture its first call's `(date, candidate_refs, z_score per candidate_id)` and
+raise immediately after, so the run stops on the first simulated day. Ran once at
+the current (post-C4, asof-frozen) commit and once at the pre-C3 commit with the
+same series/-cleared, populate-skipped isolation as the R1 measurement above. Both
+captured the identical 127 candidates on `2006-09-08` (the harness's
+`PANEL_START_DATE`, and the panel's own earliest `asof_date`).
+
+**Result: rounding-scale.** median `|Δz|` = `2.22e-16`, 90th percentile =
+`6.66e-16`, max = `1.78e-15`, 0 of 127 candidates above `1e-6` (let alone `0.01`) —
+machine-epsilon noise, not a model difference.
+
+**This is expected, and does not establish chaos, because day 1 is degenerate for
+this test.** `_build_simulation_dates`'s `start = max(market_dates.min(),
+cp_dates.min())` (`simulator.py:932`, R6) puts the first simulated day exactly at
+the panel's earliest `asof_date` — so for every one of the 127 day-1 candidates,
+`ref.asof_date == date`. The today-dated lookup (`group_params[date]`) and the
+asof-frozen lookup (`group_params[ref.asof_date]`) hit the **same dict key** on day
+1, for every candidate, by construction — not because the two definitions agree,
+but because they have not yet had a chance to disagree. E7's own premise ("no
+position divergence can have occurred yet, so any difference is the model alone")
+is true, but the unstated second half — that the *model itself* has already had a
+chance to diverge by day 1 — does not hold here: it can only diverge from the first
+day some tracked candidate's `date` moves past its own `asof_date` (day 2 onward,
+for anything still tracked from day 1; immediately, for any later-arriving
+candidate evaluated on a non-arrival day).
+
+Per E7's rule this measurement is rounding-scale, so by its letter this stops and
+reports rather than recording-and-proceeding. **Superseded by E7b below**, which
+measures divergence as a function of age within one run (no cascade contamination
+possible) rather than relying on cross-run comparison at a single, degenerate day.
+This day-1 result stands as E7b's positive control at age 0.
+
+### E7b — model divergence as a function of age, within one run
+
+Method: one run, at the current (post-C4, shipped) commit — no cross-run
+comparison, so no cascade can contaminate the measurement. Monkey-patched
+`build_candidate_analytics_states` to sample every 9th simulated day (~21 of the
+188 total, spread across the run) and, for every tracked candidate on those days,
+compute `z` twice: `z_asof` from the shipped `_get_asof_residuals(ref.asof_date)`
+path (identical to what the run itself used), and `z_today` — measurement-only,
+never fed back into the run — from the model at `date` looked up the pre-C3 way
+(`group_params[date]`, then `_slice_fit_window` + `apply_causal_residual_model` +
+the same `compute_spread_level`/`_compute_z_score` the shipped path uses, so only
+the model/window differs). `age` = trading-day distance between `ref.asof_date` and
+`date`, measured on the candidate's own group bundle index. 2,867 candidate-day
+observations across 21 sampled days. Scratch script, not committed.
+
+| age (trading days) | n | median \|Δz\| | 90th pct | max | count > 0.01 |
+|---|---|---|---|---|---|
+| 0 | 532 | 0 | 0 | 0 | 0 |
+| 1–5 | 1456 | 0.0076 | 0.064 | 0.443 | 658 (45%) |
+| 6–20 | 271 | 0.0093 | 0.071 | 0.224 | 132 (49%) |
+| 21–60 | 406 | 0.0135 | 0.084 | 0.325 | 226 (56%) |
+| 60+ | 202 | 0.0473 | 0.181 | 0.401 | 166 (82%) |
+
+Largest age observed: 180 trading days.
+
+**`|Δz|` grows with age and is model-scale well within typical holding periods.**
+The harness's own mean holding period (38.9 days, from the same run's performance
+table) falls in the 21–60 bucket, where the median `|Δz|` is already `0.0135` —
+comfortably past the `entry_z=1.75`/`exit_z=0.0` thresholds' sensitivity, and
+`count > 0.01` is a majority in every bucket past age 0. **This confirms E6's
+cascade explanation and rules out chaotic floating-point amplification**: the
+divergence is a real, monotonically-growing function of how stale the "today"
+model is relative to the frozen asof model, not noise. Age 0 (`n=532`, `|Δz|`
+exactly `0`) reproduces E7's day-1 finding within the same run and serves as its
+positive control: at zero age the two lookups are arithmetically identical, which
+is also the confirmation that C3's rewrite into `compute_spread_level` is
+arithmetically equivalent to the old inline `R @ W` + `cumsum` it replaced — the
+rewrite itself introduced no divergence; every observed `|Δz| > 0` is attributable
+to the model choice (asof-frozen vs. today-dated), not to C3's refactor mechanics.
+
+Per E7b's rule: record and proceed. R1's fix in C3 was a real, non-trivial
+correction, sized here — not a cosmetic change validated only by a chaotic
+harness.
+
+### E9 — confirming the fidelity test would catch a wrong artifact, not just wrong plumbing
+
+Before C6a: the fidelity test proves the plumbing (which dates, weights, model get
+passed around) by construction, since reconstruction calls the same
+`compute_analytics_from_weights` the run itself calls (R2's "single code path" —
+correct, but also the common-mode blind spot: an error inside that shared function
+is invisible to the test). The remaining question is whether anything *else* is
+shared — specifically, whether the reconstruction-side `CandidateSignalGenerator`
+reads its residual params, weights and returns from disk, or from the run's own
+in-memory state.
+
+**(a) Confirmed independent, with one caveat.** In
+`tests/test_reconstruction_fidelity.py::setUpClass`:
+- `umd = _load_umd(sim_config.data)` (`:96`), `_load_residual_params(sim_config.data, z_configs)`
+  (`:100`), `_load_weights(sim_config.data, z_configs)` (`:101`) are called a
+  *second* time, independently of the `run_from_config(sim_config)` call above them
+  (`:74`) that produced the live run's own generator. Checked both loaders for
+  caching that would silently hand back the same object on a second call — none:
+  `_load_umd` (`simulator_factory.py:191-229`) constructs a fresh `UniverseDataLoader`
+  and calls `.load()` every time, no module-level cache; `_load_residual_params`
+  (`:457-511`) and `_load_weights` (`:513-562`) both go straight to
+  `pd.read_parquet` per call, no caching either. `create_simulator`
+  (`simulator_factory.py:45-97`) constructs a fresh `CandidateSignalGenerator(...)`
+  (`:88-96`) every call, and that class's `_bundle_cache`/`_asof_residual_cache`
+  fields are per-instance (`dc_field(default_factory=...)`, `candidate_signals.py`)
+  — a new instance starts with empty caches regardless of what any other instance
+  has cached. So `sg2` (the reconstruction-side generator) shares no bundle, no
+  asof-residual cache entry, and no params/weights dict object with the run's own
+  generator — everything traces back to a fresh disk read.
+- **Caveat, not covered by (a)'s claim:** `cls.selected_panel = result.selected_panel`
+  (`:102`) *is* taken from the live run's own in-memory `SimulationResult`, not
+  reloaded from disk. This is used only by `reconstruct_candidate_view` (picking
+  the latest `asof_date <= date` for a spread) — not by `reconstruct_level_and_zscore`
+  or `reconstruct_position_view`, and not by weights/residual-params resolution at
+  all. `test_candidate_view_reconstructs_exactly_via_dedicated_function` is
+  therefore not yet a full artifacts-only check; the other tests are.
+
+**(b) Mutation check: confirmed the test fails on a wrong artifact.** Built the
+panel and ran the live simulation once (capturing `debug_sample_df` from the
+original, correct weights). Used `discover_group_data_sources` (the same
+resolution `_load_weights` itself uses) to find the exact `..._weights.parquet`
+file backing the `energy` group — a naive "newest file by mtime in the directory"
+first attempt picked up an unrelated leftover stem from an earlier session (the
+same class of contamination as E8/E6's first attempt), so this matters. Perturbed
+one row: `APA` in spread `APA|VLO`, `asof_date=2006-09-08`, weight `-1.0 -> 0.0`.
+Re-loaded weights fresh from disk (confirmed the mutation was visible:
+`weights_lookup[("APA|VLO", ...)]["APA"] == 0.0`), rebuilt a fresh
+`CandidateSignalGenerator` from it, and reconstructed the same row:
+
+- Expected (captured, correct weights): `z_score=-0.2248`, `level=-1.25e-15`.
+- Reconstructed (mutated weights): `z_score=2.1077`, `level=2.59e-16`.
+- **Mismatch: confirmed.** The fidelity test would have failed.
+
+Restored the original file immediately after (confirmed via a fresh read).
+Scratch script, not committed, per the task.
+
+**Conclusion: the fidelity test is reading artifacts, not memory.** Safe to proceed
+to C6a. The `selected_panel` caveat in (a) is noted for whoever next touches
+`reconstruct_candidate_view`'s own test, not blocking — it affects only which
+`asof_date` a candidate-view query picks, not the residual/weights computation
+once one is chosen, and the dedicated position-view test plus the all-rows test
+already exercise the disk-artifacts-only path for every other function.
+
+### D5 — a fit at date d is a pure function of data ≤ d, no state across the walk
+
+Required before proposing outer-date-only fits for C6a. Two facts together prove it:
+
+- `fit_causal_residual_model(bundle, date, cfg)` (`causal_residuals.py:451-469`)
+  takes exactly those three arguments — no `self`, no accumulator, no prior-model
+  parameter. Its body computes everything fresh from `_slice_fit_window(bundle,
+  date, cfg)` (`:400-425`, a pure `.loc[:date]` slice of `bundle.aligned_returns`,
+  plus an `.iloc[-lookback:]` further slice in rolling mode) and `_wls_multi`
+  (`:440-448`), which calls `np.linalg.lstsq(Xw, Yw, rcond=None)[0]` — a batch
+  least-squares solve on the *current* window's `X`/`Y` alone, no warm-started
+  initial guess, no persisted solver state carried from any other call.
+- The walk loop itself threads no state between iterations:
+  `pair_candidate_panel_creator.py:812-816` — `model = fit_causal_residual_model(
+  bundle=bundle, date=dt, cfg=residual_cfg)` inside `for i, dt in
+  enumerate(walk_dates, start=1):`. `bundle`/`residual_cfg` are the same
+  loop-invariant objects on every iteration; only `dt` varies. `model` is
+  reassigned fresh each iteration and stored into `fitted_params[dt]` (`:820`, a
+  dict keyed by date, for later persistence) — never passed into a subsequent
+  `fit_causal_residual_model` call as a warm start or otherwise.
+
+Together: a fit at outer date `d` is bit-identical whether or not any daily fits
+happened at other dates in between. Outer-date-only fitting changes nothing at
+the dates that still get fit — confirmed empirically too, by C6a's own
+equivalence test below (residual params compared exactly at every outer date).
+
+### C6a — the in-simulator candidate generator, not wired in
+
+Per R4: `src/simulator/candidate_generation.py::generate_candidates` walks outer
+refit dates only (via `resolve_asof_datetimes`, extracted verbatim from
+`create_pair_candidate_panel` into a shared function so both callers resolve
+outer dates identically — `pair_candidate_panel_creator.py`), calling the exact
+same `fit_causal_residual_model` and `_build_pair_candidate_rows_for_date` the
+offline walk already calls. No daily grid, no persistence — purely in-memory,
+not wired into `Simulator.run()`.
+
+`tests/test_candidate_generation_equivalence.py` compares its output against
+`create_pair_candidate_panel` (what `run_panel_batch` itself calls) on the
+harness's own two universes and config, given the *same* `GroupReturnBundle`
+object for both calls (eliminating any bundle-reconstruction noise — see below).
+Checks, `check_exact=True`: all scored candidate rows including invalid ones (set
+equality of columns, then per-column exact value equality), all weight rows, and
+every outer-date residual model's `B_proxy`/`B_stock`/members/proxy/bench/
+subtract_risk_free. **All pass, both groups.**
+
+**A real, previously-latent defect surfaced building this test, not a flaw in
+the generator's own logic.** First attempt (separately-rebuilt bundles per side)
+showed a spurious 1-date mismatch that traced entirely to bundle reconstruction
+noise; fixed by sharing one bundle object. With that fixed, a *second*,
+genuine mismatch remained: `resolve_asof_datetimes` returned an extra outer date
+(`2007-04-06`, Good Friday) that is not actually present in either universe's
+`bundle.aligned_returns.index` — `make_ranking_dates` returns resample bin
+labels, not the actual date of the row `.last()` selected (found.md: "
+`make_ranking_dates` can return a resample bin label that is not an actual data
+date"). The offline walk never notices, because it only builds rows on dates
+also present in its own daily fit grid (also from `make_ranking_dates`, which
+correctly drops the holiday's empty daily bin) — an accidental self-correction,
+not a deliberate check. `generate_candidates` has no daily grid to filter
+through, so it filters phantom dates itself (`asof_datetimes[asof_datetimes.
+isin(bundle.aligned_returns.index)]`) — scoped to the new function only;
+`make_ranking_dates`/`resolve_asof_datetimes` themselves are unchanged, per
+scope (fixing the shared utility is recorded in found.md as a separate, new
+track, not this one).
+
+### E10 — before C6b: harness re-run, and root-causing the bundle mismatch
+
+**(a) `B_baseline.txt` re-run.** C6a's `resolve_asof_datetimes` extraction
+touches `pair_candidate_panel_creator.py`, which `run_panel_batch` calls — on
+the harness's live path, so "full suite green" doesn't cover it; re-ran the
+harness itself. **Zero-row diff** — only the two timing comment lines changed;
+`## counts`, `## trades` (97), and `## performance metrics` are byte-identical.
+Confirms the extraction is a pure refactor, as claimed at commit time but not
+yet separately checked against the harness.
+
+**(b) The "bundle reconstruction noise" claim in the C6a commit was wrong.**
+Root-caused per E10, rather than left as "spurious": rebuilt the same group's
+bundle twice in one process (fresh `UniverseDataLoader`, fresh `.load()`, fresh
+`build_group_return_bundle` call each time) and separately across two
+independent Python processes (each writing `aligned_returns` to its own
+parquet file, compared after both exited). **Both came back with zero
+difference** — identical index, columns, values, and dtypes, in-process and
+cross-process. This directly rules out `found.md`'s "`UniverseDataLoader.load`'s
+in-place cache-hit resync" entry as the cause here: that mechanism only
+triggers when a yaml's member list changes relative to what's cached, which
+did not happen across any of these rebuilds, and the empirical zero-diff result
+confirms no resync fired. **C6b does not depend on Track I's fix.**
+
+The actual, single cause — for both the original "bundle mismatch" observation
+and the later, correctly-diagnosed one — is the `make_ranking_dates`
+phantom-bin-label defect already recorded in `found.md`. It has nothing to do
+with which bundle object is used; any correctly-built bundle from this data
+produces the same phantom `2007-04-06` label once resampled. The original
+"share one bundle" fix in the C6a commit solved nothing new — the equivalence
+test would have passed with two independently-built bundles all along, since
+they are provably identical. Replaced that framing with an explicit
+determinism assertion in the test itself (build twice, `assert_frame_equal`,
+then use one) — the test's real assumption is now the same thing that was
+empirically checked here, not a claim narrated in a docstring.
+
+### C6b — wiring live generation in; the UMD corruption-flag mismatch
+
+Wired `config.candidate_generation` into `run_from_config` (`_generate_candidates_live`
+→ `generate_candidate_panels_by_group`, `src/simulator/simulator_factory.py`) and
+switched `b_baseline_harness.py`'s `## counts` section to read the generator's
+per-group output instead of calling `run_panel_batch`.
+
+First wiring attempt reused `run_from_config`'s single merged `umd` (loaded under
+`DataConfig`'s flags) for candidate scoring too. That is NOT what the offline
+pipeline did: `run_panel_batch` loads its own UMD per group under
+`PanelBatchConfig`'s flags (`panel_batch.py:150-152`:
+`force_download=False, check_for_corruptions=False, start_after_nan=True`),
+separately from `run_from_config`'s simulation-side load under `DataConfig`'s
+flags (`config.py:207-209`: `force_download=False, check_for_corruptions=True,
+start_after_nan=True`). This is the same asymmetry already recorded in
+`found.md`'s "four combinations, no caller states either" entry — previously
+just an inconsistency; now it has a concrete, measured consequence.
+
+Confirmed by running the harness with the shared-`umd` wiring: `## counts` and
+trade count/ids/dates/directions/z-scores were unchanged (97 trades, identical),
+but `pair_notional` and downstream performance metrics differed by rounding-level
+amounts on nearly every trade — a real, non-zero, non-timing diff against
+`B_baseline.txt`. Root cause: `check_for_corruptions=True` vs `False` changes how
+the corruption-cleaning step treats the raw price data before returns are
+computed, moving every level and hedge ratio slightly.
+
+Fix: added `force_download`/`check_for_corruptions`/`start_after_nan` fields to
+`CandidateGenerationConfig` (`src/simulator/config.py`), defaulting to
+`PanelBatchConfig`'s own values (`False`/`False`/`True`), and changed
+`generate_candidate_panels_by_group` to load its own UMD per group under these
+flags (matching `run_panel_batch`'s per-group `UniverseDataLoader(...).load(...)`
+call exactly), rather than reusing the umd `run_from_config` loaded for
+simulation. Re-ran the harness: `B_baseline.txt` diff is now zero-row — only the
+two timing comment lines changed, `## counts`/`## trades`/`## performance
+metrics` byte-identical.
+
+This deliberately preserves the pre-existing inconsistency rather than fixing
+it — C6b's job is neutrality against `B_baseline.txt`, not correctness. Real
+unification (one UMD-loading policy for both scoring and simulating) is Track
+I's job; `found.md`'s existing entry now also names this call site as a second
+place that inherits the fix once Track I lands.
+
+### R11. C6c descoped to Track J
+
+C6c ("delete the offline path", R4) is removed from F2 and becomes **Track J**
+(`docs/refactor/J_retire_offline_panel_path.md`). The offline path stays for
+now: `run_panel_batch`, `PanelBatchConfig`, `create_pair_candidate_panel`'s
+persistence, notebook 01, and notebook 03's panel-build step are all
+untouched by F2.
+
+**Reason.** Before deleting `run_panel_batch`, C6c's own pre-check asked what
+covers its groups × residual-configs sweep under the live-generation
+architecture. Answer: nothing does, today. `sweep_runner.py`'s simulator-level
+sweep requires a pre-built, disk-based panel and has no live-generation
+branch (`SweepConfig.candidate_panel_subdir` is required and rejected empty,
+`sweep_runner.py:93-95`; `_resolve_panel_subdir` enforces it,
+`sweep_runner.py:196-212`; `_build_sim_config` always builds a disk-based
+`DataConfig`, never `candidate_generation`, `sweep_runner.py:217-244` — zero
+references to `candidate_generation` in the file). `run_me.py`'s `residuals`
+stage is a second, real, working production caller of `run_panel_batch`
+(`run_me.py:280,289,300`), not a stub — its module docstring calling this
+stage "NOT YET IMPLEMENTED" is stale (found.md, suggested track J).
+Notebook 03 depends on both: `run_panel_batch` for its panel-build step, then
+`SweepConfig`/`run_sweep` for simulation.
+
+Migrating `sweep_runner.py` and `run_me.py` to live generation is its own
+body of work, not a deletion-adjacent cleanup — this is expand-contract's
+**contract** step deferred, not abandoned. C6a/C6b (the **expand** step: build
+the live generator, wire it in alongside the offline path, prove neutrality)
+stand as committed.
+
+**Two generation paths coexist until Track J lands.** The guard against them
+silently drifting apart is `tests/test_candidate_generation_equivalence.py`
+(`generate_candidates` vs. `create_pair_candidate_panel`, `check_exact=True`),
+which must stay green for the life of the coexistence. It currently covers
+only the harness's two committed universes (`energy_only_v1`,
+`materials_only_v1`) — not a general proof, per the `make_ranking_dates`
+phantom-bin-label defect already on record (found.md), which means the two
+walks can visit different date sets on a universe/frequency this test never
+exercises. Track J must extend it before relying on it to justify deletion.
+
+**Acceptance amendment.** `F2_loop_and_fidelity.md`'s Acceptance section
+("Fidelity test passing... `B_baseline.txt` does not move... Notebooks
+re-executed") is satisfied by the loop migration as **wired in and
+equivalence-tested**, not as the sole path. "The migration" for F2's own
+acceptance purposes means C6a + C6b; C6c's deletion is no longer part of what
+F2 accepts.

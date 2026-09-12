@@ -3,9 +3,13 @@ Regression test for stem-scoped artifact clearing before a fresh panel write.
 
 create_pair_candidate_panel persists many panels (group x timescale) into one
 shared directory, so a fresh write must clear only THIS stem's prior
-artifacts — never sibling panels or the shared series/ folder. This guards
-against both a reused stem keeping a stale residual_params.parquet and, in the
-other direction, a directory-wide wipe destroying a batch's other panels.
+artifacts — never sibling panels or any other non-stem content in the same
+directory. This guards against both a reused stem keeping a stale
+residual_params.parquet and, in the other direction, a directory-wide wipe
+destroying a batch's other panels. The test uses a stray series/ subdirectory
+as its example of non-stem content: no stage writes one any more (F2 C4
+deleted the series/ cache entirely), but a stem-scoped clear must still leave
+arbitrary unrelated content alone regardless of what it happens to be.
 """
 import sys
 import tempfile
@@ -45,7 +49,8 @@ class TestClearStemArtifacts(unittest.TestCase):
             _write_panel(out_dir, "A", "v1")
             _write_panel(out_dir, "B", "v1")
 
-            # A separate stage writes the shared series/ tree (not stem-scoped).
+            # Stand-in for arbitrary non-stem content in the same directory
+            # (nothing writes a series/ tree any more — F2 C4).
             series_stock = out_dir / "series" / "stock" / "AAPL.parquet"
             series_stock.parent.mkdir(parents=True, exist_ok=True)
             series_stock.write_text("series-data")
