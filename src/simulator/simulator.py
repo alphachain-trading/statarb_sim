@@ -92,6 +92,14 @@ class SimulationResult:
     performance: Any | None = None
     run_id: str | None = None
 
+    # F2 C5: one row per (spread_id, asof_date, date, ticker) for every
+    # candidate ref genuinely live on that date whose spread_id was sampled
+    # by config.debug_sample -- both the candidate view (any tracked ref) and
+    # the position view (an open position's own ref) fall out of this same
+    # capture, since both are just tracked_refs on a given date. Empty when
+    # debug_sample is not configured.
+    debug_sample_rows: list[dict] = field(default_factory=list)
+
     def action_log_df(self) -> pd.DataFrame:
         rows = []
         for entry in self.action_log:
@@ -150,6 +158,9 @@ class SimulationResult:
             rows.append(d)
         return pd.DataFrame(rows).convert_dtypes()
 
+    def debug_sample_df(self) -> pd.DataFrame:
+        return pd.DataFrame(self.debug_sample_rows)
+
 
 @dataclass(slots=True)
 class Simulator:
@@ -168,6 +179,11 @@ class Simulator:
     # {(spread_id, asof_date): {ticker: weight}}, full float64 precision —
     # replaces the old per-candidate weights JSON column (F1 commit 4).
     weights_lookup: dict[tuple[str, pd.Timestamp], dict[str, float]] = field(default_factory=dict)
+
+    # F2 C5: debug-sample state. Drawn once, lazily, from the run's own
+    # selected_panel; empty/None when config.debug_sample is not set.
+    _debug_sample_spread_ids: frozenset[str] | None = field(default=None, init=False)
+    _debug_sample_rows: list[dict] = field(default_factory=list, init=False)
 
     def run(
         self,
@@ -197,6 +213,13 @@ class Simulator:
                 closed_trades=[],
                 final_live_positions_by_candidate_id={},
                 snapshots_by_date={},
+            )
+
+        if self.config.debug_sample is not None:
+            self._debug_sample_spread_ids = self._draw_debug_sample(selected)
+            logger.log(
+                f"[sim] Debug sample: {len(self._debug_sample_spread_ids)} spread(s) "
+                f"{sorted(self._debug_sample_spread_ids)}"
             )
 
         market_dates = self._market_dates()
@@ -315,6 +338,30 @@ class Simulator:
                 candidate_refs=needed_refs,
                 skip_diagnostics=skip_diagnostics,
             )
+
+            if self._debug_sample_spread_ids:
+                # F2 C5: capture entirely off to the side, on its own call to
+                # build_candidate_analytics_states -- never touches
+                # analytics_by_id/signal_frame, so the debug sample cannot
+                # change what the trader sees or does. A tracked-but-not-
+                # needed ref (placeholdered above, e.g. an old candidate
+                # superseded but still is_active while a different position
+                # is open on its spread) needs its own, separate real
+                # computation to be captured at all.
+                sample_refs = [
+                    ref for ref in tracked_refs
+                    if ref.spread_id in self._debug_sample_spread_ids
+                ]
+                debug_analytics = self.signal_generator.build_candidate_analytics_states(
+                    date=date,
+                    candidate_refs=sample_refs,
+                    skip_diagnostics=True,
+                )
+                self._capture_debug_sample_rows(
+                    date=date,
+                    tracked_refs=sample_refs,
+                    analytics_by_id=debug_analytics,
+                )
 
             for ref in tracked_refs:
                 if ref.candidate_id not in analytics_by_id:
@@ -497,6 +544,7 @@ class Simulator:
             diagnostics_log=diagnostics_log,
             closed_trades=all_closed_trades,
             final_live_positions_by_candidate_id=live_positions_by_candidate_id,
+            debug_sample_rows=self._debug_sample_rows,
         )
 
         performance_result = None
@@ -957,6 +1005,72 @@ class Simulator:
         for ref in new_arrivals:
             by_id[ref.candidate_id] = ref
         return list(by_id.values())
+
+    def _draw_debug_sample(self, selected_panel: pd.DataFrame) -> frozenset[str]:
+        """F2 C5: sample spread_ids for the debug sample, or use the explicit override."""
+        cfg = self.config.debug_sample
+        if cfg.spread_ids is not None:
+            return frozenset(cfg.spread_ids)
+
+        all_spread_ids = sorted(selected_panel["spread_id"].unique())
+        rng = np.random.default_rng(cfg.seed)
+        n = min(cfg.n_pairs, len(all_spread_ids))
+        chosen = rng.choice(all_spread_ids, size=n, replace=False)
+        return frozenset(str(s) for s in chosen)
+
+    def _capture_debug_sample_rows(
+        self,
+        *,
+        date: pd.Timestamp,
+        tracked_refs: list[CandidateRef],
+        analytics_by_id: dict[str, CandidateAnalyticsState],
+    ) -> None:
+        """
+        F2 C5: for every tracked ref on a sampled spread, record
+        (spread_id, asof_date, date, ticker) -> residual_return, weight,
+        level, z_score. Covers both the candidate view (any tracked ref,
+        including one superseded by a newer arrival) and the position view
+        (an open position's own ref) -- both are just tracked_refs on a
+        given date, so no view-specific logic is needed here.
+        """
+        sample = self._debug_sample_spread_ids
+        if not sample:
+            return
+
+        for ref in tracked_refs:
+            if ref.spread_id not in sample:
+                continue
+            state = analytics_by_id.get(ref.candidate_id)
+            if state is None or not state.is_signal_ready:
+                continue
+
+            try:
+                residuals = self.signal_generator._get_asof_residuals(
+                    ref.group_id, ref.residual_key, ref.asof_date,
+                )
+            except ValueError:
+                continue
+            if date not in residuals.index:
+                continue
+            resid_row = residuals.loc[date]
+
+            for member, weight in zip(ref.members, ref.weights):
+                if member not in resid_row.index:
+                    continue
+                self._debug_sample_rows.append({
+                    "spread_id": ref.spread_id,
+                    "group_id": ref.group_id,
+                    "residual_key": ref.residual_key,
+                    "timescale_label": ref.timescale_label,
+                    "candidate_id": ref.candidate_id,
+                    "asof_date": pd.Timestamp(ref.asof_date),
+                    "date": pd.Timestamp(date),
+                    "ticker": member,
+                    "residual_return": float(resid_row[member]),
+                    "weight": float(weight),
+                    "level": state.level,
+                    "z_score": state.z_score,
+                })
 
     @staticmethod
     def _build_is_flat_map(

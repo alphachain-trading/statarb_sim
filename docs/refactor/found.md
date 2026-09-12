@@ -433,13 +433,13 @@ verified) — the process/documentation error is the finding
 Suggested track: none — process note; relevant context if F2's fidelity
 test session revisits commit 4's neutrality argument
 
-## `config_hash` has shifted seven times during this refactor
-Found during: tracks A, C, E, F1
+## `config_hash` has shifted eight times during this refactor
+Found during: tracks A, C, E, F1, F2
 Location: `src/simulator/simulation_persistence.py:32-44` (`hash_config`, which
 serializes the full `SimulatorConfig` via `json.dumps(..., sort_keys=True)` — field
 NAMES as well as values)
 What: Because field names are hashed, any field added, removed or renamed shifts
-`config_hash` for every config, even when no resolved value changes. Seven such
+`config_hash` for every config, even when no resolved value changes. Eight such
 changes have landed, each caught by
 `tests/test_sweep_defaults.py::test_standard_v1_output_is_hash_stable`:
 
@@ -452,10 +452,11 @@ changes have landed, each caught by
 | F1.2 | `SimulatorConfig.spectrum` / `SpectrumConfig` deleted | `0240fcdf` -> `7a5f6834` |
 | F1.6 | `DataConfig.snapshot_id` added | `7a5f6834` -> `89b82e76` |
 | F1.8c | `PersistenceConfig.artifacts` default tuple shortened (a value change, not a field change) | `89b82e76` -> `0bc1e2a0` |
+| F2.C5 | `SimulatorConfig.debug_sample: DebugSampleConfig \| None` added | `0bc1e2a0` -> `4e493ec7` |
 
 Harmless in `statarb_sim`, which has no persisted run dirs. In `hierarchical-arb`
 every existing persisted run becomes unreachable by hash once these are ported. The
-standing port rule is one atomic commit per fix, which would orphan runs seven times
+standing port rule is one atomic commit per fix, which would orphan runs eight times
 in sequence — consider porting the hash-breaking subset as a single batch and
 re-keying once.
 

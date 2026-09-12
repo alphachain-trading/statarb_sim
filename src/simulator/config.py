@@ -753,6 +753,31 @@ class PersistenceConfig:
     )
 
 
+@dataclass(slots=True, frozen=True)
+class DebugSampleConfig:
+    """
+    F2 C5: config for the debug sample the reconstruction fidelity test checks
+    against. No defaults on n_pairs/seed -- both are material to which spreads
+    get sampled, so a run configuring this must state both explicitly.
+
+    spread_ids overrides the random draw when given: exactly those spreads are
+    sampled, n_pairs and seed are ignored for selection (n_pairs is still
+    recorded on the debug sample output for provenance). The sampled ids are
+    recorded in the debug sample itself, so which spreads were sampled is
+    self-describing on read -- the seed need never be re-run to reconstruct
+    the sample.
+    """
+    n_pairs: int
+    seed: int
+    spread_ids: tuple[str, ...] | None = None
+
+    def __post_init__(self) -> None:
+        if self.n_pairs <= 0:
+            raise ValueError("DebugSampleConfig.n_pairs must be > 0.")
+        if self.spread_ids is not None and len(self.spread_ids) == 0:
+            raise ValueError("DebugSampleConfig.spread_ids must not be empty when given.")
+
+
 TraderConfig = PortfolioMeanReversionConfig | PairSpreadTraderConfig
 
 
@@ -781,6 +806,7 @@ class SimulatorConfig:
     persistence: PersistenceConfig = field(default_factory=PersistenceConfig)
     risk_manager: RiskManagerConfig | None = None
     entry_features: EntryFeatureConfig | None = None
+    debug_sample: DebugSampleConfig | None = None
 
     def __post_init__(self) -> None:
         z_configs = self.resolved_z_score_configs()

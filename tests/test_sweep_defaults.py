@@ -70,7 +70,12 @@ from src.simulator.sweep_runner import SweepConfig, dedup_key
 # default tuple (their writers were deleted; nothing constructs artifacts=
 # explicitly in standard_v1, so this class-default value change reaches the
 # hash the same way every prior field addition/removal in this track did).
-_PRE_REGISTRY_HASH = "0bc1e2a0a36eba2851dd0330b5ac76c9"
+#
+# Updated again (0bc1e2a0... -> 4e493ec7...) when Track F2 C5 added
+# SimulatorConfig.debug_sample: DebugSampleConfig | None = None (additive,
+# always None in standard_v1 -- the fidelity test's own debug-sample capture
+# is opt-in, not part of any default bundle).
+_PRE_REGISTRY_HASH = "4e493ec7448c3242461eb6ee9874164a"
 
 
 class TestSweepDefaults(unittest.TestCase):
