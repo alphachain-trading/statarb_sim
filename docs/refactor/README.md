@@ -16,7 +16,7 @@ be folded into the implementation session as a stop-and-report first step.
 | D | Config hygiene | no | — | merged |
 | E | Terminology | no | D | merged |
 | F1 | Artifact schema | no | C, D, E | merged |
-| F2 | Loop, series, fidelity | **yes** (one commit) | F1 | |
+| F2 | Loop, series, fidelity | **yes** (one commit) | F1 | merged |
 | I | Data preparation flags | **yes** | — | |
 | J | Retire offline panel path | possibly | F2 | |
 | G | Hedge mode | **yes** | B, D, I | |
@@ -39,7 +39,7 @@ its own track rather than F2's last commit. See `F2_spec.md` R11 and
 
 ## Order
 
-Remaining: **F2 → I → J → G**. H only when a run actually needs multiple sleeves in
+Remaining: **I → J → G**. H only when a run actually needs multiple sleeves in
 one run; the guard added in Track A is the trigger.
 
 J precedes G because J is potentially result-changing (the equivalence test that
