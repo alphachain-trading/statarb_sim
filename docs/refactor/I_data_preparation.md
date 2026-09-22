@@ -1,9 +1,11 @@
 # Track I — Data preparation flags
 
-**Changes results:** likely yes, via `start_after_nan`, not via
-`check_for_corruptions` (`I_spec.md`'s H1 amendment) — `start_after_nan`'s
-per-group grain (`I_spec.md` Part 1.1) is the mechanism, not the
-corruption-flag mismatch F2's C6b write-up originally attributed this to.
+**Changes results:** yes, but not through the flags. The flag half is inert:
+`check_for_corruptions` only prints (`I_spec.md`'s H1 amendment), and the
+`start_after_nan` grain is erased downstream by `build_group_return_bundle`'s
+`dropna="any"` (H6 amendment, proven byte-identical and confirmed end to end).
+The result-changing work is the snapshot wiring, which fixes `_merge_umds`'s
+order dependence (H4 amendment).
 
 **Depends on:** nothing structurally. **Must run before G.**
 
@@ -60,32 +62,42 @@ could swamp it.
 
 ## Scope
 
-**What this track covers.** Four things, three of them reassigned here after the
-brief was first written:
+**What this track covers, in execution order.** The order is inverted from the
+brief's original framing: the flag unification comes last, not first. Three of
+these four items were reassigned here after the brief was written.
 
-1. The flag unification itself — the five combinations above.
-2. Snapshot wiring of the loader call sites (reassigned from F2, README commit
-   `b72a82f`), detailed below.
-3. `CandidateGenerationConfig`'s inherited defaults (added by F2's C6b), which Track
-   D's rule makes this track's business.
-4. `DataConfig.universe_name`'s default and the `snapshot_id` `None` sentinel, per
-   the two `found.md` entries named below.
+1. **Partial-bar guard** on the mint and download paths. A download or mint during
+   a live session writes an unsettled intraday bar; `found.md` records that no
+   guard exists anywhere. A snapshot minted mid-session would freeze that bar
+   permanently, so this precedes the wiring rather than following it.
+2. **Snapshot wiring** of the loader call sites (reassigned from F2, README commit
+   `b72a82f`), detailed below. **The only result-changing work in this track.**
+3. **`DataConfig.universe_name`'s default and the `snapshot_id` `None` sentinel**,
+   per Track D's rule and the two `found.md` entries named below.
+4. **The flag cleanup** — the five combinations above, plus
+   `CandidateGenerationConfig`'s inherited defaults from F2's C6b — on whatever
+   call sites remain after the wiring.
+
+**Why the flags come last.** Items 2 and 4 touch the same loader call sites, so
+unifying first means writing those call sites twice. There is also a structural
+possibility worth testing rather than assuming: if the snapshot freezes raw,
+untrimmed data and consumers trim at read time, the flags may collapse to one
+location instead of five — dissolving the question rather than legislating an
+answer. Establish whether that holds before doing item 4 by decree.
 
 Anything else found stays in `found.md`.
 
 This is behaviour analysis first, unification second. Do not unify before
 understanding what each flag does.
 
-**Establish the semantics.**
+**The semantics are established** — `I_spec.md` Part 1 answers both questions, and
+the H1 and H6 amendments settle what each flag is worth. Do not re-derive them.
 
-- What does `start_after_nan` actually trim, and at what grain — from the first
-  valid observation per ticker, or per group? A per-group start date discards early
-  history for every ticker in the group because one arrived late; a per-ticker start
-  produces a ragged panel. These are very different, and Track C's harness fix
-  already showed a single late ticker can dominate a group.
-- What does `check_for_corruptions` check, what does it do on detection, and why is
-  it off in the panel build? Off in exactly one place is either a deliberate
-  performance choice or an accident nobody revisited.
+**The grain decision, settled.** `start_after_nan` keeps its per-group grain. It is
+stated explicitly at every call site per Track D's rule, and the inertness is
+recorded in a comment at the trim site so nobody reopens it. Per-ticker and
+no-trim were both considered and are provably unobservable downstream (H6), so
+they buy nothing; no-trim additionally moves `market_dates.min()` structurally.
 
 **Then decide the model.** One source of truth for both flags, stated explicitly by
 the caller per Track D's rule, with no class defaults and no hardcoded literals.
@@ -134,11 +146,10 @@ property of the trading logic G exists to measure. This wiring landing before
 G is not only about staleness; it is what makes G's own baseline reproducible
 at all for any multi-group config.
 
-**Measure the unification.** Whatever value wins, at least three paths change. Use
-`B_baseline.txt`, and note the same caveat Track B's `found.md` entry raises: the two
-harness universes have no internal gaps over the harness range, so they may not
-exercise NaN handling at all. A universe or date range with real gaps is needed to
-see the effect. Report the count of trimmed observations per group before and after.
+**Measure the unification.** Whatever value wins, at least three paths change.
+Use `B_baseline.txt` per commit. The flag commits are expected to be neutral and
+provably so; a moved row there means something was misunderstood, not that a
+preparation difference was fixed.
 
 ## Per-commit baseline checks
 
@@ -165,8 +176,10 @@ that recoverable.
 - `B_baseline.txt` before and after, with the difference explained. If it does not
   move, state explicitly whether that means the change is neutral or that the harness
   universes cannot exercise it.
-- Trimmed-observation counts per group reported for a gappy universe, not only the
-  harness ones.
+- The `_merge_umds` order dependence gone: the harness produces an identical
+  `B_baseline.txt` with the group list reversed.
+- A test that a mint or download refuses to write a bar for a session still in
+  progress.
 - Full suite green.
 
 ## Note
