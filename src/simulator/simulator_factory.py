@@ -446,7 +446,7 @@ def _load_umd(data_cfg: DataConfig) -> UniverseMarketData:
     if len(umds) == 1:
         return umds[0]
 
-    return _merge_umds(umds, validate_overlap=False)
+    return _merge_umds(umds, validate_overlap=True)
 
 
 def _merge_umds(umds: list[UniverseMarketData], validate_overlap: bool = False) -> UniverseMarketData:
