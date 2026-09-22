@@ -1305,3 +1305,35 @@ not chosen between here:
 
 Not decided here, per the brief's own instruction that this is the track's
 call to make once it reaches implementation.
+
+---
+
+## Amendment — H7: scope decisions after H6
+
+### The gappy universe is cut
+
+Part 3 specified a synthetic five-ticker gappy universe, and the brief's acceptance
+criteria required trimmed-observation counts against it. Both are withdrawn.
+
+Its purpose was measuring the flag change's effect on NaN handling. H1 proved
+`check_for_corruptions` print-only; H6 proved the `start_after_nan` grain inert
+downstream for every consumer, and proved it generalizes to any intermediate grain
+policy. The fixture would therefore measure a difference already proven to be zero.
+
+Recorded so it is not rebuilt later on the assumption it was forgotten. If a gappy
+universe is wanted for `_make_sqrt_w` or for G, build it then, against a live
+question. Part 3's specification stands as a usable starting point for whoever does.
+
+### The grain decision, settled
+
+Per-group stays, stated explicitly at every call site, with the inertness recorded in
+a comment at the trim site. Part 3's three options were framed but not chosen; this
+chooses. Per-ticker and no-trim are provably unobservable (H6), and no-trim
+additionally moves `market_dates.min()` structurally.
+
+### Part 4's commit order is superseded
+
+Part 4 ordered the flag unification first and the snapshot wiring second. The brief's
+amended Scope inverts this: guard, then wiring, then Track D cleanup, then flags. The
+reasons are in the brief. Part 4's per-commit neutrality classifications remain
+valid where they apply; only the order changes.
