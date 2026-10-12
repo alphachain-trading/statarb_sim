@@ -16,7 +16,8 @@ class PerformanceResult:
     Output of compute_performance().
 
     metrics         — portfolio-level scalar metrics dict
-    group_metrics   — per-group metrics dict keyed by group_id (empty if cfg.per_group_breakdown=False)
+    group_metrics   — per-group metrics dict keyed by group_id
+                      (empty if cfg.per_group_breakdown=False)
     returns_gross   — daily gross return series (fraction of total_target_capital)
     returns_net     — daily net return series (fraction of total_target_capital)
     """
@@ -343,7 +344,8 @@ def _compute_equity_metrics(
     total_costs_all = cum_txn + cum_borrow
     cost_drag_bps = (total_costs_all / capital) * 10_000 if capital > 0.0 else float("nan")
 
-    # Avg trades per month (from daily_df n_live proxy — actual from closed_trades handled in trade metrics)
+    # Avg trades per month (from daily_df n_live proxy — actual from closed_trades
+    # handled in trade metrics)
     avg_daily_borrow = (
         float(df["daily_borrow_cost"].mean()) if "daily_borrow_cost" in df.columns else float("nan")
     )

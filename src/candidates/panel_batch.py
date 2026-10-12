@@ -207,7 +207,7 @@ class PanelBatchConfig:
     # ── per-point window resolution ──────────────────────────────────────
 
     def resolved_windows(self) -> list[tuple[int, int]]:
-        """Broadcast hedge_ratio_lb / mr_diag_lb to one (hedge_lb, diag_lb) pair per residual config."""
+        """Broadcast hedge_ratio_lb / mr_diag_lb to one (hedge_lb, diag_lb) pair per config."""
         n = len(self.residual_configs)
 
         def _broadcast(val: int | list[int]) -> list[int]:

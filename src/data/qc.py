@@ -53,7 +53,7 @@ def check_prices_for_corruption(
 
         o = df["Open"]
         h = df["High"]
-        l = df["Low"]
+        low = df["Low"]
         c = df["Close"]
         v = df["Volume"]
 
@@ -77,7 +77,7 @@ def check_prices_for_corruption(
                 )
             )
 
-        bad = h < l
+        bad = h < low
         if bad.any():
             n = int(bad.sum())
             warnings.append(
@@ -88,7 +88,7 @@ def check_prices_for_corruption(
                 )
             )
 
-        bad = (o > h) | (o < l)
+        bad = (o > h) | (o < low)
         if bad.any():
             n = int(bad.sum())
             warnings.append(
@@ -100,17 +100,17 @@ def check_prices_for_corruption(
             )
 
         # Close outside range: collect raw stats, but only report if "real" count > 0
-        raw_bad = (c > h) | (c < l)
+        raw_bad = (c > h) | (c < low)
         if raw_bad.any():
             dev_up = (c / h - 1.0).where(c > h)
-            dev_dn = (l / c - 1.0).where(c < l)
+            dev_dn = (low / c - 1.0).where(c < low)
             dev = pd.concat([dev_up, dev_dn], axis=0).dropna()
 
             raw_count = int(raw_bad.sum())
             max_dev = float(dev.max()) if not dev.empty else 0.0
 
             real_bad = (c > h * (1.0 + outside_range_tolerance)) | (
-                c < l * (1.0 - outside_range_tolerance)
+                c < low * (1.0 - outside_range_tolerance)
             )
             real_count = int(real_bad.sum())
 
@@ -128,7 +128,7 @@ def check_prices_for_corruption(
                     )
                 )
 
-        bad = (o <= 0) | (h <= 0) | (l <= 0) | (c <= 0)
+        bad = (o <= 0) | (h <= 0) | (low <= 0) | (c <= 0)
         if bad.any():
             n = int(bad.sum())
             warnings.append(
@@ -162,7 +162,8 @@ def check_prices_for_corruption(
                     ticker=ticker,
                     issue="extreme_return",
                     details=(
-                        f"{n} rows with abs daily return {max_abs_ret:.1%} > {extreme_return_threshold:.0%} "
+                        f"{n} rows with abs daily return {max_abs_ret:.1%} "
+                        f"> {extreme_return_threshold:.0%} "
                         f"on {max_date}"
                     ),
                 )

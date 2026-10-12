@@ -13,9 +13,11 @@ Current shared functions:
 - compute_x_area_asymmetry_ewm        : EWM-weighted signed area asymmetry (scalar), raw/unsigned
 - compute_x_area_asymmetry_ewm_series : same, full series
 - compute_bw_gain_stats               : full 6-key backward gain family (raw/unsigned), single
-                                         source of truth shared with fw_gain via _weighted_gain_stats
+                                         source of truth shared with fw_gain via
+                                         _weighted_gain_stats
 - compute_bw_gain_ann_norm            : thin wrapper over compute_bw_gain_stats, "gain_ann_norm" key
-- compute_mean_ewm_pct                : causal expanding percentile of EWM(level), raw/unsigned, [-1,1]
+- compute_mean_ewm_pct                : causal expanding percentile of EWM(level), raw/unsigned,
+                                         [-1,1]
 - compute_mean_ewm_pct_series         : same, full series
 - compute_delta_z_ewm                 : EWM z-score delta t vs t-1, raw/unsigned
 - compute_level_zscore                : z-score of level relative to EWM stats

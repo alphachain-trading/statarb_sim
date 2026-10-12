@@ -43,7 +43,7 @@ class TestFitInputTickersAssert(unittest.TestCase):
         self.assertIn("exp_hl20_rf", msg)
 
     def test_skips_metadata_without_fit_input_tickers_key(self):
-        """Panel built before F1 commit 6 has no fit_input_tickers -- nothing to check, not an error."""
+        """Panel built before F1 commit 6 has no fit_input_tickers: nothing to check, no error."""
         umd = _umd(["AAA"])
         metadata_by_key = {"": {"group_id": "materials"}}
         _assert_fit_input_tickers_available(umd, metadata_by_key)  # no raise

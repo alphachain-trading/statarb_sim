@@ -368,7 +368,10 @@ def save_residual_params(
 
 
 def load_residual_params(path: str) -> dict[pd.Timestamp, FittedCausalResidualModel]:
-    """Reconstruct the walkforward dict[fit_date, FittedCausalResidualModel] written by save_residual_params."""
+    """Reconstruct the walkforward dict[fit_date, FittedCausalResidualModel].
+
+    Counterpart of save_residual_params.
+    """
     df = pd.read_parquet(path)
 
     result: dict[pd.Timestamp, FittedCausalResidualModel] = {}

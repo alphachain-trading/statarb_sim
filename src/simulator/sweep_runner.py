@@ -623,7 +623,8 @@ def _run_one_sweep(args: tuple) -> dict:
             "candidate_panel_subdir": panel,
         }
         print(
-            f"[worker] DONE  [{i + 1}/{n_total}] {sweep.alias} [{key[:8]}] in {duration_s / 60:.1f}min",
+            f"[worker] DONE  [{i + 1}/{n_total}] {sweep.alias} [{key[:8]}] "
+            f"in {duration_s / 60:.1f}min",
             flush=True,
         )
     except Exception as e:

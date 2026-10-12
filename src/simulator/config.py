@@ -55,7 +55,10 @@ def group_abbrev(
 
 @dataclass(frozen=True)
 class GroupDataSource:
-    """Per-group data quadruple: universe config, candidate panel, optional residual params, optional weights."""
+    """Per-group data quadruple.
+
+    Universe config, candidate panel, optional residual params, optional weights.
+    """
 
     universe_config_name: str
     candidate_panel_stem: str

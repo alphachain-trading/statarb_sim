@@ -63,7 +63,8 @@ class TestReconstructDailyPortfolioStateClosedTradeOnly(unittest.TestCase):
         # => signed_dollar_targets = [+5000, -5000] => units = [5000/100, -5000/50] = [50, -100]
         self.units = {"AAA": 50.0, "BBB": -100.0}
         entry_prices = {"AAA": 100.0, "BBB": 50.0}
-        # realized_pnl_gross at exit (d3): AAA 104 vs 100 (+4*50=200), BBB 48 vs 50 (-2*-100=+200) => 400
+        # realized_pnl_gross at exit (d3): AAA 104 vs 100 (+4*50=200),
+        # BBB 48 vs 50 (-2*-100=+200) => 400
         exit_prices = {"AAA": 104.0, "BBB": 48.0}
         realized_pnl_gross = sum(
             self.units[t] * (exit_prices[t] - entry_prices[t]) for t in self.units
@@ -101,7 +102,7 @@ class TestReconstructDailyPortfolioStateClosedTradeOnly(unittest.TestCase):
         )
 
     def test_units_reconstructed_correctly(self):
-        """Sanity check on the fixture's own hand-derived units before trusting downstream numbers."""
+        """Sanity check on the fixture's hand-derived units before trusting downstream numbers."""
         from src.simulator.performance.daily_state_reconstruction import _reconstruct_entry_fill
 
         units, entry_prices, commission = _reconstruct_entry_fill(
@@ -199,7 +200,8 @@ class TestReconstructDailyPortfolioStateBorrowAndCommission(unittest.TestCase):
                     "direction": -1.0,
                     "pair_notional": 10_000.0,
                     "realized_pnl_gross": 0.0,  # irrelevant to this test
-                    "transaction_costs": 999.0,  # irrelevant to this test (only entry/exit split matters elsewhere)
+                    # irrelevant to this test (only entry/exit split matters elsewhere)
+                    "transaction_costs": 999.0,
                 }
             ]
         )
@@ -277,7 +279,7 @@ class TestReconstructDailyPortfolioStateBorrowAndCommission(unittest.TestCase):
 
 
 class TestReconstructDailyPortfolioStateStillOpenPosition(unittest.TestCase):
-    """A still-open position at run end: read directly from LiveCandidatePosition, no reconstruction."""
+    """A still-open position at run end: read from LiveCandidatePosition, no reconstruction."""
 
     def test_still_open_position_contributes_through_last_date(self):
         price_matrix = _price_matrix()

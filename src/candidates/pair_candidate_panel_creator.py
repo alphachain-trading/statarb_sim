@@ -318,7 +318,8 @@ def _build_pair_candidate_rows_for_date(
             n_dropped_diag = len(rr_diag) - len(pair_diag)
             if n_dropped_hedge or n_dropped_diag:
                 logger.debug(
-                    "pairwise_dropna date=%s group=%s pair=%s hedge_dropped=%d/%d diag_dropped=%d/%d",
+                    "pairwise_dropna date=%s group=%s pair=%s "
+                    "hedge_dropped=%d/%d diag_dropped=%d/%d",
                     dt.date(),
                     bundle.group_id,
                     sid,

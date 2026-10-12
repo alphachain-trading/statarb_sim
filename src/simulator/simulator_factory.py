@@ -645,7 +645,8 @@ def _load_panels(
 
     if is_multi:
         print(
-            f"[panels] Loaded {n_panels} panels across {len(requested_keys)} timescales, {total} total rows:"
+            f"[panels] Loaded {n_panels} panels across {len(requested_keys)} timescales, "
+            f"{total} total rows:"
         )
         for (gid, rkey), cnt in group_counts.items():
             print(f"  {gid} / {rkey}: {cnt} rows")

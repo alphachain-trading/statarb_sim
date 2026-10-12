@@ -131,7 +131,10 @@ class CandidateSignalGenerator:
         residual_configs = {"": CausalResidualConfig(...)}
 
     Multi-timescale:
-        z_score_configs = {"exp_hl63_mh126": ZScoreConfig(...), "exp_hl126_mh252": ZScoreConfig(...)}
+        z_score_configs = {
+            "exp_hl63_mh126": ZScoreConfig(...),
+            "exp_hl126_mh252": ZScoreConfig(...),
+        }
         residual_configs = {"exp_hl63_mh126": CausalResidualConfig(...), ...}
 
     Residuals are reconstructed once per (group_id, residual_key, asof_date) —

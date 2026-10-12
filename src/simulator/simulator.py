@@ -249,7 +249,8 @@ class Simulator:
         _t_pm = _time.time()
         price_matrix = self.umd.price_matrix(field=self.signal_generator.price_field)
         logger.log(
-            f"[run] Price matrix extracted in {_time.time() - _t_pm:.1f}s — shape {price_matrix.shape}"
+            f"[run] Price matrix extracted in {_time.time() - _t_pm:.1f}s "
+            f"— shape {price_matrix.shape}"
         )
 
         logger.log("[run] Starting preflight validation...")
@@ -993,7 +994,8 @@ class Simulator:
 
         elapsed = _time.time() - t0
         logger.log(
-            f"[preflight] Validated {len(panel_tickers)} tickers across {len(dates)} dates in {elapsed:.1f}s — OK"
+            f"[preflight] Validated {len(panel_tickers)} tickers across {len(dates)} dates "
+            f"in {elapsed:.1f}s — OK"
         )
 
     def _market_dates(self) -> pd.DatetimeIndex:

@@ -244,7 +244,7 @@ class TestNoTinyWeightGateInPairDiagnostics(unittest.TestCase):
         self.assertNotEqual(diag["failure_reason"], "too_few_active_legs")
 
     def test_fast_pair_diagnostics_rejects_weight_kwargs(self):
-        """Old callers passing w_left/w_right/tiny_weight_threshold must fail loud, not silently ignore them."""
+        """Old callers passing w_left/w_right/tiny_weight_threshold must fail, not be ignored."""
         with self.assertRaises(TypeError):
             _fast_pair_diagnostics(
                 spread_return=np.zeros(60),

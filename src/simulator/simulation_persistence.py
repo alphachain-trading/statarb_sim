@@ -88,7 +88,8 @@ def save_simulation_run(
             _config_to_serializable(config),
         )
 
-    # DataFrame artifacts — monolithic only (flushable artifacts written per-year by flush_yearly_logs)
+    # DataFrame artifacts — monolithic only
+    # (flushable artifacts written per-year by flush_yearly_logs)
     _df_artifacts = {
         "selected_panel": ("selected_panel", lambda: result.selected_panel),
     }
