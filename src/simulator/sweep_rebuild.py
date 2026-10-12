@@ -315,6 +315,7 @@ def _build_alias_from_config(config: dict) -> str:
     tick = rm.get("max_ticker_exposure_pct")
     if tick is not None:
         parts.append(f"tick{tick:.2f}")
+    sizing = config.get("sizing") or {}
     bpn = sizing.get("base_pair_notional") or rm.get("base_pair_notional")
     if bpn is not None:
         parts.append(f"bpn{int(bpn / 1000)}k")
@@ -323,7 +324,6 @@ def _build_alias_from_config(config: dict) -> str:
         parts.append(f"gx{gx:.1f}")
 
     # Kelly (new: sizing.kelly, legacy: risk_manager.kelly)
-    sizing = config.get("sizing") or {}
     kelly = sizing.get("kelly") or rm.get("kelly")
     if kelly is not None:
         k_parts = [f"f{kelly.get('fraction', 0.5):.1f}"]

@@ -107,8 +107,6 @@ def check_prices_for_corruption(
             dev = pd.concat([dev_up, dev_dn], axis=0).dropna()
 
             raw_count = int(raw_bad.sum())
-            min_dev = float(dev.min()) if not dev.empty else 0.0
-            mean_dev = float(dev.mean()) if not dev.empty else 0.0
             max_dev = float(dev.max()) if not dev.empty else 0.0
 
             real_bad = (c > h * (1.0 + outside_range_tolerance)) | (

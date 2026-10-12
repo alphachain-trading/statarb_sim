@@ -267,7 +267,6 @@ def _compute_equity_metrics(
     df = df.loc[first_active:]
 
     n_days = len(returns_net)
-    n_months = max(n_days / 21, 1.0)
 
     # Sortino (net and gross)
     sortino_net = sortino_ratio(returns_net, annualization_factor=ann)
