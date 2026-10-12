@@ -12,6 +12,7 @@ itself is lookahead-free.
 """
 
 import unittest
+from typing import cast
 
 import numpy as np
 import pandas as pd
@@ -83,7 +84,7 @@ def _build_generator(
         },
         diagnostics_config=MRDiagnosticsConfig(lookback=30, compute_frequency="daily"),
         residual_configs={RESIDUAL_KEY: _residual_cfg()},
-        umd=None,  # never touched -- the bundle is pre-populated in the cache below
+        umd=None,  # type: ignore[arg-type]  # never touched -- the bundle is pre-populated in the cache below
     )
     gen._bundle_cache[GROUP_ID] = bundle
     gen.precomputed_residual_params[(GROUP_ID, RESIDUAL_KEY)] = {asof_date: model}
@@ -145,7 +146,9 @@ class TestAsofLevelNoLookahead(unittest.TestCase):
             _mutate_after(self.bundle, self.t), self.asof_date, self.model
         ).get_level_series(self.ref, self.t)
 
-        pd.testing.assert_series_equal(before, after, check_exact=True)
+        pd.testing.assert_series_equal(
+            cast("pd.Series", before), cast("pd.Series", after), check_exact=True
+        )
 
     def test_compute_analytics_from_weights_unchanged_by_future_mutation(self):
         weights = {"AAA": 1.0, "BBB": -1.0}
