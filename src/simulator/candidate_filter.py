@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import pandas as pd
 
@@ -24,7 +24,7 @@ class CandidateFilter:
     config: CandidateSelectionConfig
     # Map residual_key → list[ZScoreConfig]. Used to resolve timescale_label at ref construction.
     # For single-timescale runs, leave as empty dict.
-    z_score_configs_by_rkey: dict[str, list[ZScoreConfig]] = None
+    z_score_configs_by_rkey: dict[str, list[ZScoreConfig]] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         # slots=True dataclass: use field default via dataclass field instead
