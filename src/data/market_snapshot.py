@@ -86,6 +86,7 @@ import re
 import shutil
 import tempfile
 from pathlib import Path
+from typing import Any, cast
 
 import pandas as pd
 from tqdm import tqdm
@@ -181,7 +182,8 @@ def _normalize_prices_df(df: pd.DataFrame) -> pd.DataFrame:
 
     df = df.sort_index().sort_index(axis=1)
     df.columns = pd.MultiIndex.from_tuples(
-        [(str(a), str(b)) for a, b in df.columns], names=["ticker", "field"]
+        [(str(a), str(b)) for a, b in cast("list[tuple[Any, Any]]", list(df.columns))],
+        names=["ticker", "field"],
     )
     for col in df.columns:
         df[col] = pd.to_numeric(df[col], errors="coerce").astype("float64")
@@ -374,7 +376,9 @@ def _mint_snapshot(
                 missing_by_group[group_id] = missing
                 continue
             group_dir = tmp_dir / config.universe_name
-            manifest_groups[group_id] = _build_group_manifest_entry(config, umd, group_dir)
+            manifest_groups[group_id] = _build_group_manifest_entry(
+                config, cast("UniverseMarketData", umd), group_dir
+            )
 
         if missing_by_group:
             raise IncompleteUniverseDownloadError(
@@ -402,7 +406,7 @@ def _read_manifest(snapshot_dir: Path) -> dict:
     manifest_path = snapshot_dir / "manifest.json"
     if not manifest_path.exists():
         raise FileNotFoundError(f"no manifest.json in snapshot directory: {snapshot_dir}")
-    return json.loads(manifest_path.read_text(encoding="utf-8"))
+    return cast("dict", json.loads(manifest_path.read_text(encoding="utf-8")))
 
 
 def _list_snapshots(universe_version: str, snapshot_root: Path) -> list[str]:
