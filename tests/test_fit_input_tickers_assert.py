@@ -12,6 +12,7 @@ residual fit fails partway through with a confusing KeyError.
 
 import unittest
 from types import SimpleNamespace
+from typing import Any
 
 from src.simulator.simulator_factory import _assert_fit_input_tickers_available
 
@@ -45,7 +46,7 @@ class TestFitInputTickersAssert(unittest.TestCase):
 
     def test_skips_empty_fit_input_tickers(self):
         umd = _umd(["AAA"])
-        metadata_by_key = {"": {"fit_input_tickers": []}}
+        metadata_by_key: dict[str, dict[str, Any]] = {"": {"fit_input_tickers": []}}
         _assert_fit_input_tickers_available(umd, metadata_by_key)  # no raise
 
     def test_checks_every_residual_key_independently(self):
