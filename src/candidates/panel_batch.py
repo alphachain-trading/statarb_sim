@@ -41,8 +41,10 @@ when residual_configs has length 1.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
+from typing import cast
 
 import pandas as pd
 from tqdm.auto import tqdm
@@ -174,7 +176,7 @@ class PanelBatchConfig:
             )
         if all(is_str):
             self.residual_configs = [
-                CausalResidualConfig.from_key(rc) for rc in self.residual_configs
+                CausalResidualConfig.from_key(cast("str", rc)) for rc in self.residual_configs
             ]
 
         n = len(self.residual_configs)
@@ -264,12 +266,13 @@ def run_panel_batch(
             f"(selected={cfg.selected_groups}, excluded={cfg.excluded_groups})"
         )
 
-    points = list(zip(cfg.residual_configs, cfg.resolved_windows(), strict=False))
+    residual_cfgs = cast("list[CausalResidualConfig]", cfg.residual_configs)
+    points = list(zip(residual_cfgs, cfg.resolved_windows(), strict=False))
 
-    group_labels = [group_abbrev(gid) for gid, _ in group_entries]
+    group_labels = [cast("str", group_abbrev(gid)) for gid, _ in group_entries]
     print(f"Batch {batch_timestamp}")
     print(f"Groups: {len(group_entries)} [{', '.join(group_labels)}]")
-    print(f"Residual configs: {[rc.key for rc in cfg.residual_configs]}")
+    print(f"Residual configs: {[rc.key for rc in residual_cfgs]}")
     total_jobs = len(group_entries) * len(points)
     print(f"Total jobs: {total_jobs}")
 
@@ -278,7 +281,7 @@ def run_panel_batch(
     group_bar = tqdm(group_entries, desc="Groups", unit="group")
 
     for group_id, yaml_path in group_bar:
-        abbrev = group_abbrev(group_id)
+        abbrev = cast("str", group_abbrev(group_id))
         group_bar.set_postfix_str(abbrev)
 
         # Load UMD once per group
@@ -303,7 +306,7 @@ def run_panel_batch(
         )
 
         # Inner loop: residual_configs
-        point_iter = points
+        point_iter: Iterable[tuple[CausalResidualConfig, tuple[int, int]]] = points
         if len(points) > 1:
             point_iter = tqdm(points, desc=f"  {abbrev} sweep", leave=False, unit="pt")
 
