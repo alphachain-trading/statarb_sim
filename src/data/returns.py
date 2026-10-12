@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import cast
 
 import numpy as np
 import pandas as pd
@@ -53,8 +54,9 @@ def compute_returns(
 
     prices = prices.sort_index().astype("float64")
 
+    rets: pd.DataFrame
     if method == "log":
-        rets = np.log(prices / prices.shift(1))
+        rets = cast("pd.DataFrame", np.log(prices / prices.shift(1)))
     elif method == "pct":
         rets = prices.pct_change()
     else:
