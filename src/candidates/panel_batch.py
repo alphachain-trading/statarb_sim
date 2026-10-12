@@ -213,7 +213,7 @@ class PanelBatchConfig:
         def _broadcast(val: int | list[int]) -> list[int]:
             return list(val) if isinstance(val, list) else [val] * n
 
-        return list(zip(_broadcast(self.hedge_ratio_lb), _broadcast(self.mr_diag_lb)))
+        return list(zip(_broadcast(self.hedge_ratio_lb), _broadcast(self.mr_diag_lb), strict=False))
 
 
 # ── batch runner ────────────────────────────────────────────────────────
@@ -264,7 +264,7 @@ def run_panel_batch(
             f"(selected={cfg.selected_groups}, excluded={cfg.excluded_groups})"
         )
 
-    points = list(zip(cfg.residual_configs, cfg.resolved_windows()))
+    points = list(zip(cfg.residual_configs, cfg.resolved_windows(), strict=False))
 
     group_labels = [group_abbrev(gid) for gid, _ in group_entries]
     print(f"Batch {batch_timestamp}")

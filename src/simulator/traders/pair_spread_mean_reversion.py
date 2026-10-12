@@ -229,7 +229,7 @@ class PairSpreadMeanReversionTrader:
             mask = mask & ~df.index.isin(live_positions_by_candidate_id)
 
         if open_spread_keys:
-            spread_rkey_pairs = list(zip(df["spread_id"], df["residual_key"]))
+            spread_rkey_pairs = list(zip(df["spread_id"], df["residual_key"], strict=True))
             occupied = [pair in open_spread_keys for pair in spread_rkey_pairs]
             mask = mask & ~np.array(occupied)
 

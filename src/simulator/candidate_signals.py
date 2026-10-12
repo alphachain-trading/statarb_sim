@@ -343,7 +343,7 @@ class CandidateSignalGenerator:
                 if not all(m in residuals.columns for m in ref.members):
                     invalid_refs.append(ref)
                     continue
-                weights_by_ticker = dict(zip(ref.members, ref.weights))
+                weights_by_ticker = dict(zip(ref.members, ref.weights, strict=False))
                 spread_return, level = compute_spread_level(residuals, weights_by_ticker)
                 spread_return_by_id[ref.candidate_id] = spread_return.loc[:date]
                 level_by_id[ref.candidate_id] = level.loc[:date]
@@ -430,7 +430,7 @@ class CandidateSignalGenerator:
         all_ready = np.ones(n_cands, dtype=bool)
         components_list: list[list[ZScoreComponent]] = [[] for _ in range(n_cands)]
 
-        for k, (lb, w) in enumerate(zip(lookbacks, weights)):
+        for k, (lb, w) in enumerate(zip(lookbacks, weights, strict=True)):
             rm_last = rolling_last[k][0]  # (n_cands,)
             rs_last = rolling_last[k][1]  # (n_cands,)
 
@@ -633,7 +633,7 @@ class CandidateSignalGenerator:
         weighted_z_sum = 0.0
         all_ready = True
 
-        for lb, w in zip(lookbacks, weights):
+        for lb, w in zip(lookbacks, weights, strict=True):
             min_p = z_cfg.resolved_min_periods(lookback=lb)
             if method == "ewm":
                 ewm = level_series.ewm(halflife=lb, min_periods=min_p)
@@ -753,7 +753,7 @@ class CandidateSignalGenerator:
         if missing:
             return None
 
-        weights_by_ticker = dict(zip(ref.members, ref.weights))
+        weights_by_ticker = dict(zip(ref.members, ref.weights, strict=False))
         _, level_series = compute_spread_level(residuals, weights_by_ticker)
         return level_series.loc[: pd.Timestamp(date)]
 

@@ -254,7 +254,7 @@ def reconstruct_daily_portfolio_state(
         cumulative_borrow_costs += daily_borrow_cost
 
         # Step 3: today's closes.
-        for candidate_id, realized_pnl_gross, exit_commission in closes_by_date.get(date, []):
+        for candidate_id, _realized_pnl_gross, exit_commission in closes_by_date.get(date, []):
             open_positions.pop(candidate_id, None)
             cumulative_transaction_costs += exit_commission
         # cumulative_realized_pnl is folded straight into total_equity_gross

@@ -189,7 +189,7 @@ def add_relative_weights(
 
     for i in range(max_len):
         col = f"{prefix}_{i + 2}"
-        out[col] = rel_series.apply(lambda x: float(x[i]) if i < len(x) else pd.NA)
+        out[col] = rel_series.apply(lambda x, i=i: float(x[i]) if i < len(x) else pd.NA)
 
     return out
 

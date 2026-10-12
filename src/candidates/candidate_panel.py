@@ -124,7 +124,7 @@ def weights_lookup_from_df(df: pd.DataFrame) -> dict[tuple[str, pd.Timestamp], d
     lookup: dict[tuple[str, pd.Timestamp], dict[str, float]] = {}
     for (spread_id, asof_date), g in df.groupby(["spread_id", "asof_date"], observed=True):
         lookup[(str(spread_id), pd.Timestamp(asof_date))] = dict(
-            zip(g["ticker"].astype(str), g["weight"].astype(float))
+            zip(g["ticker"].astype(str), g["weight"].astype(float), strict=True)
         )
     return lookup
 

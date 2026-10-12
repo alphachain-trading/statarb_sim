@@ -1094,7 +1094,7 @@ class Simulator:
                 continue
             resid_row = residuals.loc[date]
 
-            for member, weight in zip(ref.members, ref.weights):
+            for member, weight in zip(ref.members, ref.weights, strict=False):
                 if member not in resid_row.index:
                     continue
                 self._debug_sample_rows.append(
