@@ -29,7 +29,7 @@ from __future__ import annotations
 import importlib
 from dataclasses import dataclass
 from dataclasses import field as dc_field
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 import pandas as pd
@@ -194,7 +194,7 @@ class EntryFeatureEngine:
                 if spec.feature in SIGNED_FEATURE_NAMES:
                     if sign is None:
                         continue  # cannot direction-correct without z_score
-                    value = direction_correct(raw_value, sign)
+                    value = cast("float", direction_correct(raw_value, sign))
                 else:
                     value = raw_value
 
@@ -238,7 +238,7 @@ class EntryFeatureEngine:
             params["halflife"] = self._extract_residual_hl(state.residual_key)
 
         try:
-            return fn(level_arr, **params)
+            return cast("float | None", fn(level_arr, **params))
         except Exception as e:
             # Never crash the simulation on a feature computation error.
             # Log and return None — SizingEngine treats missing features as neutral.
