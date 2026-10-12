@@ -4,7 +4,7 @@ import hashlib
 import json
 from dataclasses import asdict, dataclass, is_dataclass
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 import pandas as pd
 
@@ -123,14 +123,14 @@ def weights_lookup_from_df(df: pd.DataFrame) -> dict[tuple[str, pd.Timestamp], d
     """
     lookup: dict[tuple[str, pd.Timestamp], dict[str, float]] = {}
     for (spread_id, asof_date), g in df.groupby(["spread_id", "asof_date"], observed=True):
-        lookup[(str(spread_id), pd.Timestamp(asof_date))] = dict(
+        lookup[(str(spread_id), pd.Timestamp(cast("Any", asof_date)))] = dict(
             zip(g["ticker"].astype(str), g["weight"].astype(float), strict=True)
         )
     return lookup
 
 
 def _json_default(obj: Any) -> Any:
-    if is_dataclass(obj):
+    if is_dataclass(obj) and not isinstance(obj, type):
         return asdict(obj)
     if isinstance(obj, Path):
         return str(obj)
