@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import cast
 
 import pandas as pd
 
@@ -47,10 +48,10 @@ def group_abbrev(
         result = _GROUP_ABBREV[key]
         return f"[{result}]" if to_string else result
 
-    result = [_GROUP_ABBREV[group_resolve(s)] for s in groups]
+    abbrevs = [_GROUP_ABBREV[group_resolve(s)] for s in groups]
     lb = "[" if brackets else ""
     rb = "]" if brackets else ""
-    return lb + ",".join(result) + rb if to_string else result
+    return lb + ",".join(abbrevs) + rb if to_string else abbrevs
 
 
 @dataclass(frozen=True)
@@ -722,7 +723,7 @@ class RunConfig:
         if (
             self.start_date is not None
             and self.end_date is not None
-            and self.start_date > self.end_date
+            and cast("pd.Timestamp", self.start_date) > cast("pd.Timestamp", self.end_date)
         ):
             raise ValueError("run.start_date must be <= run.end_date.")
 
@@ -889,7 +890,7 @@ class SimulatorConfig:
                 f"<= diagnostics.lookback ({self.diagnostics.lookback})."
             )
         if self.residual is not None and self.residual.window_mode == "rolling":
-            if self.diagnostics.lookback > self.residual.lookback:
+            if self.diagnostics.lookback > cast("int", self.residual.lookback):
                 raise ValueError(
                     f"diagnostics.lookback ({self.diagnostics.lookback}) must be "
                     f"<= residual.lookback ({self.residual.lookback})."
