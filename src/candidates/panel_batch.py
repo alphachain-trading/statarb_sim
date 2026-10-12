@@ -243,7 +243,7 @@ def run_panel_batch(
     cfg: PanelBatchConfig,
 ) -> dict[tuple[str, str], CandidatePanelResult]:
     """
-    Run batch panel creation across groups × cfg.residual_configs.
+    Run batch panel creation across groups x cfg.residual_configs.
 
     Returns
     -------

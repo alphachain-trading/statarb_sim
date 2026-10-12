@@ -202,7 +202,7 @@ class TestGuard3MultiSleeveOccupancy(unittest.TestCase):
             "src.simulator.simulator_factory.load_candidate_panel_result",
             return_value=CandidatePanelResult(panel=fake_panel, metadata={}),
         ):
-            merged, metadata_by_key = _load_panels(
+            merged, _metadata_by_key = _load_panels(
                 data_cfg, [ZScoreConfig(lookback=21, ddof=1, method="rolling")]
             )
         self.assertEqual(len(merged), 2)

@@ -25,8 +25,8 @@ class PortfolioMeanReversionTrader:
         * open long spread when z <= -entry_z
         * open short spread when z >= +entry_z
     - if open:
-        * time stop: exit when days_open >= multiplier × entry_half_life
-        * deterioration stop: exit when fz_mr_score < mr_deterioration_threshold × entry_mr_score
+        * time stop: exit when days_open >= multiplier x entry_half_life
+        * deterioration stop: exit when fz_mr_score < mr_deterioration_threshold x entry_mr_score
         * close long when z >= exit_z
         * close short when z <= exit_z
     """
@@ -133,7 +133,7 @@ class PortfolioMeanReversionTrader:
         fz_analytics: CandidateAnalyticsState | None,
         target_group_capital: float | None,
     ) -> CloseCandidateAction | None:
-        # Time stop: exit if open longer than multiplier × entry_half_life
+        # Time stop: exit if open longer than multiplier x entry_half_life
         if (
             self.config.time_stop_half_life_multiplier is not None
             and live_pos.entry_half_life is not None
@@ -148,7 +148,7 @@ class PortfolioMeanReversionTrader:
                 z_score=z_score,
             )
 
-        # Deterioration stop: exit if realized-weight MR score drops below threshold × entry
+        # Deterioration stop: exit if realized-weight MR score drops below threshold x entry
         if (
             self.config.mr_deterioration_threshold is not None
             and fz_analytics is not None

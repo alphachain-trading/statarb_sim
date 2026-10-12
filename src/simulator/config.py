@@ -242,7 +242,7 @@ class CapitalConfig:
     sizing — that is owned by SizingConfig.base_pair_notional.
 
     Group capital deployment is tracked as bookkeeping in the daily state log
-    (sum of |units × price| per group) but no fixed quota is allocated per group.
+    (sum of |units x price| per group) but no fixed quota is allocated per group.
     """
 
     total_capital: float
@@ -689,7 +689,7 @@ class RiskManagerConfig:
     ----------
     max_gross_exposure
         Maximum total gross notional as a multiple of CapitalConfig.total_capital.
-        E.g. 10.0 = allow up to 10× total_capital deployed simultaneously.
+        E.g. 10.0 = allow up to 10x total_capital deployed simultaneously.
         Mandatory — no default (Track D).
     max_ticker_exposure_pct
         Maximum net notional per ticker as a fraction of total_capital.

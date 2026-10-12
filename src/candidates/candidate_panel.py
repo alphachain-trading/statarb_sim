@@ -106,7 +106,7 @@ def save_weights(rows: list[dict[str, Any]], path: str) -> None:
         dupes = df.loc[dupe_mask, key_cols].drop_duplicates()
         raise ValueError(f"weights has non-unique {key_cols} rows:\n{dupes}")
 
-    df = df[key_cols + ["weight"]].reset_index(drop=True)
+    df = df[[*key_cols, "weight"]].reset_index(drop=True)
     df.to_parquet(path)
 
 

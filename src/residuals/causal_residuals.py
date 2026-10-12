@@ -11,7 +11,7 @@ import pandas as pd
 from src.data.returns import GroupReturnBundle
 
 
-class ResidualMode(str, Enum):
+class ResidualMode(str, Enum):  # noqa: UP042  # StrEnum changes str()/format() output; keep for serialized keys
     """Residual-fitting mode for CausalResidualConfig.
 
     decay_rolling is deliberately excluded — time-decay + rolling window is
@@ -23,7 +23,7 @@ class ResidualMode(str, Enum):
     DECAY_EXPANDING = "decay_expanding"  # half-life decay, expanding fit window
 
 
-class AbsOrMult(str, Enum):
+class AbsOrMult(str, Enum):  # noqa: UP042  # StrEnum changes str()/format() output; keep for serialized keys
     """How min_lb_dec_exp is interpreted for DECAY_EXPANDING's min_history."""
 
     ABSOLUTE = "absolute"  # min_history = min_lb_dec_exp directly
@@ -571,7 +571,7 @@ def fit_causal_residual_model(
 
         # Covariance of weighted residuals
         cov = np.cov(resid_weighted, rowvar=False)
-        eigenvalues, eigenvectors = np.linalg.eigh(cov)
+        _eigenvalues, eigenvectors = np.linalg.eigh(cov)
 
         # eigh returns ascending order; take top k from the end
         n_pcs = min(cfg.remove_residual_pcs, len(members))

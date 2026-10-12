@@ -1233,7 +1233,7 @@ class Simulator:
 
     @staticmethod
     def _fmt_duration(seconds: float) -> str:
-        s = max(0, int(round(seconds)))
+        s = max(0, round(seconds))
         d, s = divmod(s, 86400)
         h, s = divmod(s, 3600)
         m, s = divmod(s, 60)

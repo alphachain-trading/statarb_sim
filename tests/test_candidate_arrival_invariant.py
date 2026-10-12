@@ -87,7 +87,7 @@ class TestSliceFitWindowNoLookahead(unittest.TestCase):
         members = ["AAA", "BBB"]
         proxy = "PROXY"
         bench = "BENCH"
-        cols = members + [proxy, bench]
+        cols = [*members, proxy, bench]
         data = pd.DataFrame(
             rng.normal(scale=0.01, size=(len(dates), len(cols))),
             index=dates,

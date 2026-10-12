@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import ClassVar
 
 import pandas as pd
 import yfinance as yf
@@ -12,7 +13,7 @@ from src.settings import CONFIG_UNIVERSE, DATA_UNIVERSES
 
 
 class UniverseDataLoader:
-    PRICE_FIELDS = ["Open", "High", "Low", "Close", "Volume"]
+    PRICE_FIELDS: ClassVar[list[str]] = ["Open", "High", "Low", "Close", "Volume"]
 
     def __init__(self, config: UniverseConfig, data_path: str | Path, progress=False):
         self.config = config

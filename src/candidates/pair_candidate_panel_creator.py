@@ -114,7 +114,7 @@ class PairSpreadConfig:
 
 
 def _format_duration(seconds: float) -> str:
-    seconds = max(0, int(round(seconds)))
+    seconds = max(0, round(seconds))
 
     days, rem = divmod(seconds, 86400)
     hours, rem = divmod(rem, 3600)
@@ -164,7 +164,7 @@ def _pca_spread_weights(
     X = residual_returns[[left, right]].to_numpy(dtype=float)  # noqa: N806  # Matrixnotation wie in der Formel
 
     cov = np.cov(X, rowvar=False)
-    eigenvalues, eigenvectors = np.linalg.eigh(cov)
+    _eigenvalues, eigenvectors = np.linalg.eigh(cov)
 
     # eigh returns ascending order; PC2 (smallest eigenvalue) is index 0.
     pc2 = eigenvectors[:, 0].copy()

@@ -698,7 +698,7 @@ class CandidateSignalGenerator:
 
         X = np.column_stack([np.ones_like(x_lag), x_lag])  # noqa: N806  # Matrixnotation wie in der Formel
         beta, *_ = np.linalg.lstsq(X, dx, rcond=None)
-        intercept, slope = beta
+        _intercept, slope = beta
 
         fitted = X @ beta
         resid = dx - fitted

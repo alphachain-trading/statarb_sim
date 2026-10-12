@@ -15,6 +15,7 @@ import sys
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any, ClassVar
 from unittest.mock import patch
 
 import numpy as np
@@ -77,7 +78,7 @@ class TestPairSpreadConfigNumericFieldsAreMandatory(unittest.TestCase):
     min_obs — each must raise if omitted, not silently fall back.
     """
 
-    _ALL_REQUIRED = {
+    _ALL_REQUIRED: ClassVar[dict[str, Any]] = {
         "hedge_ratio_methods": ["ols"],
         "min_obs": 252,
         "min_return_std": 1e-8,

@@ -11,7 +11,7 @@ class SimLogger:
         if self._file is not None:
             return
         log_path.parent.mkdir(parents=True, exist_ok=True)
-        self._file = log_path.open("w", buffering=1)  # noqa: SIM115  # Handle lives for the logger lifetime
+        self._file = log_path.open("w", buffering=1)
 
     def log(self, msg: str) -> None:
         print(msg)

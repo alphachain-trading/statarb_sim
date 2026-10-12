@@ -3,13 +3,13 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from itertools import combinations
-from typing import Any, Literal, TypeAlias
+from typing import Any, Literal
 
 import pandas as pd
 
-Ticker: TypeAlias = str
-SpreadId: TypeAlias = str
-HedgeRatioMethod: TypeAlias = Literal["unit", "ols", "pca"]
+type Ticker = str
+type SpreadId = str
+type HedgeRatioMethod = Literal["unit", "ols", "pca"]
 
 
 @dataclass
