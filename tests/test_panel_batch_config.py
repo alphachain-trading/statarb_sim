@@ -22,6 +22,7 @@ Covers, without touching disk or market data:
 import json
 import unittest
 from pathlib import Path
+from typing import Any, cast
 
 from src.candidates.pair_candidate_panel_creator import PairSpreadConfig
 from src.candidates.panel_batch import PanelBatchConfig
@@ -45,7 +46,7 @@ _PAIR_CFG = PairSpreadConfig(
 
 
 def _decay(**overrides):
-    base = {
+    base: dict[str, Any] = {
         "mode": ResidualMode.DECAY_EXPANDING,
         "subtract_risk_free": True,
         "hl": 504,
@@ -322,7 +323,9 @@ class TestPanelBatchConfigValidation(unittest.TestCase):
         )
         self.assertEqual(len(cfg.residual_configs), 1)
         self.assertIsInstance(cfg.residual_configs[0], CausalResidualConfig)
-        self.assertEqual(cfg.residual_configs[0].key, "exp_hl504_mh1008_rf")
+        self.assertEqual(
+            cast("CausalResidualConfig", cfg.residual_configs[0]).key, "exp_hl504_mh1008_rf"
+        )
 
     def test_residual_configs_str_keys_multiple(self):
         cfg = PanelBatchConfig(
@@ -331,7 +334,10 @@ class TestPanelBatchConfigValidation(unittest.TestCase):
             mr_diag_lb=252,
             pair_cfg=_PAIR_CFG,
         )
-        self.assertEqual([rc.key for rc in cfg.residual_configs], ["rol_lb21", "exp_mh252"])
+        self.assertEqual(
+            [cast("CausalResidualConfig", rc).key for rc in cfg.residual_configs],
+            ["rol_lb21", "exp_mh252"],
+        )
 
     def test_residual_configs_rejects_mixed_str_and_config(self):
         with self.assertRaises(ValueError):
@@ -368,7 +374,9 @@ class TestPanelBatchConfigValidation(unittest.TestCase):
         default — a numeric default here would just be a second place for
         the same result-affecting number to silently live."""
         with self.assertRaises(TypeError):
-            PanelBatchConfig(residual_configs=[_decay()], hedge_ratio_lb=252, mr_diag_lb=252)
+            PanelBatchConfig(  # type: ignore[call-arg]  # pair_cfg absichtlich weggelassen
+                residual_configs=[_decay()], hedge_ratio_lb=252, mr_diag_lb=252
+            )
 
 
 if __name__ == "__main__":
