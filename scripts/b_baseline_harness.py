@@ -50,6 +50,7 @@ import argparse
 import sys
 import time
 from pathlib import Path
+from typing import Any, cast
 
 from src.candidates.pair_candidate_panel_creator import PairSpreadConfig
 from src.residuals.causal_residuals import CausalResidualConfig, ResidualMode
@@ -270,7 +271,7 @@ def main() -> None:
         sim_time = time.perf_counter() - t0
 
         trades_df = result.closed_trades_df()
-        metrics = result.performance.metrics
+        metrics = cast("Any", result.performance).metrics
 
     lines: list[str] = []
     lines.append("# Track B baseline harness output")
