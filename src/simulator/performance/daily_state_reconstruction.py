@@ -58,6 +58,7 @@ formula.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import cast
 
 import pandas as pd
 
@@ -106,7 +107,7 @@ def _reconstruct_entry_fill(
 
     if entry_date not in price_matrix.index:
         raise KeyError(f"entry_date={entry_date} not found in the price matrix.")
-    entry_prices = price_matrix.loc[entry_date].dropna()
+    entry_prices = cast("pd.Series", price_matrix.loc[entry_date]).dropna()
 
     action = OpenCandidateAction(
         candidate_id=str(trade_row["candidate_id"]),
@@ -241,7 +242,7 @@ def reconstruct_daily_portfolio_state(
     rows: list[dict] = []
     for date in dates:
         date = pd.Timestamp(date)
-        current_prices = price_matrix.loc[date].dropna()
+        current_prices = cast("pd.Series", price_matrix.loc[date]).dropna()
 
         # Step 1-2: MTM positions already open before today, then accrue
         # today's borrow cost from that post-MTM state.
