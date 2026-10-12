@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pandas as pd
 
@@ -39,6 +39,7 @@ from src.simulator.simulator import SimulationResult, Simulator
 from src.simulator.sizing_engine import SizingEngine
 from src.simulator.traders.pair_spread_mean_reversion import PairSpreadMeanReversionTrader
 from src.simulator.traders.portfolio_mean_reversion import PortfolioMeanReversionTrader
+from src.simulator.traders.protocol import Trader
 
 
 def create_simulator(
@@ -93,6 +94,7 @@ def create_simulator(
         precomputed_residual_params=precomputed_residual_params or {},
     )
 
+    trader: Trader
     if isinstance(config.trader, PortfolioMeanReversionConfig):
         trader = PortfolioMeanReversionTrader(
             config=config.trader,
@@ -154,6 +156,10 @@ def run_from_config(config: SimulatorConfig) -> SimulationResult:
     z_configs = config.resolved_z_score_configs()
 
     run_id: str | None = None
+    precomputed_residual_params: (
+        dict[tuple[str, str], dict[pd.Timestamp, FittedCausalResidualModel]] | None
+    )
+    weights_lookup: dict[tuple[str, pd.Timestamp], dict[str, float]] | None
     if config.candidate_generation is not None:
         # F2 C6b: generate live, inside the simulator, instead of loading a
         # panel/weights/residual_params built earlier by the offline
@@ -357,7 +363,8 @@ def _generate_candidates_live(
     weights_lookup = (
         weights_lookup_from_df(pd.DataFrame(all_weight_rows)) if all_weight_rows else {}
     )
-    residual_configs = {config.residual.key: config.residual}
+    residual = cast("CausalResidualConfig", config.residual)
+    residual_configs = {residual.key: residual}
 
     return panel, residual_configs, precomputed_residual_params, weights_lookup
 
@@ -432,7 +439,7 @@ def _load_umd(data_cfg: DataConfig) -> UniverseMarketData:
     """
     groups = data_cfg.resolved_groups()
 
-    seen_universes: dict[str, UniverseMarketData] = {}
+    seen_universes: dict[str, UniverseMarketData | None] = {}
     unique_groups: list[GroupDataSource] = []
     for src in groups:
         if src.universe_config_name not in seen_universes:
@@ -648,11 +655,11 @@ def _load_panels(
             f"[panels] Loaded {n_panels} panels across {len(requested_keys)} timescales, "
             f"{total} total rows:"
         )
-        for (gid, rkey), cnt in group_counts.items():
+        for (gid, rkey), cnt in cast("Any", group_counts).items():
             print(f"  {gid} / {rkey}: {cnt} rows")
     else:
         print(f"[panels] Loaded {n_panels} panels, {total} total rows:")
-        for (gid, _), cnt in group_counts.items():
+        for (gid, _), cnt in cast("Any", group_counts).items():
             print(f"  {gid}: {cnt} rows")
 
     return merged, metadata_by_key
