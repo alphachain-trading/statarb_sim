@@ -4,6 +4,7 @@ import logging
 from collections import OrderedDict
 from dataclasses import dataclass
 from dataclasses import field as dc_field
+from typing import cast
 
 import numpy as np
 import pandas as pd
@@ -202,7 +203,7 @@ class CandidateSignalGenerator:
 
         rows = []
         for candidate_id, act_row in activation_frame.iterrows():
-            a = analytics_by_id[candidate_id]
+            a = analytics_by_id[cast("str", candidate_id)]
             rows.append(
                 {
                     "candidate_id": candidate_id,
@@ -233,7 +234,7 @@ class CandidateSignalGenerator:
         # Group refs by (group_id, residual_key) for batched processing.
         # All candidates sharing the same (group_id, residual_key) use the
         # same residual matrix and z-score config.
-        refs_by_group_ts: dict[tuple[str, str], list[CandidateRef]] = {}
+        refs_by_group_ts: dict[tuple[str, str, str], list[CandidateRef]] = {}
         for ref in candidate_refs:
             # Group by (group_id, residual_key, timescale_label).
             # In multi-zlb sweep mode, refs are pre-fanned-out by CandidateFilter
@@ -492,7 +493,7 @@ class CandidateSignalGenerator:
                 sr = spread_returns[:, j]
                 adf_pvalue, mr_score, kappa, half_life = self._compute_mr_diagnostics(
                     spread_return=sr,
-                    level_series=ls,
+                    level_series=cast("pd.Series", ls),
                 )
 
             out[ref.candidate_id] = CandidateAnalyticsState(
