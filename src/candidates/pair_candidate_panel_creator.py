@@ -107,7 +107,9 @@ class PairSpreadConfig:
         if not self.hedge_ratio_methods:
             raise ValueError("At least one hedge_ratio_method is required.")
         if self.min_obs < 2:
-            raise ValueError(f"min_obs must be >= 2 (need at least 2 rows to fit a pair), got {self.min_obs}.")
+            raise ValueError(
+                f"min_obs must be >= 2 (need at least 2 rows to fit a pair), got {self.min_obs}."
+            )
         for m in self.hedge_ratio_methods:
             if m not in ("unit", "ols", "pca"):
                 raise ValueError(f"Unsupported hedge_ratio_method: {m!r}")
@@ -137,7 +139,7 @@ def _slice_candidate_window(
     asof_datetime: pd.Timestamp,
     lookback: int | None,
 ) -> pd.DataFrame:
-    aligned = bundle.aligned_returns.loc[:pd.Timestamp(asof_datetime)].copy()
+    aligned = bundle.aligned_returns.loc[: pd.Timestamp(asof_datetime)].copy()
 
     if lookback is not None:
         aligned = aligned.tail(int(lookback))
@@ -171,10 +173,7 @@ def _pca_spread_weights(
 
     # Normalize so left weight = 1.0.
     if abs(pc2[0]) < 1e-12:
-        raise ValueError(
-            f"PCA: degenerate eigenvector for {left}|{right}, "
-            f"left component ~0."
-        )
+        raise ValueError(f"PCA: degenerate eigenvector for {left}|{right}, left component ~0.")
 
     pc2 = pc2 / pc2[0]
 
@@ -249,10 +248,14 @@ def _build_pair_candidate_rows_for_date(
     diag_window = _slice_candidate_window(bundle=bundle, asof_datetime=dt, lookback=mr_diag_lb)
 
     rr_hedge = apply_causal_residual_model(
-        model=fitted_model, aligned_returns=hedge_window, rf_series=rf_series,
+        model=fitted_model,
+        aligned_returns=hedge_window,
+        rf_series=rf_series,
     )
     rr_diag = apply_causal_residual_model(
-        model=fitted_model, aligned_returns=diag_window, rf_series=rf_series,
+        model=fitted_model,
+        aligned_returns=diag_window,
+        rf_series=rf_series,
     )
 
     # Optional ticker subset filtering (apply to both windows).
@@ -304,7 +307,9 @@ def _build_pair_candidate_rows_for_date(
                 # meant to expose).
                 logger.debug(
                     "structural_skip date=%s group=%s pair=%s reason=leg_missing_from_diag_window",
-                    dt.date(), bundle.group_id, sid,
+                    dt.date(),
+                    bundle.group_id,
+                    sid,
                 )
                 continue
 
@@ -316,8 +321,13 @@ def _build_pair_candidate_rows_for_date(
             if n_dropped_hedge or n_dropped_diag:
                 logger.debug(
                     "pairwise_dropna date=%s group=%s pair=%s hedge_dropped=%d/%d diag_dropped=%d/%d",
-                    dt.date(), bundle.group_id, sid,
-                    n_dropped_hedge, len(rr_hedge), n_dropped_diag, len(rr_diag),
+                    dt.date(),
+                    bundle.group_id,
+                    sid,
+                    n_dropped_hedge,
+                    len(rr_hedge),
+                    n_dropped_diag,
+                    len(rr_diag),
                 )
 
             if len(pair_hedge) < pair_cfg.min_obs:
@@ -329,7 +339,11 @@ def _build_pair_candidate_rows_for_date(
                 n_min_obs_dropped += 1
                 logger.debug(
                     "min_obs_dropped date=%s group=%s pair=%s retained=%d min_obs=%d",
-                    dt.date(), bundle.group_id, sid, len(pair_hedge), pair_cfg.min_obs,
+                    dt.date(),
+                    bundle.group_id,
+                    sid,
+                    len(pair_hedge),
+                    pair_cfg.min_obs,
                 )
                 continue
 
@@ -347,7 +361,11 @@ def _build_pair_candidate_rows_for_date(
                 # separately from the structural_skip case above.
                 logger.debug(
                     "weight_fit_failed date=%s group=%s pair=%s method=%s error=%s",
-                    dt.date(), bundle.group_id, sid, method, exc,
+                    dt.date(),
+                    bundle.group_id,
+                    sid,
+                    method,
+                    exc,
                 )
                 continue
 
@@ -415,24 +433,28 @@ def _build_pair_candidate_rows_for_date(
             # weights unconditionally, so a fidelity reconstruction needs
             # them all, not just the ones that passed a later gate.
             asof_date = pd.Timestamp(dt).normalize()
-            weight_rows.append({
-                "group_id": bundle.group_id,
-                "residual_key": residual_cfg.key,
-                "hedge_key": method,
-                "spread_id": sid,
-                "asof_date": asof_date,
-                "ticker": left,
-                "weight": w_left,
-            })
-            weight_rows.append({
-                "group_id": bundle.group_id,
-                "residual_key": residual_cfg.key,
-                "hedge_key": method,
-                "spread_id": sid,
-                "asof_date": asof_date,
-                "ticker": right,
-                "weight": w_right,
-            })
+            weight_rows.append(
+                {
+                    "group_id": bundle.group_id,
+                    "residual_key": residual_cfg.key,
+                    "hedge_key": method,
+                    "spread_id": sid,
+                    "asof_date": asof_date,
+                    "ticker": left,
+                    "weight": w_left,
+                }
+            )
+            weight_rows.append(
+                {
+                    "group_id": bundle.group_id,
+                    "residual_key": residual_cfg.key,
+                    "hedge_key": method,
+                    "spread_id": sid,
+                    "asof_date": asof_date,
+                    "ticker": right,
+                    "weight": w_right,
+                }
+            )
 
         if n_min_obs_dropped:
             # Aggregate, per (date, method): how much of the baseline taint
@@ -440,7 +462,10 @@ def _build_pair_candidate_rows_for_date(
             # visible without opting into per-pair logging.
             logger.info(
                 "min_obs date=%s group=%s method=%s pairs_dropped=%d",
-                dt.date(), bundle.group_id, method, n_min_obs_dropped,
+                dt.date(),
+                bundle.group_id,
+                method,
+                n_min_obs_dropped,
             )
 
     return rows, weight_rows
@@ -572,9 +597,7 @@ def create_pair_candidates_for_date(
     aligned_index = bundle.aligned_returns.index
 
     if dt not in aligned_index:
-        raise ValueError(
-            f"asof_date {dt.date()} is not present in bundle.aligned_returns.index."
-        )
+        raise ValueError(f"asof_date {dt.date()} is not present in bundle.aligned_returns.index.")
 
     min_history = residual_cfg.eff_min_history()
     if min_history is not None:
@@ -910,19 +933,14 @@ def create_pair_candidate_panel(
     # ── persist ──────────────────────────────────────────────────────
     if persist_result:
         lookback_str = (
-            "expanding" if residual_cfg.lookback is None
-            else f"lookback{residual_cfg.lookback}"
+            "expanding" if residual_cfg.lookback is None else f"lookback{residual_cfg.lookback}"
         )
-        halflife_str = (
-            "_" if residual_cfg.half_life is None
-            else f"_decay{residual_cfg.half_life}d"
-        )
+        halflife_str = "_" if residual_cfg.half_life is None else f"_decay{residual_cfg.half_life}d"
 
         auto_stem = (
             f"{bundle.group_id}_pairs_{methods_str}"
             f"_{frequency if frequency is not None else 'explicit_dates'}"
-            f"_{lookback_str}{halflife_str}_"
-            + pd.Timestamp.now().strftime("%Y%m%d_%H%M")
+            f"_{lookback_str}{halflife_str}_" + pd.Timestamp.now().strftime("%Y%m%d_%H%M")
         )
 
         out_dir = Path(
@@ -968,6 +986,8 @@ def create_pair_candidate_panel(
             result.metadata["residual_params_n_dates"] = len(fitted_params)
 
             if progress:
-                print(f"[persist] Residual params saved: {params_path} ({len(fitted_params)} dates)")
+                print(
+                    f"[persist] Residual params saved: {params_path} ({len(fitted_params)} dates)"
+                )
 
     return result

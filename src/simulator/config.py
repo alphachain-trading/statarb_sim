@@ -56,6 +56,7 @@ def group_abbrev(
 @dataclass(frozen=True)
 class GroupDataSource:
     """Per-group data quadruple: universe config, candidate panel, optional residual params, optional weights."""
+
     universe_config_name: str
     candidate_panel_stem: str
     residual_params_stem: str | None = None
@@ -64,11 +65,11 @@ class GroupDataSource:
 
 
 def discover_group_data_sources(
-        panel_dir: str | Path,
-        universe_dir: str | Path,
-        universe_name: str,
-        selected_groups: list[str] | None = None,
-        excluded_groups: list[str] | None = None,
+    panel_dir: str | Path,
+    universe_dir: str | Path,
+    universe_name: str,
+    selected_groups: list[str] | None = None,
+    excluded_groups: list[str] | None = None,
 ) -> list[GroupDataSource]:
     """
     Auto-discover GroupDataSource entries from a panel directory.
@@ -87,12 +88,10 @@ def discover_group_data_sources(
         raise ValueError("Cannot specify both selected_groups and excluded_groups.")
 
     selected_resolved = (
-        {group_resolve(s) for s in selected_groups}
-        if selected_groups is not None else None
+        {group_resolve(s) for s in selected_groups} if selected_groups is not None else None
     )
     excluded_resolved = (
-        {group_resolve(s) for s in excluded_groups}
-        if excluded_groups is not None else None
+        {group_resolve(s) for s in excluded_groups} if excluded_groups is not None else None
     )
 
     panel_dir = Path(panel_dir)
@@ -137,6 +136,7 @@ def discover_group_data_sources(
         meta_path = panel_dir / f"{stem}.meta.json"
         if meta_path.exists():
             import json
+
             with open(meta_path) as f:
                 meta = json.load(f)
             residual_cfg_raw = meta.get("residual_cfg")
@@ -158,9 +158,7 @@ def discover_group_data_sources(
         if existing is None or rank > (existing[0], existing[1]):
             best[key] = (rank[0], rank[1], source)
 
-    sources = [source for _, source in sorted(
-        (key, val[2]) for key, val in best.items()
-    )]
+    sources = [source for _, source in sorted((key, val[2]) for key, val in best.items())]
 
     if not sources:
         missing = f" (selected: {selected_groups})" if selected_groups else ""
@@ -179,6 +177,7 @@ class DataConfig:
 
     Supports single-group (backward compatible) and multi-group modes.
     """
+
     # Legacy single-group fields (backward compatible)
     universe_config_name: str = ""
     candidate_panel_stem: str = ""
@@ -213,11 +212,14 @@ class DataConfig:
         if self.groups is not None:
             return self.groups
         if self.universe_config_name and self.candidate_panel_stem:
-            return [GroupDataSource(
-                universe_config_name=self.universe_config_name,
-                candidate_panel_stem=self.candidate_panel_stem,
-            )]
+            return [
+                GroupDataSource(
+                    universe_config_name=self.universe_config_name,
+                    candidate_panel_stem=self.candidate_panel_stem,
+                )
+            ]
         from src.settings import CANDIDATE_PANELS_ROOT, CONFIG_UNIVERSE
+
         panel_dir = Path(CANDIDATE_PANELS_ROOT)
         if self.candidate_panel_subdir:
             panel_dir = panel_dir / self.candidate_panel_subdir
@@ -242,11 +244,14 @@ class CapitalConfig:
     Group capital deployment is tracked as bookkeeping in the daily state log
     (sum of |units × price| per group) but no fixed quota is allocated per group.
     """
+
     total_capital: float
 
     def __post_init__(self) -> None:
         if self.total_capital <= 0.0:
-            raise ValueError(f"CapitalConfig.total_capital must be positive, got {self.total_capital}")
+            raise ValueError(
+                f"CapitalConfig.total_capital must be positive, got {self.total_capital}"
+            )
 
 
 @dataclass(slots=True, frozen=True)
@@ -257,6 +262,7 @@ class ActivationConfig:
     that used to backstop them (run_me.py / sweep_defaults.py both set
     False, False; the removed default was True, True).
     """
+
     one_active_per_group: bool
     switch_only_when_flat: bool
 
@@ -273,6 +279,7 @@ class ZScoreConfig:
     method genuinely branches the computation (rolling vs. ewm mean/std),
     not merely a display choice.
     """
+
     lookback: int | list[int]
     weights: list[float] | None = None
     min_periods: int | None = None
@@ -329,6 +336,7 @@ class MRDiagnosticsConfig:
     Both fields mandatory -- no default (Track D follow-up). Every real
     call site already states both explicitly.
     """
+
     lookback: int
     compute_frequency: str  # "daily" | "weekly" | "off"
 
@@ -347,6 +355,7 @@ class PortfolioMeanReversionConfig:
     entry_z (already required from the original Track D pass). Dormant on
     B's baseline -- see tests/test_portfolio_mean_reversion_trader.py.
     """
+
     entry_z: float
     exit_z: float
     allow_long: bool = True
@@ -369,6 +378,7 @@ class PairSpreadTraderConfig:
     states entry_z=1.75 against the removed class default of 2.0, evidence
     the default was already stale before this fix.
     """
+
     entry_z: float
     exit_z: float
     allow_long: bool = True
@@ -402,12 +412,15 @@ class VolSizingConfig:
         Maximum vol-norm size multiplier (prevents over-sizing high-vol pairs).
         Mandatory — no default (Track D).
     """
+
     floor_multiplier: float
     cap_multiplier: float
 
     def __post_init__(self) -> None:
         if self.floor_multiplier <= 0.0:
-            raise ValueError(f"VolSizingConfig.floor_multiplier must be > 0, got {self.floor_multiplier}")
+            raise ValueError(
+                f"VolSizingConfig.floor_multiplier must be > 0, got {self.floor_multiplier}"
+            )
         if self.cap_multiplier < self.floor_multiplier:
             raise ValueError(
                 f"VolSizingConfig.cap_multiplier ({self.cap_multiplier}) must be >= "
@@ -415,8 +428,8 @@ class VolSizingConfig:
             )
 
 
-
 # ── Entry feature engine ──────────────────────────────────────────────────────
+
 
 @dataclass(slots=True, frozen=True)
 class FeatureSpec:
@@ -443,6 +456,7 @@ class FeatureSpec:
         Do NOT pass "sign" here — direction correction is applied
         centrally by EntryFeatureEngine.compute(), not per-feature.
     """
+
     feature: str
     params: dict = field(default_factory=dict)
 
@@ -467,6 +481,7 @@ class EntryFeatureConfig:
     features
         Tuple of FeatureSpec — which features to compute at trade entry.
     """
+
     features: tuple[FeatureSpec, ...]
 
     def __post_init__(self) -> None:
@@ -477,6 +492,7 @@ class EntryFeatureConfig:
 
 
 # ── Interval scoring ──────────────────────────────────────────────────────────
+
 
 @dataclass(slots=True, frozen=True)
 class FeatureIntervalSpec:
@@ -503,6 +519,7 @@ class FeatureIntervalSpec:
         (opt-in via SizingConfig.interval_scoring:
         IntervalScoringConfig | None = None) -- zero blast radius.
     """
+
     feature: str
     interval_limits: tuple[float, ...]
     interval_weights: tuple[float, ...]
@@ -536,6 +553,7 @@ class FeatureIntervalSpec:
     def lookup(self, value: float | None) -> float:
         """Return the interval weight for a given feature value."""
         import math
+
         if value is None or (isinstance(value, float) and math.isnan(value)):
             return self.missing_weight
         limits = self.interval_limits
@@ -579,11 +597,12 @@ class IntervalScoringConfig:
     call site in the repo today (opt-in via SizingConfig.interval_scoring:
     IntervalScoringConfig | None = None) -- zero blast radius to fix now.
     """
+
     feature_specs: tuple[FeatureIntervalSpec, ...]
     feature_weights: dict[str, float] = field(default_factory=dict)
     floor_multiplier: float = field(kw_only=True)
     cap_multiplier: float = field(kw_only=True)
-    floor_mode: str = field(kw_only=True)   # "clamp" | "exclude"
+    floor_mode: str = field(kw_only=True)  # "clamp" | "exclude"
 
     def __post_init__(self) -> None:
         if not self.feature_specs:
@@ -600,7 +619,9 @@ class IntervalScoringConfig:
         names = [s.feature for s in self.feature_specs]
         if len(names) != len(set(names)):
             dupes = [n for n in names if names.count(n) > 1]
-            raise ValueError(f"IntervalScoringConfig: duplicate feature specs: {sorted(set(dupes))}")
+            raise ValueError(
+                f"IntervalScoringConfig: duplicate feature specs: {sorted(set(dupes))}"
+            )
 
         # feature_weights must correspond exactly to feature_specs, both ways.
         # SizingEngine raises KeyError on a missing weight — correctly, since
@@ -645,6 +666,7 @@ class SizingConfig:
         When set, scale each pair's notional by inverse spread volatility
         relative to the cross-sectional median. None = disabled.
     """
+
     base_pair_notional: float
     vol_normalize: VolSizingConfig | None = None
     interval_scoring: IntervalScoringConfig | None = None
@@ -676,6 +698,7 @@ class RiskManagerConfig:
     max_concurrent_positions
         Hard cap on simultaneous open positions. None = uncapped.
     """
+
     max_gross_exposure: float = field(kw_only=True)
     max_ticker_exposure_pct: float = field(kw_only=True)
     max_concurrent_positions: int | None = None
@@ -712,9 +735,10 @@ class ExecutionConfig:
     (Track D). Pin them explicitly (or via a versioned bundle) rather than
     reintroducing a magic number.
     """
+
     allow_fractional_shares: bool = False
-    share_rounding: str = "nearest"   # nearest | floor | ceil
-    min_abs_units: float = field(kw_only=True)        # ignored if fractional=True
+    share_rounding: str = "nearest"  # nearest | floor | ceil
+    min_abs_units: float = field(kw_only=True)  # ignored if fractional=True
 
     commission_per_share: float = field(kw_only=True)
     commission_per_order: float = field(kw_only=True)
@@ -740,6 +764,7 @@ class PersistenceConfig:
     """
     Simulation run persistence.
     """
+
     enabled: bool = False
     output_dir: str = ""
     artifacts: tuple[str, ...] = (
@@ -768,6 +793,7 @@ class DebugSampleConfig:
     self-describing on read -- the seed need never be re-run to reconstruct
     the sample.
     """
+
     n_pairs: int
     seed: int
     spread_ids: tuple[str, ...] | None = None
@@ -807,6 +833,7 @@ class CandidateGenerationConfig:
     defaults) so C6b stays neutral against that baseline -- it does not fix
     the mismatch. Unifying the two is Track I's job, not F2's.
     """
+
     pair_cfg: PairSpreadConfig
     hedge_ratio_lb: int
     mr_diag_lb: int
@@ -852,9 +879,7 @@ class SimulatorConfig:
 
     def __post_init__(self) -> None:
         z_configs = self.resolved_z_score_configs()
-        max_z_lookback = max(
-            max(zc.resolved_lookbacks()) for zc in z_configs
-        )
+        max_z_lookback = max(max(zc.resolved_lookbacks()) for zc in z_configs)
         if max_z_lookback > self.diagnostics.lookback:
             raise ValueError(
                 f"z_score max lookback ({max_z_lookback}) must be "

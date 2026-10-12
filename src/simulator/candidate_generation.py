@@ -32,6 +32,7 @@ only builds candidate rows on dates that are *also* in its daily fit grid
 no daily grid to filter through, so it must filter phantom dates itself, or it
 would produce a candidate keyed to a date with no real return.
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -64,7 +65,9 @@ def generate_candidates(
     end_date: str | None = None,
     max_steps: int | None = None,
     debug: bool = False,
-) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[pd.Timestamp, FittedCausalResidualModel]]:
+) -> tuple[
+    list[dict[str, Any]], list[dict[str, Any]], dict[pd.Timestamp, FittedCausalResidualModel]
+]:
     """
     Generate candidate rows, weight rows, and fitted residual params for one
     group, fitting only on outer refit dates.

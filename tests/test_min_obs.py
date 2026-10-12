@@ -10,6 +10,7 @@ counted on the pair's own retained rows after its own pairwise dropna
 (Track B commit 2) — not on the window's nominal length and not on a
 different pair's rows.
 """
+
 import sys
 import unittest
 from pathlib import Path
@@ -105,10 +106,12 @@ class TestMinObsGate(unittest.TestCase):
         def fake_apply(*, model, aligned_returns, rf_series):
             k = len(aligned_returns)
             rng = np.random.default_rng(2)
-            df = pd.DataFrame({
-                "AAA": rng.normal(scale=0.01, size=k),
-                "BBB": rng.normal(scale=0.01, size=k),
-            })
+            df = pd.DataFrame(
+                {
+                    "AAA": rng.normal(scale=0.01, size=k),
+                    "BBB": rng.normal(scale=0.01, size=k),
+                }
+            )
             # BBB is only populated for its first n_retained rows — as if it
             # joined the universe late, or has a long trailing gap. AAA is
             # fully populated throughout.
@@ -118,7 +121,9 @@ class TestMinObsGate(unittest.TestCase):
 
         fitted_model = SimpleNamespace(subtract_risk_free=False)
         residual_cfg = CausalResidualConfig(
-            mode=ResidualMode.EQ_ROLLING, subtract_risk_free=False, lb=n,
+            mode=ResidualMode.EQ_ROLLING,
+            subtract_risk_free=False,
+            lb=n,
         )
         pair_cfg = pcpc.PairSpreadConfig(
             hedge_ratio_methods=["ols"],

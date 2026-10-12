@@ -20,6 +20,7 @@ tested separately against the specific rows each one is actually supposed to
 reproduce -- an open position's own frozen ref, and the latest ref per
 (spread_id, date), respectively.
 """
+
 import sys
 import unittest
 from pathlib import Path
@@ -59,7 +60,11 @@ class TestReconstructionFidelity(unittest.TestCase):
         import dataclasses
         import tempfile
         import b_baseline_harness as harness
-        from src.candidates.candidate_panel import load_candidate_panel_result, load_weights, weights_lookup_from_df
+        from src.candidates.candidate_panel import (
+            load_candidate_panel_result,
+            load_weights,
+            weights_lookup_from_df,
+        )
         from src.residuals.causal_residuals import load_residual_params
         from src.simulator.config import PersistenceConfig
         from src.simulator.simulator_factory import (
@@ -84,13 +89,17 @@ class TestReconstructionFidelity(unittest.TestCase):
 
         prelim_sim_config = harness._build_sim_config(harness.GROUPS)
         panel_results = generate_candidate_panels_by_group(prelim_sim_config)
-        active_groups = sorted({
-            group_id for (group_id, _residual_key), v in panel_results.items()
-            if len(v["panel"]) > 0
-        })
+        active_groups = sorted(
+            {
+                group_id
+                for (group_id, _residual_key), v in panel_results.items()
+                if len(v["panel"]) > 0
+            }
+        )
 
         sim_config = (
-            prelim_sim_config if active_groups == harness.GROUPS
+            prelim_sim_config
+            if active_groups == harness.GROUPS
             else harness._build_sim_config(active_groups)
         )
         sim_config = dataclasses.replace(
@@ -148,6 +157,7 @@ class TestReconstructionFidelity(unittest.TestCase):
     @classmethod
     def tearDownClass(cls):
         import shutil
+
         shutil.rmtree(cls._scratch_dir, ignore_errors=True)
 
     def _is_position_view(self, row) -> bool:
@@ -157,7 +167,9 @@ class TestReconstructionFidelity(unittest.TestCase):
         return False
 
     def test_sample_has_both_views(self):
-        n_position = sum(self._is_position_view(r) for r in self.debug_sample_df.itertuples(index=False))
+        n_position = sum(
+            self._is_position_view(r) for r in self.debug_sample_df.itertuples(index=False)
+        )
         n_candidate = len(self.debug_sample_df) - n_position
         self.assertGreater(n_position, 0, "no position-view rows in the sample")
         self.assertGreater(n_candidate, 0, "no candidate-view rows in the sample")
@@ -272,11 +284,17 @@ def _mutate_after(bundle: GroupReturnBundle, cutoff: pd.Timestamp) -> GroupRetur
     )
 
 
-def _make_generator(bundle: GroupReturnBundle, asof_date: pd.Timestamp, model) -> CandidateSignalGenerator:
+def _make_generator(
+    bundle: GroupReturnBundle, asof_date: pd.Timestamp, model
+) -> CandidateSignalGenerator:
     gen = CandidateSignalGenerator(
         z_score_configs={"": ZScoreConfig(lookback=5, ddof=1, method="rolling", min_periods=3)},
         diagnostics_config=MRDiagnosticsConfig(lookback=30, compute_frequency="daily"),
-        residual_configs={"": CausalResidualConfig(mode=ResidualMode.EQ_EXPANDING, subtract_risk_free=False, min_lb_eq_exp=5)},
+        residual_configs={
+            "": CausalResidualConfig(
+                mode=ResidualMode.EQ_EXPANDING, subtract_risk_free=False, min_lb_eq_exp=5
+            )
+        },
         umd=None,
     )
     gen._bundle_cache["g"] = bundle
@@ -294,10 +312,12 @@ class TestReconstructionNoLookaheadAndPcGuard(unittest.TestCase):
             member_returns=self.bundle.member_returns,
             proxy_returns=self.bundle.proxy_returns,
             benchmark_returns=self.bundle.benchmark_returns,
-            aligned_returns=self.bundle.aligned_returns.loc[:self.asof_date],
+            aligned_returns=self.bundle.aligned_returns.loc[: self.asof_date],
             risk_free_returns=self.bundle.risk_free_returns,
         )
-        cfg = CausalResidualConfig(mode=ResidualMode.EQ_EXPANDING, subtract_risk_free=False, min_lb_eq_exp=5)
+        cfg = CausalResidualConfig(
+            mode=ResidualMode.EQ_EXPANDING, subtract_risk_free=False, min_lb_eq_exp=5
+        )
         self.model = fit_causal_residual_model(bundle=fit_bundle, date=self.asof_date, cfg=cfg)
         self.weights_lookup = {("AAA|BBB", self.asof_date): {"AAA": 1.0, "BBB": -1.0}}
 
@@ -335,11 +355,13 @@ class TestReconstructionNoLookaheadAndPcGuard(unittest.TestCase):
             member_returns=self.bundle.member_returns,
             proxy_returns=self.bundle.proxy_returns,
             benchmark_returns=self.bundle.benchmark_returns,
-            aligned_returns=self.bundle.aligned_returns.loc[:self.asof_date],
+            aligned_returns=self.bundle.aligned_returns.loc[: self.asof_date],
             risk_free_returns=self.bundle.risk_free_returns,
         )
         pc_cfg = CausalResidualConfig(
-            mode=ResidualMode.EQ_EXPANDING, subtract_risk_free=False, min_lb_eq_exp=5,
+            mode=ResidualMode.EQ_EXPANDING,
+            subtract_risk_free=False,
+            min_lb_eq_exp=5,
             remove_residual_pcs=1,
         )
         pc_model = fit_causal_residual_model(bundle=fit_bundle, date=self.asof_date, cfg=pc_cfg)

@@ -11,6 +11,7 @@ Two independent halves:
 (b) a "perturb-the-future" test on _slice_fit_window: mutating returns strictly
     after the fit date must not change the sliced window, i.e. no lookahead.
 """
+
 import sys
 import unittest
 from pathlib import Path
@@ -33,20 +34,27 @@ class TestEntryAsofDateInvariant(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         import b_baseline_harness as harness
-        from src.simulator.simulator_factory import generate_candidate_panels_by_group, run_from_config
+        from src.simulator.simulator_factory import (
+            generate_candidate_panels_by_group,
+            run_from_config,
+        )
 
         prelim_sim_config = harness._build_sim_config(harness.GROUPS)
         panel_results = generate_candidate_panels_by_group(prelim_sim_config)
-        active_groups = sorted({
-            group_id for (group_id, _residual_key), v in panel_results.items()
-            if len(v["panel"]) > 0
-        })
+        active_groups = sorted(
+            {
+                group_id
+                for (group_id, _residual_key), v in panel_results.items()
+                if len(v["panel"]) > 0
+            }
+        )
         if not active_groups:
             cls.trades_df = None
             return
 
         sim_config = (
-            prelim_sim_config if active_groups == harness.GROUPS
+            prelim_sim_config
+            if active_groups == harness.GROUPS
             else harness._build_sim_config(active_groups)
         )
         result = run_from_config(sim_config)

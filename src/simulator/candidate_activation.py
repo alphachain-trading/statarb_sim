@@ -20,6 +20,7 @@ class CandidateActivation:
     The key type is always str — in multi-timescale mode, the key is
     "{group_id}|{timescale_label}" to keep the dict flat and hashable.
     """
+
     config: ActivationConfig
     active_by_group: dict[str, list[CandidateRef]] = field(default_factory=dict)
 
@@ -75,11 +76,7 @@ class CandidateActivation:
                 if key_group == group_id:
                     out.extend(refs)
             return out
-        return [
-            ref
-            for refs in self.active_by_group.values()
-            for ref in refs
-        ]
+        return [ref for refs in self.active_by_group.values() for ref in refs]
 
     def build_activation_frame(
         self,
@@ -102,11 +99,7 @@ class CandidateActivation:
         for ref in new_arrivals:
             tracked_by_id[ref.candidate_id] = ref
 
-        active_ids = {
-            ref.candidate_id
-            for refs in self.active_by_group.values()
-            for ref in refs
-        }
+        active_ids = {ref.candidate_id for refs in self.active_by_group.values() for ref in refs}
 
         rows = []
         for ref in tracked_by_id.values():
@@ -197,9 +190,6 @@ class CandidateActivation:
 
         # Remove stale candidates for the same spread_id (within this timescale)
         # that have no open position
-        updated = [
-            r for r in current_list
-            if r.spread_id != ref.spread_id or _is_open(r)
-        ]
+        updated = [r for r in current_list if r.spread_id != ref.spread_id or _is_open(r)]
         updated.append(ref)
         self.active_by_group[key] = updated

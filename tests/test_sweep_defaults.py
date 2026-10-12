@@ -10,6 +10,7 @@ Two things to prove:
   2. merge_defaults fails loud if the bundle and the sweep-derived kwargs
      ever name the same field — the guard against silent precedence bugs.
 """
+
 import sys
 import unittest
 from pathlib import Path
@@ -88,41 +89,71 @@ class TestSweepDefaults(unittest.TestCase):
         """Each bundle value must equal the literal _build_sim_config inlined."""
         b = DEFAULT_CONFIGS["standard_v1"]
         self.assertEqual(b["capital"], CapitalConfig(total_capital=1_000_000.0))
-        self.assertEqual(b["candidate_selection"], CandidateSelectionConfig(
-            allowed_candidate_subtypes=("pca",), require_is_valid=True, require_success=True,
-        ))
-        self.assertEqual(b["activation"], ActivationConfig(
-            one_active_per_group=False, switch_only_when_flat=False,
-        ))
-        self.assertEqual(b["diagnostics"], MRDiagnosticsConfig(lookback=252, compute_frequency="off"))
-        self.assertEqual(b["execution"], ExecutionConfig(
-            allow_fractional_shares=False,
-            share_rounding="nearest",
-            min_abs_units=0.5,
-            commission_per_share=0.005,
-            commission_per_order=0.0,
-            min_commission_per_order=1.0,
-            max_commission_per_order=9.79,
-            max_commission_pct_of_trade=0.01,
-            short_borrow_rate_annual_bps=30.0,
-        ))
-        self.assertEqual(b["performance"], PerformanceConfig(
-            enabled=True, metrics_table=True, report_html=True,
-            benchmark_ticker=None, annualization_factor=252, per_group_breakdown=True,
-        ))
+        self.assertEqual(
+            b["candidate_selection"],
+            CandidateSelectionConfig(
+                allowed_candidate_subtypes=("pca",),
+                require_is_valid=True,
+                require_success=True,
+            ),
+        )
+        self.assertEqual(
+            b["activation"],
+            ActivationConfig(
+                one_active_per_group=False,
+                switch_only_when_flat=False,
+            ),
+        )
+        self.assertEqual(
+            b["diagnostics"], MRDiagnosticsConfig(lookback=252, compute_frequency="off")
+        )
+        self.assertEqual(
+            b["execution"],
+            ExecutionConfig(
+                allow_fractional_shares=False,
+                share_rounding="nearest",
+                min_abs_units=0.5,
+                commission_per_share=0.005,
+                commission_per_order=0.0,
+                min_commission_per_order=1.0,
+                max_commission_per_order=9.79,
+                max_commission_pct_of_trade=0.01,
+                short_borrow_rate_annual_bps=30.0,
+            ),
+        )
+        self.assertEqual(
+            b["performance"],
+            PerformanceConfig(
+                enabled=True,
+                metrics_table=True,
+                report_html=True,
+                benchmark_ticker=None,
+                annualization_factor=252,
+                per_group_breakdown=True,
+            ),
+        )
         self.assertEqual(b["persistence"], PersistenceConfig(enabled=True))
 
     def test_standard_v1_keys_are_exactly_the_non_swept_fields(self):
         """Guards against a field silently drifting into or out of the bundle."""
-        self.assertEqual(set(DEFAULT_CONFIGS["standard_v1"]), {
-            "capital", "candidate_selection", "activation",
-            "diagnostics", "execution", "performance", "persistence",
-        })
+        self.assertEqual(
+            set(DEFAULT_CONFIGS["standard_v1"]),
+            {
+                "capital",
+                "candidate_selection",
+                "activation",
+                "diagnostics",
+                "execution",
+                "performance",
+                "persistence",
+            },
+        )
 
     def test_standard_v1_output_is_hash_stable(self):
         """End-to-end: the full SimulatorConfig hash is unchanged by the registry."""
-        sweep = SweepConfig(entry_z=2.0, z_lookback=21, z_method="ewm",
-                            candidate_panel_subdir="V2.pair")
+        sweep = SweepConfig(
+            entry_z=2.0, z_lookback=21, z_method="ewm", candidate_panel_subdir="V2.pair"
+        )
         self.assertEqual(dedup_key(sweep), _PRE_REGISTRY_HASH)
 
     def test_overlap_guard_raises_naming_the_key(self):

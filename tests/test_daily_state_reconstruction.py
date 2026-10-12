@@ -8,6 +8,7 @@ just "it ran." This is the correctness argument for the reconstruction
 this commit stands up to eventually replace DailyPortfolioStateLogEntry's
 day-by-day accumulation (commit 8b/8c).
 """
+
 import sys
 import unittest
 from pathlib import Path
@@ -37,16 +38,18 @@ def _price_matrix():
 
 
 def _zero_cost_execution_engine():
-    return ExecutionEngine(config=ExecutionConfig(
-        allow_fractional_shares=True,
-        min_abs_units=0.0,
-        commission_per_share=0.0,
-        commission_per_order=0.0,
-        min_commission_per_order=0.0,
-        max_commission_per_order=0.0,
-        max_commission_pct_of_trade=0.0,
-        short_borrow_rate_annual_bps=0.0,
-    ))
+    return ExecutionEngine(
+        config=ExecutionConfig(
+            allow_fractional_shares=True,
+            min_abs_units=0.0,
+            commission_per_share=0.0,
+            commission_per_order=0.0,
+            min_commission_per_order=0.0,
+            max_commission_per_order=0.0,
+            max_commission_pct_of_trade=0.0,
+            short_borrow_rate_annual_bps=0.0,
+        )
+    )
 
 
 class TestReconstructDailyPortfolioStateClosedTradeOnly(unittest.TestCase):
@@ -67,19 +70,23 @@ class TestReconstructDailyPortfolioStateClosedTradeOnly(unittest.TestCase):
         realized_pnl_gross = sum(
             self.units[t] * (exit_prices[t] - entry_prices[t]) for t in self.units
         )
-        self.closed_trades_df = pd.DataFrame([{
-            "trade_id": "t1",
-            "candidate_id": "t1",
-            "group_id": "g1",
-            "spread_id": "AAA|BBB",
-            "entry_date": DATES[1],
-            "entry_asof_date": DATES[0],
-            "exit_date": DATES[3],
-            "direction": 1.0,
-            "pair_notional": 10_000.0,
-            "realized_pnl_gross": realized_pnl_gross,
-            "transaction_costs": 0.0,
-        }])
+        self.closed_trades_df = pd.DataFrame(
+            [
+                {
+                    "trade_id": "t1",
+                    "candidate_id": "t1",
+                    "group_id": "g1",
+                    "spread_id": "AAA|BBB",
+                    "entry_date": DATES[1],
+                    "entry_asof_date": DATES[0],
+                    "exit_date": DATES[3],
+                    "direction": 1.0,
+                    "pair_notional": 10_000.0,
+                    "realized_pnl_gross": realized_pnl_gross,
+                    "transaction_costs": 0.0,
+                }
+            ]
+        )
         self.weights_lookup = {("AAA|BBB", DATES[0]): {"AAA": 1.0, "BBB": -1.0}}
 
     def _run(self):
@@ -98,6 +105,7 @@ class TestReconstructDailyPortfolioStateClosedTradeOnly(unittest.TestCase):
     def test_units_reconstructed_correctly(self):
         """Sanity check on the fixture's own hand-derived units before trusting downstream numbers."""
         from src.simulator.performance.daily_state_reconstruction import _reconstruct_entry_fill
+
         units, entry_prices, commission = _reconstruct_entry_fill(
             trade_row=self.closed_trades_df.iloc[0],
             weights_lookup=self.weights_lookup,
@@ -138,7 +146,8 @@ class TestReconstructDailyPortfolioStateClosedTradeOnly(unittest.TestCase):
 
         # Zero costs in this fixture => equity_net == equity_gross throughout.
         pd.testing.assert_series_equal(
-            df["total_equity_net"], df["total_equity_gross"],
+            df["total_equity_net"],
+            df["total_equity_gross"],
             check_names=False,
         )
 
@@ -156,16 +165,18 @@ class TestReconstructDailyPortfolioStateBorrowAndCommission(unittest.TestCase):
         self.position_translator = PositionTranslator()
         # direction=-1 (short spread): AAA rising + BBB falling now HURTS the position,
         # since spread direction=-1 flips the sign of both legs' targets.
-        self.execution_engine = ExecutionEngine(config=ExecutionConfig(
-            allow_fractional_shares=True,
-            min_abs_units=0.0,
-            commission_per_share=0.01,
-            commission_per_order=1.0,
-            min_commission_per_order=0.0,
-            max_commission_per_order=1_000_000.0,
-            max_commission_pct_of_trade=1.0,
-            short_borrow_rate_annual_bps=252 * 100,  # 1% per day exactly, for round numbers
-        ))
+        self.execution_engine = ExecutionEngine(
+            config=ExecutionConfig(
+                allow_fractional_shares=True,
+                min_abs_units=0.0,
+                commission_per_share=0.01,
+                commission_per_order=1.0,
+                min_commission_per_order=0.0,
+                max_commission_per_order=1_000_000.0,
+                max_commission_pct_of_trade=1.0,
+                short_borrow_rate_annual_bps=252 * 100,  # 1% per day exactly, for round numbers
+            )
+        )
 
     def test_borrow_cost_window_is_shifted_by_one_day_from_equity_window(self):
         """
@@ -177,13 +188,23 @@ class TestReconstructDailyPortfolioStateBorrowAndCommission(unittest.TestCase):
         # direction=-1, pair_notional=10_000, weights AAA=1.0, BBB=-1.0 (gross_norm=2.0)
         # signed_dollar_targets = -1 * 10000 * [0.5, -0.5] = [-5000, +5000]
         # units = [-5000/100, 5000/50] = [-50, 100]
-        closed_trades_df = pd.DataFrame([{
-            "trade_id": "t1", "candidate_id": "t1", "group_id": "g1",
-            "spread_id": "AAA|BBB", "entry_date": DATES[1], "entry_asof_date": DATES[0],
-            "exit_date": DATES[3], "direction": -1.0, "pair_notional": 10_000.0,
-            "realized_pnl_gross": 0.0,  # irrelevant to this test
-            "transaction_costs": 999.0,  # irrelevant to this test (only entry/exit split matters elsewhere)
-        }])
+        closed_trades_df = pd.DataFrame(
+            [
+                {
+                    "trade_id": "t1",
+                    "candidate_id": "t1",
+                    "group_id": "g1",
+                    "spread_id": "AAA|BBB",
+                    "entry_date": DATES[1],
+                    "entry_asof_date": DATES[0],
+                    "exit_date": DATES[3],
+                    "direction": -1.0,
+                    "pair_notional": 10_000.0,
+                    "realized_pnl_gross": 0.0,  # irrelevant to this test
+                    "transaction_costs": 999.0,  # irrelevant to this test (only entry/exit split matters elsewhere)
+                }
+            ]
+        )
         weights_lookup = {("AAA|BBB", DATES[0]): {"AAA": 1.0, "BBB": -1.0}}
 
         df = reconstruct_daily_portfolio_state(
@@ -212,19 +233,29 @@ class TestReconstructDailyPortfolioStateBorrowAndCommission(unittest.TestCase):
         self.assertEqual(df.loc[DATES[4], "daily_borrow_cost"], 0.0)
 
     def test_entry_and_exit_commission_split_reproduces_total(self):
-        closed_trades_df = pd.DataFrame([{
-            "trade_id": "t1", "candidate_id": "t1", "group_id": "g1",
-            "spread_id": "AAA|BBB", "entry_date": DATES[1], "entry_asof_date": DATES[0],
-            "exit_date": DATES[3], "direction": 1.0, "pair_notional": 10_000.0,
-            "realized_pnl_gross": 400.0,
-            # Entry commission at d1 prices, units [50, -100]:
-            #   AAA: 1.0 + 50*0.01 = 1.5; BBB: 1.0 + 100*0.01 = 2.0 => entry = 3.5
-            # Exit commission at d3 prices, same units:
-            #   identical n_shares => exit = 3.5 too (commission formula doesn't use price
-            #   directly here since max_commission_pct_of_trade=1.0 never binds and
-            #   min/max don't bind either)
-            "transaction_costs": 7.0,
-        }])
+        closed_trades_df = pd.DataFrame(
+            [
+                {
+                    "trade_id": "t1",
+                    "candidate_id": "t1",
+                    "group_id": "g1",
+                    "spread_id": "AAA|BBB",
+                    "entry_date": DATES[1],
+                    "entry_asof_date": DATES[0],
+                    "exit_date": DATES[3],
+                    "direction": 1.0,
+                    "pair_notional": 10_000.0,
+                    "realized_pnl_gross": 400.0,
+                    # Entry commission at d1 prices, units [50, -100]:
+                    #   AAA: 1.0 + 50*0.01 = 1.5; BBB: 1.0 + 100*0.01 = 2.0 => entry = 3.5
+                    # Exit commission at d3 prices, same units:
+                    #   identical n_shares => exit = 3.5 too (commission formula doesn't use price
+                    #   directly here since max_commission_pct_of_trade=1.0 never binds and
+                    #   min/max don't bind either)
+                    "transaction_costs": 7.0,
+                }
+            ]
+        )
         weights_lookup = {("AAA|BBB", DATES[0]): {"AAA": 1.0, "BBB": -1.0}}
 
         df = reconstruct_daily_portfolio_state(
@@ -253,9 +284,16 @@ class TestReconstructDailyPortfolioStateStillOpenPosition(unittest.TestCase):
     def test_still_open_position_contributes_through_last_date(self):
         price_matrix = _price_matrix()
         live_pos = LiveCandidatePosition(
-            trade_id="t2", candidate_id="t2", group_id="g1", spread_id="AAA|BBB",
-            direction=1.0, pair_notional=10_000.0, gross_value=15_000.0,
-            entry_date=DATES[1], entry_asof_date=DATES[0], days_open=4,
+            trade_id="t2",
+            candidate_id="t2",
+            group_id="g1",
+            spread_id="AAA|BBB",
+            direction=1.0,
+            pair_notional=10_000.0,
+            gross_value=15_000.0,
+            entry_date=DATES[1],
+            entry_asof_date=DATES[0],
+            days_open=4,
             units_by_ticker={"AAA": 50, "BBB": -100},
             entry_prices_by_ticker={"AAA": 100.0, "BBB": 50.0},
             accumulated_transaction_cost=3.5,
@@ -264,11 +302,21 @@ class TestReconstructDailyPortfolioStateStillOpenPosition(unittest.TestCase):
         df = reconstruct_daily_portfolio_state(
             dates=DATES,
             price_matrix=price_matrix,
-            closed_trades_df=pd.DataFrame(columns=[
-                "trade_id", "candidate_id", "group_id", "spread_id", "entry_date",
-                "entry_asof_date", "exit_date", "direction", "pair_notional",
-                "realized_pnl_gross", "transaction_costs",
-            ]),
+            closed_trades_df=pd.DataFrame(
+                columns=[
+                    "trade_id",
+                    "candidate_id",
+                    "group_id",
+                    "spread_id",
+                    "entry_date",
+                    "entry_asof_date",
+                    "exit_date",
+                    "direction",
+                    "pair_notional",
+                    "realized_pnl_gross",
+                    "transaction_costs",
+                ]
+            ),
             final_live_positions_by_candidate_id={"t2": live_pos},
             weights_lookup={},
             position_translator=PositionTranslator(),

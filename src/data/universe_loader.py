@@ -14,9 +14,7 @@ from src.settings import CONFIG_UNIVERSE, DATA_UNIVERSES
 class UniverseDataLoader:
     PRICE_FIELDS = ["Open", "High", "Low", "Close", "Volume"]
 
-    def __init__(self, config: UniverseConfig,
-                 data_path: str | Path,
-                 progress=False):
+    def __init__(self, config: UniverseConfig, data_path: str | Path, progress=False):
         self.config = config
         self.progress = progress
         self.data_path = Path(data_path)
@@ -33,14 +31,18 @@ class UniverseDataLoader:
         self.membership_path = self.cache_dir / "membership.parquet"
         self.manifest_path = self.cache_dir / "manifest.json"
 
-    def load(self, force_download: bool = False, check_for_corruptions=True, start_after_nan: bool = True) -> UniverseMarketData:
+    def load(
+        self, force_download: bool = False, check_for_corruptions=True, start_after_nan: bool = True
+    ) -> UniverseMarketData:
         print(f"Loading universe {self.config.universe_name}...")
         if force_download or not self._cache_exists():
             print(f"  cache miss — downloading fresh data for {self.config.universe_name}...")
             umd = self._download_and_build()
             self._persist(umd)
         else:
-            print(f"  cache hit — loading {self.config.universe_name} from disk ({self.prices_path})")
+            print(
+                f"  cache hit — loading {self.config.universe_name} from disk ({self.prices_path})"
+            )
             umd = self._load_from_disk()
 
             # Synchronize with config
@@ -53,7 +55,9 @@ class UniverseDataLoader:
             dirty = False
 
             if to_remove:
-                print(f"Removing {len(to_remove)} tickers from cache that are no longer in config...")
+                print(
+                    f"Removing {len(to_remove)} tickers from cache that are no longer in config..."
+                )
                 # Filter prices MultiIndex columns
                 cols_to_keep = [c for c in umd.prices.columns if c[0] not in to_remove]
                 umd.prices = umd.prices.loc[:, cols_to_keep].copy()
@@ -343,18 +347,13 @@ class UniverseDataLoader:
 
         # For pool downloads, we ignore config date constraints to get full history
         # but keep other flags like repair/auto_adjust from config if it exists
-        if self.config and hasattr(self.config, 'loader_defaults'):
+        if self.config and hasattr(self.config, "loader_defaults"):
             d = self.config.loader_defaults
         else:
             d = {"auto_adjust": True, "repair": True}
 
         d = self.config.loader_defaults
-        summary = {
-            "skipped": [],
-            "success": [],
-            "failed": [],
-            "corrupted": []
-        }
+        summary = {"skipped": [], "success": [], "failed": [], "corrupted": []}
 
         for symbol in symbols:
             target_path = self.pool_dir / f"{symbol}.parquet"
@@ -477,4 +476,6 @@ def ensure_universe_data(
             raise FileNotFoundError(f"missing universe config for sector '{sector}': {yaml_path}")
 
         config = UniverseConfig.from_yaml(yaml_path)
-        UniverseDataLoader(config, data_path=data_path, progress=progress).load(force_download=force_download)
+        UniverseDataLoader(config, data_path=data_path, progress=progress).load(
+            force_download=force_download
+        )

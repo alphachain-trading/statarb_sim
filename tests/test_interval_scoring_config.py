@@ -10,6 +10,7 @@ The KeyError is correct and stays: defaulting a missing weight would
 promote an intentionally-zeroed feature to full weight and silently skew
 every trade's size. This just moves the failure to construction time.
 """
+
 import sys
 import unittest
 from pathlib import Path

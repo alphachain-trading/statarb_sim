@@ -36,6 +36,7 @@ import pandas as pd
 
 # ── EWM area asymmetry ────────────────────────────────────────────────────────
 
+
 def compute_x_area_asymmetry_ewm(
     levels: np.ndarray,
     halflife: float | None = None,
@@ -131,7 +132,9 @@ def compute_x_area_asymmetry_ewm_series(
     if halflife is None and alpha is None:
         raise ValueError("compute_x_area_asymmetry_ewm_series: provide either halflife or alpha.")
     if halflife is not None and alpha is not None:
-        raise ValueError("compute_x_area_asymmetry_ewm_series: provide halflife OR alpha, not both.")
+        raise ValueError(
+            "compute_x_area_asymmetry_ewm_series: provide halflife OR alpha, not both."
+        )
     if halflife is not None:
         alpha = 1.0 - np.exp(-1.0 / halflife)
 
@@ -198,11 +201,11 @@ def _weighted_gain_stats(
     sigma_ann = float(np.sqrt(np.sum(weight * (potential_gain_ann - mu_ann) ** 2)))
 
     return {
-        "gain":          mu,
-        "gain_std":      sigma,
-        "gain_norm":     (mu / sigma) if sigma > 1e-12 else np.nan,
-        "gain_ann":      mu_ann,
-        "gain_ann_std":  sigma_ann,
+        "gain": mu,
+        "gain_std": sigma,
+        "gain_norm": (mu / sigma) if sigma > 1e-12 else np.nan,
+        "gain_ann": mu_ann,
+        "gain_ann_std": sigma_ann,
         "gain_ann_norm": (mu_ann / sigma_ann) if sigma_ann > 1e-12 else np.nan,
     }
 
@@ -346,8 +349,12 @@ def _gain_stats_series_core(
         gain_ann_norm = np.where(sigma_ann > 1e-12, mu_ann / sigma_ann, np.nan)
 
     out = {
-        "gain": mu, "gain_std": sigma, "gain_norm": gain_norm,
-        "gain_ann": mu_ann, "gain_ann_std": sigma_ann, "gain_ann_norm": gain_ann_norm,
+        "gain": mu,
+        "gain_std": sigma,
+        "gain_norm": gain_norm,
+        "gain_ann": mu_ann,
+        "gain_ann_std": sigma_ann,
+        "gain_ann_norm": gain_ann_norm,
     }
     for k in out:
         out[k] = np.where(valid, out[k], np.nan)
@@ -389,6 +396,7 @@ def compute_fw_gain_series(
 
 # ── EWM mean percentile ───────────────────────────────────────────────────────
 
+
 def _expanding_pct(arr: np.ndarray, start: int = 1) -> np.ndarray:
     """
     Causal expanding percentile rank → [-1, 1].
@@ -402,6 +410,7 @@ def _expanding_pct(arr: np.ndarray, start: int = 1) -> np.ndarray:
     spread_metrics.py's mean_ewm%/z_ewm%/etc. percentile columns.
     """
     import bisect
+
     n = len(arr)
     out = np.full(n, np.nan)
     sorted_prefix: list[float] = []
@@ -511,6 +520,7 @@ def compute_mean_ewm_pct(
 
 # ── Delta z ───────────────────────────────────────────────────────────────────
 
+
 def compute_delta_z_ewm(
     levels: np.ndarray,
     halflife: int,
@@ -583,26 +593,58 @@ def compute_delta_z_ewm(
 # named "x_area_asymmetry_ewm" in closed_trades, with no enforced or surfaced
 # linkage back to the run's config. Cross-run comparison of these columns is
 # only valid if the caller separately checks config.json per run.
-SIGNED_FEATURE_NAMES: frozenset[str] = frozenset([
-    "x_area_asymmetry_ewm", "x_area_asymmetry_exp", "x_area_asymmetry_ewm2exp",
-    "mean_ewm%", "mean_exp%",
-    "z_ewm", "z_exp", "z_ewm2exp",
-    "z_ewm%", "z_exp%", "z_ewm2exp%",
-    "disloc_ewm", "disloc_exp", "disloc_density_ewm",
-    "disloc_ewm%", "disloc_exp%", "disloc_density_ewm%",
-    "drift_level", "drift_ewm", "drift_exp",
-    "drift_level%", "drift_ewm%", "drift_exp%",
-    "curv_level", "curv_ewm", "curv_exp",
-    "curv_level%", "curv_ewm%", "curv_exp%",
-    "drift_norm_ewm", "drift_norm_ewm%",
-    "drift_diff_lev2exp", "drift_diff_ewm2exp",
-    "entry_delta_z",
-    "entry_delta_z_ewm3", "entry_delta_z_ewm5", "entry_delta_z_ewm10", "entry_delta_z_ewm21",
-    # gain family — signed members only (4 of 6 keys per fw_/bw_ prefix);
-    # *_gain_std / *_gain_ann_std are unsigned, deliberately excluded.
-    "fw_gain", "fw_gain_norm", "fw_gain_ann", "fw_gain_ann_norm",
-    "bw_gain", "bw_gain_norm", "bw_gain_ann", "bw_gain_ann_norm",
-])
+SIGNED_FEATURE_NAMES: frozenset[str] = frozenset(
+    [
+        "x_area_asymmetry_ewm",
+        "x_area_asymmetry_exp",
+        "x_area_asymmetry_ewm2exp",
+        "mean_ewm%",
+        "mean_exp%",
+        "z_ewm",
+        "z_exp",
+        "z_ewm2exp",
+        "z_ewm%",
+        "z_exp%",
+        "z_ewm2exp%",
+        "disloc_ewm",
+        "disloc_exp",
+        "disloc_density_ewm",
+        "disloc_ewm%",
+        "disloc_exp%",
+        "disloc_density_ewm%",
+        "drift_level",
+        "drift_ewm",
+        "drift_exp",
+        "drift_level%",
+        "drift_ewm%",
+        "drift_exp%",
+        "curv_level",
+        "curv_ewm",
+        "curv_exp",
+        "curv_level%",
+        "curv_ewm%",
+        "curv_exp%",
+        "drift_norm_ewm",
+        "drift_norm_ewm%",
+        "drift_diff_lev2exp",
+        "drift_diff_ewm2exp",
+        "entry_delta_z",
+        "entry_delta_z_ewm3",
+        "entry_delta_z_ewm5",
+        "entry_delta_z_ewm10",
+        "entry_delta_z_ewm21",
+        # gain family — signed members only (4 of 6 keys per fw_/bw_ prefix);
+        # *_gain_std / *_gain_ann_std are unsigned, deliberately excluded.
+        "fw_gain",
+        "fw_gain_norm",
+        "fw_gain_ann",
+        "fw_gain_ann_norm",
+        "bw_gain",
+        "bw_gain_norm",
+        "bw_gain_ann",
+        "bw_gain_ann_norm",
+    ]
+)
 
 
 # ── Spread level ─────────────────────────────────────────────────────────────
@@ -616,6 +658,7 @@ SIGNED_FEATURE_NAMES: frozenset[str] = frozenset([
 # does the part that varies per caller: weights times residuals, then a cumsum.
 # Six independent inline copies of exactly this pattern existed before this
 # function (F2_spec.md §3.8) -- this is the one place it is allowed to live now.
+
 
 def compute_spread_level(
     residuals: pd.DataFrame,

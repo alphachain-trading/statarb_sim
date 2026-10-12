@@ -13,24 +13,29 @@ from src.types.common import GroupId
 # Config
 # -----------------------------
 
+
 @dataclass(frozen=True)
 class UniverseConfig:
     raw: dict[str, Any]
+
     def to_string(self) -> str:
-        out = ''
-        out += 'UniverseConfig.universe_structure(cfg)\n'+UniverseConfig.universe_structure(self)+'\n'
-        out += f'universe_name={self.universe_name}'+'\n'
-        out += f'tickers={self.tickers}'+'\n'
-        out += f'groups={self.groups}'+'\n'
-        out += f'root_group={self.root_group}'+'\n'
-        out += f'all_symbols()={self.all_symbols()}'+'\n'
-        out += f'equity_symbols()={self.equity_symbols()}'+'\n'
+        out = ""
+        out += (
+            "UniverseConfig.universe_structure(cfg)\n"
+            + UniverseConfig.universe_structure(self)
+            + "\n"
+        )
+        out += f"universe_name={self.universe_name}" + "\n"
+        out += f"tickers={self.tickers}" + "\n"
+        out += f"groups={self.groups}" + "\n"
+        out += f"root_group={self.root_group}" + "\n"
+        out += f"all_symbols()={self.all_symbols()}" + "\n"
+        out += f"equity_symbols()={self.equity_symbols()}" + "\n"
         for g in self.groups:
-            out += f'group_members({g})={self.group_members(g)}'+'\n'
-            out += f'group_proxy({g})={self.group_proxy(g)}'+'\n'
-            out += f'group_benchmark({g})={self.group_benchmark(g)}'+'\n'
+            out += f"group_members({g})={self.group_members(g)}" + "\n"
+            out += f"group_proxy({g})={self.group_proxy(g)}" + "\n"
+            out += f"group_benchmark({g})={self.group_benchmark(g)}" + "\n"
         return out
-        
 
     @classmethod
     def from_yaml(cls, path: str | Path) -> "UniverseConfig":
@@ -103,10 +108,7 @@ class UniverseConfig:
         return sorted(out)
 
     def equity_symbols(self) -> list[str]:
-        return sorted(
-            s for s, meta in self.tickers.items()
-            if meta.get("kind") == "equity"
-        )
+        return sorted(s for s, meta in self.tickers.items() if meta.get("kind") == "equity")
 
     def group_members(self, id_: GroupId) -> list[str]:
         return list(self.groups[id_].get("members", []))

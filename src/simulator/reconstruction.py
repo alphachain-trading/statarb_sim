@@ -19,6 +19,7 @@ candidate's own frozen weights from weights_lookup, and its own asof-frozen
 residual model via CandidateSignalGenerator. The two functions below differ only
 in how they pick `asof_date` for a given (spread_id, date) query.
 """
+
 from __future__ import annotations
 
 import pandas as pd

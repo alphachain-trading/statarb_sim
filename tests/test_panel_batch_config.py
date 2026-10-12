@@ -18,6 +18,7 @@ Covers, without touching disk or market data:
      and residual_configs accepting list[str] (resolved eagerly, mixed
      lists rejected).
 """
+
 import json
 import sys
 import unittest
@@ -64,7 +65,9 @@ class TestKeyByteIdentity(unittest.TestCase):
 
     def test_eq_expanding_key_shape(self):
         cfg = CausalResidualConfig(
-            mode=ResidualMode.EQ_EXPANDING, subtract_risk_free=True, min_lb_eq_exp=252,
+            mode=ResidualMode.EQ_EXPANDING,
+            subtract_risk_free=True,
+            min_lb_eq_exp=252,
         )
         self.assertEqual(cfg.key, "exp_mh252_rf")
 
@@ -104,7 +107,9 @@ class TestMinHistoryResolution(unittest.TestCase):
 
     def test_eq_expanding_min_history_absolute(self):
         cfg = CausalResidualConfig(
-            mode=ResidualMode.EQ_EXPANDING, subtract_risk_free=False, min_lb_eq_exp=800,
+            mode=ResidualMode.EQ_EXPANDING,
+            subtract_risk_free=False,
+            min_lb_eq_exp=800,
         )
         self.assertEqual(cfg.min_history, 800)
         self.assertEqual(cfg.window_mode, "expanding")
@@ -129,7 +134,9 @@ class TestCausalResidualConfigValidation(unittest.TestCase):
 
     def test_eq_rolling_forbids_hl_and_min_lb_eq_exp(self):
         with self.assertRaises(ValueError):
-            CausalResidualConfig(mode=ResidualMode.EQ_ROLLING, subtract_risk_free=False, lb=21, hl=504)
+            CausalResidualConfig(
+                mode=ResidualMode.EQ_ROLLING, subtract_risk_free=False, lb=21, hl=504
+            )
 
     def test_decay_expanding_requires_hl_and_min_lb_fields(self):
         with self.assertRaises(ValueError):
@@ -148,7 +155,10 @@ class TestCausalResidualConfigValidation(unittest.TestCase):
     def test_eq_expanding_forbids_lb_and_hl(self):
         with self.assertRaises(ValueError):
             CausalResidualConfig(
-                mode=ResidualMode.EQ_EXPANDING, subtract_risk_free=False, min_lb_eq_exp=252, hl=504,
+                mode=ResidualMode.EQ_EXPANDING,
+                subtract_risk_free=False,
+                min_lb_eq_exp=252,
+                hl=504,
             )
 
     def test_remove_residual_pcs_negative_raises(self):
@@ -164,6 +174,7 @@ class TestCausalResidualConfigValidation(unittest.TestCase):
         cfg = _decay()
         from dataclasses import asdict
         import json
+
         raw = json.loads(json.dumps(asdict(cfg)))
         back = CausalResidualConfig.from_dict(raw)
         self.assertEqual(back.key, cfg.key)
@@ -177,11 +188,18 @@ class TestFromKey(unittest.TestCase):
         self.assertEqual(back.key, key)
 
     def test_roundtrip_decay_expanding_multiplier(self):
-        self._assert_roundtrip(_decay(hl=504, min_lb_type_dec_exp=AbsOrMult.MULTIPLIER, min_lb_dec_exp=2))
+        self._assert_roundtrip(
+            _decay(hl=504, min_lb_type_dec_exp=AbsOrMult.MULTIPLIER, min_lb_dec_exp=2)
+        )
 
     def test_roundtrip_decay_expanding_absolute(self):
         self._assert_roundtrip(
-            _decay(hl=126, min_lb_type_dec_exp=AbsOrMult.ABSOLUTE, min_lb_dec_exp=600, subtract_risk_free=False)
+            _decay(
+                hl=126,
+                min_lb_type_dec_exp=AbsOrMult.ABSOLUTE,
+                min_lb_dec_exp=600,
+                subtract_risk_free=False,
+            )
         )
 
     def test_roundtrip_decay_expanding_with_pcs(self):
@@ -189,19 +207,27 @@ class TestFromKey(unittest.TestCase):
 
     def test_roundtrip_eq_expanding(self):
         self._assert_roundtrip(
-            CausalResidualConfig(mode=ResidualMode.EQ_EXPANDING, subtract_risk_free=True, min_lb_eq_exp=252)
+            CausalResidualConfig(
+                mode=ResidualMode.EQ_EXPANDING, subtract_risk_free=True, min_lb_eq_exp=252
+            )
         )
         self._assert_roundtrip(
             CausalResidualConfig(
-                mode=ResidualMode.EQ_EXPANDING, subtract_risk_free=False,
-                min_lb_eq_exp=800, remove_residual_pcs=1,
+                mode=ResidualMode.EQ_EXPANDING,
+                subtract_risk_free=False,
+                min_lb_eq_exp=800,
+                remove_residual_pcs=1,
             )
         )
 
     def test_roundtrip_eq_rolling(self):
-        self._assert_roundtrip(CausalResidualConfig(mode=ResidualMode.EQ_ROLLING, subtract_risk_free=False, lb=21))
         self._assert_roundtrip(
-            CausalResidualConfig(mode=ResidualMode.EQ_ROLLING, subtract_risk_free=True, lb=63, remove_residual_pcs=5)
+            CausalResidualConfig(mode=ResidualMode.EQ_ROLLING, subtract_risk_free=False, lb=21)
+        )
+        self._assert_roundtrip(
+            CausalResidualConfig(
+                mode=ResidualMode.EQ_ROLLING, subtract_risk_free=True, lb=63, remove_residual_pcs=5
+            )
         )
 
     def test_decay_expanding_reconstructs_as_absolute(self):
@@ -229,7 +255,9 @@ class TestFromKey(unittest.TestCase):
     def test_roundtrip_against_real_persisted_meta_json(self):
         """Every current-format residual_cfg found under fixtures/ and artifacts/
         must round-trip through from_key."""
-        paths = list(REPO_ROOT.glob("fixtures/**/*.meta.json")) + list(REPO_ROOT.glob("artifacts/**/*.meta.json"))
+        paths = list(REPO_ROOT.glob("fixtures/**/*.meta.json")) + list(
+            REPO_ROOT.glob("artifacts/**/*.meta.json")
+        )
         checked = 0
         for p in paths:
             d = json.loads(p.read_text())
@@ -247,34 +275,52 @@ class TestFromKey(unittest.TestCase):
 class TestPanelBatchConfigValidation(unittest.TestCase):
     def test_empty_residual_configs_raises(self):
         with self.assertRaises(ValueError):
-            PanelBatchConfig(residual_configs=[], hedge_ratio_lb=252, mr_diag_lb=252, pair_cfg=_PAIR_CFG)
+            PanelBatchConfig(
+                residual_configs=[], hedge_ratio_lb=252, mr_diag_lb=252, pair_cfg=_PAIR_CFG
+            )
 
     def test_single_config_list_window_raises(self):
         with self.assertRaises(ValueError):
-            PanelBatchConfig(residual_configs=[_decay()], hedge_ratio_lb=[252], mr_diag_lb=252, pair_cfg=_PAIR_CFG)
+            PanelBatchConfig(
+                residual_configs=[_decay()],
+                hedge_ratio_lb=[252],
+                mr_diag_lb=252,
+                pair_cfg=_PAIR_CFG,
+            )
 
     def test_mismatched_list_length_raises(self):
         rcs = [_decay(hl=h) for h in (126, 252, 504)]
         with self.assertRaises(ValueError):
-            PanelBatchConfig(residual_configs=rcs, hedge_ratio_lb=[21, 42], mr_diag_lb=252, pair_cfg=_PAIR_CFG)
+            PanelBatchConfig(
+                residual_configs=rcs, hedge_ratio_lb=[21, 42], mr_diag_lb=252, pair_cfg=_PAIR_CFG
+            )
 
     def test_scalar_broadcasts_across_sweep(self):
         rcs = [_decay(hl=h) for h in (126, 252, 504)]
-        cfg = PanelBatchConfig(residual_configs=rcs, hedge_ratio_lb=252, mr_diag_lb=63, pair_cfg=_PAIR_CFG)
+        cfg = PanelBatchConfig(
+            residual_configs=rcs, hedge_ratio_lb=252, mr_diag_lb=63, pair_cfg=_PAIR_CFG
+        )
         self.assertEqual(cfg.resolved_windows(), [(252, 63), (252, 63), (252, 63)])
 
     def test_list_windows_pair_by_index(self):
         rcs = [_decay(hl=h) for h in (126, 252, 504)]
-        cfg = PanelBatchConfig(residual_configs=rcs, hedge_ratio_lb=[21, 42, 63], mr_diag_lb=252, pair_cfg=_PAIR_CFG)
+        cfg = PanelBatchConfig(
+            residual_configs=rcs, hedge_ratio_lb=[21, 42, 63], mr_diag_lb=252, pair_cfg=_PAIR_CFG
+        )
         self.assertEqual(cfg.resolved_windows(), [(21, 252), (42, 252), (63, 252)])
 
     def test_single_config_scalar_windows_ok(self):
-        cfg = PanelBatchConfig(residual_configs=[_decay()], hedge_ratio_lb=252, mr_diag_lb=252, pair_cfg=_PAIR_CFG)
+        cfg = PanelBatchConfig(
+            residual_configs=[_decay()], hedge_ratio_lb=252, mr_diag_lb=252, pair_cfg=_PAIR_CFG
+        )
         self.assertEqual(cfg.resolved_windows(), [(252, 252)])
 
     def test_residual_configs_accepts_str_keys(self):
         cfg = PanelBatchConfig(
-            residual_configs=["exp_hl504_mh1008_rf"], hedge_ratio_lb=252, mr_diag_lb=252, pair_cfg=_PAIR_CFG,
+            residual_configs=["exp_hl504_mh1008_rf"],
+            hedge_ratio_lb=252,
+            mr_diag_lb=252,
+            pair_cfg=_PAIR_CFG,
         )
         self.assertEqual(len(cfg.residual_configs), 1)
         self.assertIsInstance(cfg.residual_configs[0], CausalResidualConfig)
@@ -282,7 +328,10 @@ class TestPanelBatchConfigValidation(unittest.TestCase):
 
     def test_residual_configs_str_keys_multiple(self):
         cfg = PanelBatchConfig(
-            residual_configs=["rol_lb21", "exp_mh252"], hedge_ratio_lb=[21, 42], mr_diag_lb=252, pair_cfg=_PAIR_CFG,
+            residual_configs=["rol_lb21", "exp_mh252"],
+            hedge_ratio_lb=[21, 42],
+            mr_diag_lb=252,
+            pair_cfg=_PAIR_CFG,
         )
         self.assertEqual([rc.key for rc in cfg.residual_configs], ["rol_lb21", "exp_mh252"])
 
@@ -290,13 +339,18 @@ class TestPanelBatchConfigValidation(unittest.TestCase):
         with self.assertRaises(ValueError):
             PanelBatchConfig(
                 residual_configs=["exp_hl504_mh1008_rf", _decay()],
-                hedge_ratio_lb=252, mr_diag_lb=252, pair_cfg=_PAIR_CFG,
+                hedge_ratio_lb=252,
+                mr_diag_lb=252,
+                pair_cfg=_PAIR_CFG,
             )
 
     def test_residual_configs_malformed_str_key_fails_fast(self):
         with self.assertRaises(ValueError):
             PanelBatchConfig(
-                residual_configs=["not_a_real_key"], hedge_ratio_lb=252, mr_diag_lb=252, pair_cfg=_PAIR_CFG,
+                residual_configs=["not_a_real_key"],
+                hedge_ratio_lb=252,
+                mr_diag_lb=252,
+                pair_cfg=_PAIR_CFG,
             )
 
     def test_str_key_resolution_precedes_window_length_check(self):
@@ -304,7 +358,10 @@ class TestPanelBatchConfigValidation(unittest.TestCase):
         validation would also fail — str resolution happens first."""
         with self.assertRaises(ValueError) as ctx:
             PanelBatchConfig(
-                residual_configs=["garbage"], hedge_ratio_lb=[1, 2, 3], mr_diag_lb=252, pair_cfg=_PAIR_CFG,
+                residual_configs=["garbage"],
+                hedge_ratio_lb=[1, 2, 3],
+                mr_diag_lb=252,
+                pair_cfg=_PAIR_CFG,
             )
         self.assertIn("Unrecognized residual key format", str(ctx.exception))
 

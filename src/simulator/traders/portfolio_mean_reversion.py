@@ -4,7 +4,11 @@ from dataclasses import dataclass
 
 from src.simulator.actions import CandidateAction, CloseCandidateAction, OpenCandidateAction
 from src.simulator.config import PortfolioMeanReversionConfig
-from src.simulator.types import CandidateAnalyticsState, CandidateMarketSnapshot, LiveCandidatePosition
+from src.simulator.types import (
+    CandidateAnalyticsState,
+    CandidateMarketSnapshot,
+    LiveCandidatePosition,
+)
 
 import numpy as np
 
@@ -59,7 +63,8 @@ class PortfolioMeanReversionTrader:
             momentum_z_raw = row.get("momentum_z")
             momentum_z: float | None = (
                 float(momentum_z_raw)
-                if momentum_z_raw is not None and not (isinstance(momentum_z_raw, float) and np.isnan(momentum_z_raw))
+                if momentum_z_raw is not None
+                and not (isinstance(momentum_z_raw, float) and np.isnan(momentum_z_raw))
                 else None
             )
             live_pos = live_positions_by_candidate_id.get(candidate_id)
@@ -132,7 +137,8 @@ class PortfolioMeanReversionTrader:
         if (
             self.config.time_stop_half_life_multiplier is not None
             and live_pos.entry_half_life is not None
-            and live_pos.days_open >= self.config.time_stop_half_life_multiplier * live_pos.entry_half_life
+            and live_pos.days_open
+            >= self.config.time_stop_half_life_multiplier * live_pos.entry_half_life
         ):
             return CloseCandidateAction(
                 candidate_id=live_pos.candidate_id,
@@ -149,7 +155,8 @@ class PortfolioMeanReversionTrader:
             and fz_analytics.mr_score is not None
             and live_pos.entry_mr_score is not None
             and live_pos.entry_mr_score > 0.0
-            and fz_analytics.mr_score < self.config.mr_deterioration_threshold * live_pos.entry_mr_score
+            and fz_analytics.mr_score
+            < self.config.mr_deterioration_threshold * live_pos.entry_mr_score
         ):
             return CloseCandidateAction(
                 candidate_id=live_pos.candidate_id,

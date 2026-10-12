@@ -9,17 +9,17 @@ from src.data.qc import QCWarning, check_prices_for_corruption
 
 @dataclass
 class UniverseMarketData:
-    prices: pd.DataFrame          # columns: MultiIndex[ticker, field]
-    ticker_info: pd.DataFrame     # index: ticker
-    group_info: pd.DataFrame      # index: group_id
-    membership: pd.DataFrame      # columns: group_id, ticker
+    prices: pd.DataFrame  # columns: MultiIndex[ticker, field]
+    ticker_info: pd.DataFrame  # index: ticker
+    group_info: pd.DataFrame  # index: group_id
+    membership: pd.DataFrame  # columns: group_id, ticker
     _close_cache: pd.DataFrame | None = None
 
-    def price_matrix(self, group_id: str | None = None, field='Close') -> pd.DataFrame:
-        if field == 'Close' and group_id is None and self._close_cache is not None:
+    def price_matrix(self, group_id: str | None = None, field="Close") -> pd.DataFrame:
+        if field == "Close" and group_id is None and self._close_cache is not None:
             return self._close_cache.copy()
         df = self.prices.xs(field, axis=1, level=1)
-        if field == 'Close' and group_id is None:
+        if field == "Close" and group_id is None:
             self._close_cache = df
         if group_id is None:
             return df.copy()
@@ -36,7 +36,7 @@ class UniverseMarketData:
         s = self.membership.loc[self.membership["group_id"] == group_id, "ticker"]
         return s.tolist()
 
-    def _price_matrix_deprecated(self, group_id: str | None = None, field='Close') -> pd.DataFrame:
+    def _price_matrix_deprecated(self, group_id: str | None = None, field="Close") -> pd.DataFrame:
         df = self.prices.xs(field, axis=1, level=1)
         if group_id is None:
             return df.copy()
@@ -67,4 +67,3 @@ class UniverseMarketData:
 
     def qc_warnings(self) -> list[QCWarning]:
         return check_prices_for_corruption(self.prices)
-

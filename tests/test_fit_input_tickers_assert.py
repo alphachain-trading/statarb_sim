@@ -9,6 +9,7 @@ present in the loaded UniverseMarketData -- catching a UMD that is a
 different universe than the one the panel was built against, before a
 residual fit fails partway through with a confusing KeyError.
 """
+
 import sys
 import unittest
 from pathlib import Path

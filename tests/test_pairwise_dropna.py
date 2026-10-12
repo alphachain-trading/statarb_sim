@@ -23,6 +23,7 @@ call _build_pair_candidate_rows_for_date directly, mocking
 apply_causal_residual_model so the residual window can carry a synthetic
 gap without needing a real fit.
 """
+
 import sys
 import unittest
 from pathlib import Path
@@ -62,11 +63,13 @@ def _fake_residuals(n: int, gap_row: int | None) -> pd.DataFrame:
     # calls regardless of gap_row, so any difference in AAA|BBB's fitted
     # output can only come from CCC's gap leaking into a shared row set.
     rng = np.random.default_rng(0)
-    df = pd.DataFrame({
-        "AAA": rng.normal(scale=0.01, size=n),
-        "BBB": rng.normal(scale=0.01, size=n),
-        "CCC": rng.normal(scale=0.01, size=n),
-    })
+    df = pd.DataFrame(
+        {
+            "AAA": rng.normal(scale=0.01, size=n),
+            "BBB": rng.normal(scale=0.01, size=n),
+            "CCC": rng.normal(scale=0.01, size=n),
+        }
+    )
     if gap_row is not None:
         df.loc[gap_row, "CCC"] = np.nan
     return df
@@ -84,7 +87,9 @@ class TestPairwiseDropna(unittest.TestCase):
 
         fitted_model = SimpleNamespace(subtract_risk_free=False)
         residual_cfg = CausalResidualConfig(
-            mode=ResidualMode.EQ_ROLLING, subtract_risk_free=False, lb=n,
+            mode=ResidualMode.EQ_ROLLING,
+            subtract_risk_free=False,
+            lb=n,
         )
         pair_cfg = pcpc.PairSpreadConfig(
             hedge_ratio_methods=["ols"],

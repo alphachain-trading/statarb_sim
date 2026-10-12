@@ -5,6 +5,7 @@ Each guard converts a currently-silent wrong result into a loud failure on a
 configuration not exercised by any config in DEFAULT_CONFIGS or any howto
 notebook today (see docs/refactor/A_spec.md section 11).
 """
+
 import sys
 import unittest
 from pathlib import Path
@@ -60,16 +61,18 @@ def _minimal_sim_kwargs():
 
 class TestGuard1AdfPvalueMaxAllNaN(unittest.TestCase):
     def test_raises_naming_setting_and_reason(self):
-        panel = pd.DataFrame({
-            "candidate_subtype": ["knee", "knee"],
-            "is_valid": [True, True],
-            "success": [True, True],
-            "adf_pvalue": [np.nan, np.nan],
-            "mr_score": [1.0, 2.0],
-            "half_life": [10.0, 20.0],
-            "candidate_type": ["pair", "pair"],
-            "spread_id": ["A|B", "C|D"],
-        })
+        panel = pd.DataFrame(
+            {
+                "candidate_subtype": ["knee", "knee"],
+                "is_valid": [True, True],
+                "success": [True, True],
+                "adf_pvalue": [np.nan, np.nan],
+                "mr_score": [1.0, 2.0],
+                "half_life": [10.0, 20.0],
+                "candidate_type": ["pair", "pair"],
+                "spread_id": ["A|B", "C|D"],
+            }
+        )
         cfg = CandidateSelectionConfig(adf_pvalue_max=0.05, require_success=True)
 
         with self.assertRaises(ValueError) as cm:
@@ -81,17 +84,19 @@ class TestGuard1AdfPvalueMaxAllNaN(unittest.TestCase):
         self.assertIn("NaN", msg)
 
     def test_does_not_raise_when_adf_pvalue_populated(self):
-        panel = pd.DataFrame({
-            "candidate_subtype": ["knee", "knee"],
-            "is_valid": [True, True],
-            "success": [True, True],
-            "adf_pvalue": [0.01, 0.5],
-            "mr_score": [1.0, 2.0],
-            "half_life": [10.0, 20.0],
-            "candidate_type": ["pair", "pair"],
-            "spread_id": ["A|B", "C|D"],
-            "asof_date": pd.to_datetime(["2020-01-01", "2020-01-01"]),
-        })
+        panel = pd.DataFrame(
+            {
+                "candidate_subtype": ["knee", "knee"],
+                "is_valid": [True, True],
+                "success": [True, True],
+                "adf_pvalue": [0.01, 0.5],
+                "mr_score": [1.0, 2.0],
+                "half_life": [10.0, 20.0],
+                "candidate_type": ["pair", "pair"],
+                "spread_id": ["A|B", "C|D"],
+                "asof_date": pd.to_datetime(["2020-01-01", "2020-01-01"]),
+            }
+        )
         cfg = CandidateSelectionConfig(adf_pvalue_max=0.05, require_success=True)
 
         result = select_candidates(panel, cfg)
@@ -101,7 +106,9 @@ class TestGuard1AdfPvalueMaxAllNaN(unittest.TestCase):
 class TestGuard2EqRolling(unittest.TestCase):
     def test_eq_rolling_residual_raises(self):
         residual = CausalResidualConfig(
-            mode=ResidualMode.EQ_ROLLING, subtract_risk_free=False, lb=21,
+            mode=ResidualMode.EQ_ROLLING,
+            subtract_risk_free=False,
+            lb=21,
         )
         with self.assertRaises(ValueError) as cm:
             SimulatorConfig(
@@ -115,7 +122,9 @@ class TestGuard2EqRolling(unittest.TestCase):
 
     def test_eq_expanding_residual_does_not_raise(self):
         residual = CausalResidualConfig(
-            mode=ResidualMode.EQ_EXPANDING, subtract_risk_free=False, min_lb_eq_exp=21,
+            mode=ResidualMode.EQ_EXPANDING,
+            subtract_risk_free=False,
+            min_lb_eq_exp=21,
         )
         cfg = SimulatorConfig(
             z_score=ZScoreConfig(lookback=21, ddof=1, method="rolling"),
@@ -133,7 +142,10 @@ class TestGuard3MultiSleeveOccupancy(unittest.TestCase):
                     ZScoreConfig(residual_key="rk", lookback=21, ddof=1, method="rolling"),
                     ZScoreConfig(residual_key="rk", lookback=42, ddof=1, method="rolling"),
                 ],
-                **{**_minimal_sim_kwargs(), "diagnostics": MRDiagnosticsConfig(lookback=42, compute_frequency="off")},
+                **{
+                    **_minimal_sim_kwargs(),
+                    "diagnostics": MRDiagnosticsConfig(lookback=42, compute_frequency="off"),
+                },
             )
         msg = str(cm.exception)
         self.assertIn("residual_key='rk'", msg)
@@ -145,16 +157,21 @@ class TestGuard3MultiSleeveOccupancy(unittest.TestCase):
                 ZScoreConfig(residual_key="rk1", lookback=21, ddof=1, method="rolling"),
                 ZScoreConfig(residual_key="rk2", lookback=21, ddof=1, method="rolling"),
             ],
-            **{**_minimal_sim_kwargs(), "diagnostics": MRDiagnosticsConfig(lookback=21, compute_frequency="off")},
+            **{
+                **_minimal_sim_kwargs(),
+                "diagnostics": MRDiagnosticsConfig(lookback=21, compute_frequency="off"),
+            },
         )
         self.assertTrue(cfg.is_multi_timescale())
 
     def test_multiple_weight_models_under_one_spread_id_raises(self):
-        fake_panel = pd.DataFrame({
-            "spread_id": ["A|B", "A|B"],
-            "weight_model": ["ols", "pca"],
-            "group_id": ["g", "g"],
-        })
+        fake_panel = pd.DataFrame(
+            {
+                "spread_id": ["A|B", "A|B"],
+                "weight_model": ["ols", "pca"],
+                "group_id": ["g", "g"],
+            }
+        )
         data_cfg = DataConfig(
             groups=[GroupDataSource(universe_config_name="u", candidate_panel_stem="stem")],
         )
@@ -169,11 +186,13 @@ class TestGuard3MultiSleeveOccupancy(unittest.TestCase):
         self.assertIn("separate runs", msg)
 
     def test_single_weight_model_does_not_raise(self):
-        fake_panel = pd.DataFrame({
-            "spread_id": ["A|B", "C|D"],
-            "weight_model": ["ols", "ols"],
-            "group_id": ["g", "g"],
-        })
+        fake_panel = pd.DataFrame(
+            {
+                "spread_id": ["A|B", "C|D"],
+                "weight_model": ["ols", "ols"],
+                "group_id": ["g", "g"],
+            }
+        )
         data_cfg = DataConfig(
             groups=[GroupDataSource(universe_config_name="u", candidate_panel_stem="stem")],
         )
@@ -181,7 +200,9 @@ class TestGuard3MultiSleeveOccupancy(unittest.TestCase):
             "src.simulator.simulator_factory.load_candidate_panel_result",
             return_value=CandidatePanelResult(panel=fake_panel, metadata={}),
         ):
-            merged, metadata_by_key = _load_panels(data_cfg, [ZScoreConfig(lookback=21, ddof=1, method="rolling")])
+            merged, metadata_by_key = _load_panels(
+                data_cfg, [ZScoreConfig(lookback=21, ddof=1, method="rolling")]
+            )
         self.assertEqual(len(merged), 2)
 
 

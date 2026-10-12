@@ -10,6 +10,7 @@ mutated. C5's reconstruction fidelity test does not replace this -- it will
 check the reconstruction matches the live path, not that the live path
 itself is lookahead-free.
 """
+
 import sys
 import unittest
 from pathlib import Path
@@ -33,8 +34,8 @@ from src.simulator.types import CandidateRef
 GROUP_ID = "g"
 RESIDUAL_KEY = ""
 N = 60
-ASOF_IDX = 20   # the candidate's own refit date
-T_IDX = 40      # "today" -- strictly after asof, strictly before the end of history
+ASOF_IDX = 20  # the candidate's own refit date
+T_IDX = 40  # "today" -- strictly after asof, strictly before the end of history
 
 
 def _make_bundle(seed: int = 3) -> GroupReturnBundle:
@@ -59,7 +60,9 @@ def _make_bundle(seed: int = 3) -> GroupReturnBundle:
 
 
 def _residual_cfg() -> CausalResidualConfig:
-    return CausalResidualConfig(mode=ResidualMode.EQ_EXPANDING, subtract_risk_free=False, min_lb_eq_exp=5)
+    return CausalResidualConfig(
+        mode=ResidualMode.EQ_EXPANDING, subtract_risk_free=False, min_lb_eq_exp=5
+    )
 
 
 def _mutate_after(bundle: GroupReturnBundle, cutoff: pd.Timestamp) -> GroupReturnBundle:
@@ -76,9 +79,13 @@ def _mutate_after(bundle: GroupReturnBundle, cutoff: pd.Timestamp) -> GroupRetur
     )
 
 
-def _build_generator(bundle: GroupReturnBundle, asof_date: pd.Timestamp, model) -> CandidateSignalGenerator:
+def _build_generator(
+    bundle: GroupReturnBundle, asof_date: pd.Timestamp, model
+) -> CandidateSignalGenerator:
     gen = CandidateSignalGenerator(
-        z_score_configs={RESIDUAL_KEY: ZScoreConfig(lookback=5, ddof=1, method="rolling", min_periods=3)},
+        z_score_configs={
+            RESIDUAL_KEY: ZScoreConfig(lookback=5, ddof=1, method="rolling", min_periods=3)
+        },
         diagnostics_config=MRDiagnosticsConfig(lookback=30, compute_frequency="daily"),
         residual_configs={RESIDUAL_KEY: _residual_cfg()},
         umd=None,  # never touched -- the bundle is pre-populated in the cache below
@@ -99,10 +106,12 @@ class TestAsofLevelNoLookahead(unittest.TestCase):
             member_returns=self.bundle.member_returns,
             proxy_returns=self.bundle.proxy_returns,
             benchmark_returns=self.bundle.benchmark_returns,
-            aligned_returns=self.bundle.aligned_returns.loc[:self.asof_date],
+            aligned_returns=self.bundle.aligned_returns.loc[: self.asof_date],
             risk_free_returns=self.bundle.risk_free_returns,
         )
-        self.model = fit_causal_residual_model(bundle=fit_bundle, date=self.asof_date, cfg=_residual_cfg())
+        self.model = fit_causal_residual_model(
+            bundle=fit_bundle, date=self.asof_date, cfg=_residual_cfg()
+        )
         self.ref = CandidateRef(
             candidate_id="c1",
             spread_id="AAA|BBB",
@@ -134,7 +143,9 @@ class TestAsofLevelNoLookahead(unittest.TestCase):
         self.assertEqual(before.adf_pvalue, after.adf_pvalue)
 
     def test_get_level_series_unchanged_by_future_mutation(self):
-        before = _build_generator(self.bundle, self.asof_date, self.model).get_level_series(self.ref, self.t)
+        before = _build_generator(self.bundle, self.asof_date, self.model).get_level_series(
+            self.ref, self.t
+        )
         after = _build_generator(
             _mutate_after(self.bundle, self.t), self.asof_date, self.model
         ).get_level_series(self.ref, self.t)

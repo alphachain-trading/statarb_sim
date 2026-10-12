@@ -38,6 +38,7 @@ mr_diag_lb may be a scalar (broadcast across every residual config) or a
 list of matching length (one value per residual config), but never a list
 when residual_configs has length 1.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -144,7 +145,7 @@ class PanelBatchConfig:
     # Paths
     universe_name: str = "sp500_v1"  # config/universes/{universe_name}/{group_id}.yaml
     universe_dir: str | Path = ""  # "" → CONFIG_UNIVERSE / universe_name; full override otherwise
-    data_path: str | Path = ""     # "" → DATA_UNIVERSES from settings
+    data_path: str | Path = ""  # "" → DATA_UNIVERSES from settings
 
     # Data loading
     force_download: bool = False
@@ -184,9 +185,7 @@ class PanelBatchConfig:
             val = getattr(self, name)
             if isinstance(val, list):
                 if n == 1:
-                    raise ValueError(
-                        f"{name} must be a scalar when residual_configs has length 1."
-                    )
+                    raise ValueError(f"{name} must be a scalar when residual_configs has length 1.")
                 if len(val) != n:
                     raise ValueError(
                         f"{name} list length {len(val)} != len(residual_configs) ({n})."
@@ -195,7 +194,11 @@ class PanelBatchConfig:
     # ── path helpers ─────────────────────────────────────────────────────
 
     def resolved_universe_dir(self) -> Path:
-        return Path(self.universe_dir) if self.universe_dir else Path(CONFIG_UNIVERSE) / self.universe_name
+        return (
+            Path(self.universe_dir)
+            if self.universe_dir
+            else Path(CONFIG_UNIVERSE) / self.universe_name
+        )
 
     def resolved_data_path(self) -> Path:
         return Path(self.data_path) if self.data_path else Path(DATA_UNIVERSES)

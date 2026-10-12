@@ -18,6 +18,7 @@ from src.settings import SIMULATION_RUNS_ROOT
 # Run ID
 # ---------------------------------------------------------------------------
 
+
 def make_run_id(config: SimulatorConfig) -> str:
     """
     Generate a chronologically sortable run ID.
@@ -47,6 +48,7 @@ def hash_config(config: SimulatorConfig) -> str:
 # ---------------------------------------------------------------------------
 # Save
 # ---------------------------------------------------------------------------
+
 
 def save_simulation_run(
     result: Any,
@@ -201,6 +203,7 @@ def load_closed_trades_df(run_dir: Path) -> pd.DataFrame:
 # Load
 # ---------------------------------------------------------------------------
 
+
 def load_simulation_run(
     run_dir: str | Path,
 ) -> dict[str, Any]:
@@ -232,7 +235,9 @@ def load_simulation_run(
     out["performance_metrics"] = _load_json(perf_path) if perf_path.exists() else None
 
     group_perf_path = run_dir / "performance_group_metrics.json"
-    out["performance_group_metrics"] = _load_json(group_perf_path) if group_perf_path.exists() else None
+    out["performance_group_metrics"] = (
+        _load_json(group_perf_path) if group_perf_path.exists() else None
+    )
 
     # Monolithic artifacts
     for name in ["selected_panel", "daily_portfolio_state"]:
@@ -288,6 +293,7 @@ def list_simulation_runs(
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
+
 
 def _resolve_run_dir(cfg: PersistenceConfig, run_id: str) -> Path:
     if cfg.output_dir:
@@ -353,8 +359,12 @@ def _build_meta(
     if performance_result is not None and hasattr(performance_result, "metrics"):
         m = performance_result.metrics
         for key in [
-            "sortino_net", "sharpe_net", "max_drawdown_net",
-            "total_return_net", "win_rate_net", "n_trades",
+            "sortino_net",
+            "sharpe_net",
+            "max_drawdown_net",
+            "total_return_net",
+            "win_rate_net",
+            "n_trades",
             # n_trading_days used to come from len(daily_portfolio_state_log)
             # (F1 commit 8c deleted it); compute_performance already derives
             # the same figure from the reconstructed equity curve.

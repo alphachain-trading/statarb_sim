@@ -50,6 +50,7 @@ CONFIG_PATH = CONFIG_ROOT / "demo_materials.yaml"
 # Config loading
 # ---------------------------------------------------------------------------
 
+
 def load_config() -> dict:
     if not CONFIG_PATH.exists():
         sys.exit(f"[config] Missing config file: {CONFIG_PATH}")
@@ -60,6 +61,7 @@ def load_config() -> dict:
 # ---------------------------------------------------------------------------
 # Stage logging helpers
 # ---------------------------------------------------------------------------
+
 
 def _start(stage: str) -> None:
     print(f"\n=== [{stage}] START ===")
@@ -76,6 +78,7 @@ def _done(stage: str) -> None:
 # ---------------------------------------------------------------------------
 # Path resolution (everything derived from settings.py + demo_materials.yaml)
 # ---------------------------------------------------------------------------
+
 
 def _panel_dir(cfg: dict) -> Path:
     return CANDIDATE_PANELS_ROOT / cfg["panels"]["subdir"]
@@ -109,6 +112,7 @@ def _universe_yaml_path(cfg: dict, group_id: str) -> Path:
 # Stage: download
 # ---------------------------------------------------------------------------
 
+
 def stage_download(cfg: dict, force: bool) -> None:
     from src.data.universe_config import UniverseConfig
     from src.data.universe_loader import UniverseDataLoader
@@ -134,8 +138,10 @@ def stage_download(cfg: dict, force: bool) -> None:
             _start(stage)
             started = True
 
-        print(f"[download] group '{group_id}': loading universe {config.universe_name} "
-              f"(force_download={force})")
+        print(
+            f"[download] group '{group_id}': loading universe {config.universe_name} "
+            f"(force_download={force})"
+        )
         loader = UniverseDataLoader(config, data_path=DATA_UNIVERSES, progress=True)
         loader.load(force_download=force)
 
@@ -156,6 +162,7 @@ def stage_download(cfg: dict, force: bool) -> None:
 # ---------------------------------------------------------------------------
 # Stage: residuals
 # ---------------------------------------------------------------------------
+
 
 def _extract_panel_stem(results: dict, panel_dir: Path) -> str:
     """
@@ -208,9 +215,7 @@ def _update_panel_stem(cfg: dict, stem: str) -> None:
         text,
     )
     if n != 1:
-        sys.exit(
-            f"[residuals] expected exactly one 'stem:' line in {CONFIG_PATH}, found {n}"
-        )
+        sys.exit(f"[residuals] expected exactly one 'stem:' line in {CONFIG_PATH}, found {n}")
     CONFIG_PATH.write_text(new_text)
     print(f"[residuals] {CONFIG_PATH.name} panels.stem updated: {old} -> {stem}")
 
@@ -312,6 +317,7 @@ def stage_residuals(cfg: dict, force: bool) -> None:
 # Stage: simulate
 # ---------------------------------------------------------------------------
 
+
 def _bootstrap_panel_from_fixtures(cfg: dict) -> None:
     """
     Stand-in for the not-yet-implemented residuals stage: ensure the candidate
@@ -405,7 +411,8 @@ def _build_sim_config(cfg: dict):
             base_pair_notional=szg["base_pair_notional"],
             vol_normalize=(
                 VolSizingConfig(floor_multiplier=0.2, cap_multiplier=5.0)
-                if szg.get("vol_normalize", True) else None
+                if szg.get("vol_normalize", True)
+                else None
             ),
         ),
         risk_manager=RiskManagerConfig(

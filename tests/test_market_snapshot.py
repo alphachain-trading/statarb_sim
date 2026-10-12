@@ -9,6 +9,7 @@ synthetic fixtures written under a temp dir — never the real
 config/universes/sp500_v1 — so tests can freely add/remove/edit groups and
 tickers without touching committed config.
 """
+
 import shutil
 import sys
 import tempfile
@@ -67,7 +68,9 @@ _MOCK_DOWNLOAD = patch.object(
 )
 
 
-def _write_universe(universe_root: Path, universe_version: str, groups: dict[str, list[str]]) -> Path:
+def _write_universe(
+    universe_root: Path, universe_version: str, groups: dict[str, list[str]]
+) -> Path:
     """Write a synthetic universe directory: {universe_root}/{universe_version}/{group_id}.yaml."""
     universe_path = universe_root / universe_version
     universe_path.mkdir(parents=True, exist_ok=True)
@@ -133,13 +136,17 @@ class TestEnsureMarketSnapshot(MarketSnapshotTestBase):
         _write_universe(self.universe_root, universe_version, {"g1": ["AAA", "BBB"]})
         with _MOCK_DOWNLOAD as mock_dl:
             ids1 = ensure_market_snapshot(
-                universe_version, universe_dir=self.universe_root,
-                snapshot_root=self.snapshot_root, progress=False,
+                universe_version,
+                universe_dir=self.universe_root,
+                snapshot_root=self.snapshot_root,
+                progress=False,
             )
             calls_after_first = mock_dl.call_count
             ids2 = ensure_market_snapshot(
-                universe_version, universe_dir=self.universe_root,
-                snapshot_root=self.snapshot_root, progress=False,
+                universe_version,
+                universe_dir=self.universe_root,
+                snapshot_root=self.snapshot_root,
+                progress=False,
             )
         self.assertEqual(ids1, ids2)
         self.assertEqual(len(ids2), 1)
@@ -150,13 +157,18 @@ class TestEnsureMarketSnapshot(MarketSnapshotTestBase):
         _write_universe(self.universe_root, universe_version, {"g1": ["AAA", "BBB"]})
         with _MOCK_DOWNLOAD as mock_dl:
             ensure_market_snapshot(
-                universe_version, universe_dir=self.universe_root,
-                snapshot_root=self.snapshot_root, progress=False,
+                universe_version,
+                universe_dir=self.universe_root,
+                snapshot_root=self.snapshot_root,
+                progress=False,
             )
             calls_after_first = mock_dl.call_count
             ids = ensure_market_snapshot(
-                universe_version, universe_dir=self.universe_root,
-                snapshot_root=self.snapshot_root, force=True, progress=False,
+                universe_version,
+                universe_dir=self.universe_root,
+                snapshot_root=self.snapshot_root,
+                force=True,
+                progress=False,
             )
         self.assertEqual(len(ids), 2)
         self.assertGreater(mock_dl.call_count, calls_after_first)
@@ -164,16 +176,20 @@ class TestEnsureMarketSnapshot(MarketSnapshotTestBase):
     def test_unknown_universe_version_raises_file_not_found(self):
         with self.assertRaises(FileNotFoundError):
             ensure_market_snapshot(
-                "no_such_universe", universe_dir=self.universe_root,
-                snapshot_root=self.snapshot_root, progress=False,
+                "no_such_universe",
+                universe_dir=self.universe_root,
+                snapshot_root=self.snapshot_root,
+                progress=False,
             )
 
     def test_universe_directory_with_no_yaml_files_raises(self):
         (self.universe_root / "empty_v1").mkdir(parents=True)
         with self.assertRaises(ValueError):
             ensure_market_snapshot(
-                "empty_v1", universe_dir=self.universe_root,
-                snapshot_root=self.snapshot_root, progress=False,
+                "empty_v1",
+                universe_dir=self.universe_root,
+                snapshot_root=self.snapshot_root,
+                progress=False,
             )
 
 
@@ -188,8 +204,11 @@ class TestUniverseImmutability(MarketSnapshotTestBase):
         with _MOCK_DOWNLOAD:
             with self.assertRaises(UniverseChangedError) as cm:
                 ensure_market_snapshot(
-                    universe_version, universe_dir=self.universe_root,
-                    snapshot_root=self.snapshot_root, force=True, progress=False,
+                    universe_version,
+                    universe_dir=self.universe_root,
+                    snapshot_root=self.snapshot_root,
+                    force=True,
+                    progress=False,
                 )
         self.assertIn("g1", str(cm.exception))
 
@@ -197,23 +216,35 @@ class TestUniverseImmutability(MarketSnapshotTestBase):
         universe_version = "test_v1"
         self._mint(universe_version=universe_version, groups={"g1": ["AAA", "BBB"]})
 
-        _write_universe(self.universe_root, universe_version, {
-            "g1": ["AAA", "BBB"], "g2": ["ZZZ"],
-        })
+        _write_universe(
+            self.universe_root,
+            universe_version,
+            {
+                "g1": ["AAA", "BBB"],
+                "g2": ["ZZZ"],
+            },
+        )
 
         with _MOCK_DOWNLOAD:
             with self.assertRaises(UniverseChangedError) as cm:
                 ensure_market_snapshot(
-                    universe_version, universe_dir=self.universe_root,
-                    snapshot_root=self.snapshot_root, force=True, progress=False,
+                    universe_version,
+                    universe_dir=self.universe_root,
+                    snapshot_root=self.snapshot_root,
+                    force=True,
+                    progress=False,
                 )
         self.assertIn("added", str(cm.exception))
 
     def test_removed_group_raises_at_mint_against_existing_snapshot(self):
         universe_version = "test_v1"
-        self._mint(universe_version=universe_version, groups={
-            "g1": ["AAA", "BBB"], "g2": ["ZZZ"],
-        })
+        self._mint(
+            universe_version=universe_version,
+            groups={
+                "g1": ["AAA", "BBB"],
+                "g2": ["ZZZ"],
+            },
+        )
 
         shutil.rmtree(self.universe_root / universe_version)
         _write_universe(self.universe_root, universe_version, {"g1": ["AAA", "BBB"]})
@@ -221,8 +252,11 @@ class TestUniverseImmutability(MarketSnapshotTestBase):
         with _MOCK_DOWNLOAD:
             with self.assertRaises(UniverseChangedError) as cm:
                 ensure_market_snapshot(
-                    universe_version, universe_dir=self.universe_root,
-                    snapshot_root=self.snapshot_root, force=True, progress=False,
+                    universe_version,
+                    universe_dir=self.universe_root,
+                    snapshot_root=self.snapshot_root,
+                    force=True,
+                    progress=False,
                 )
         self.assertIn("removed", str(cm.exception))
 
@@ -234,8 +268,11 @@ class TestUniverseImmutability(MarketSnapshotTestBase):
         # history" case the model explicitly allows).
         with _MOCK_DOWNLOAD:
             ids = ensure_market_snapshot(
-                universe_version, universe_dir=self.universe_root,
-                snapshot_root=self.snapshot_root, force=True, progress=False,
+                universe_version,
+                universe_dir=self.universe_root,
+                snapshot_root=self.snapshot_root,
+                force=True,
+                progress=False,
             )
         self.assertEqual(len(ids), 2)
 
@@ -243,17 +280,23 @@ class TestUniverseImmutability(MarketSnapshotTestBase):
 class TestIncompleteDownload(MarketSnapshotTestBase):
     def test_missing_ticker_aborts_mint_and_lists_all(self):
         universe_version = "test_v1"
-        _write_universe(self.universe_root, universe_version, {
-            "g1": ["AAA", "BBB"],
-            "g2": ["CCC", "DDD"],
-        })
+        _write_universe(
+            self.universe_root,
+            universe_version,
+            {
+                "g1": ["AAA", "BBB"],
+                "g2": ["CCC", "DDD"],
+            },
+        )
         _MISSING_SYMBOLS.update({"BBB", "DDD"})
 
         with _MOCK_DOWNLOAD:
             with self.assertRaises(IncompleteUniverseDownloadError) as cm:
                 ensure_market_snapshot(
-                    universe_version, universe_dir=self.universe_root,
-                    snapshot_root=self.snapshot_root, progress=False,
+                    universe_version,
+                    universe_dir=self.universe_root,
+                    snapshot_root=self.snapshot_root,
+                    progress=False,
                 )
         msg = str(cm.exception)
         # Every missing ticker across every group must be listed — not just

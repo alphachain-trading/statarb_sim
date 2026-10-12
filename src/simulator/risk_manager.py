@@ -59,7 +59,11 @@ class RiskManager:
         n_positions = len(live_positions)
 
         # Rank by signal strength
-        ranked = sorted(sized_opens, key=lambda x: abs(x[0].z_score) if x[0].z_score is not None else 0.0, reverse=True)
+        ranked = sorted(
+            sized_opens,
+            key=lambda x: abs(x[0].z_score) if x[0].z_score is not None else 0.0,
+            reverse=True,
+        )
 
         approved: list[tuple[OpenCandidateAction, float, dict, float]] = []
 
@@ -70,7 +74,10 @@ class RiskManager:
                     break
 
             # Gross exposure check
-            if current_gross_notional + pair_notional > self.config.max_gross_exposure * self.total_capital:
+            if (
+                current_gross_notional + pair_notional
+                > self.config.max_gross_exposure * self.total_capital
+            ):
                 continue
 
             # Ticker exposure check

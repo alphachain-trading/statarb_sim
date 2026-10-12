@@ -6,6 +6,7 @@ construction site, simulator_factory.py). Dormant on B's baseline (which
 never constructs a PortfolioMeanReversionConfig/-Trader), so there is no
 B_baseline.txt signal for this one — this test is the verification instead.
 """
+
 import sys
 import unittest
 from pathlib import Path

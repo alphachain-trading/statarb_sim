@@ -10,11 +10,11 @@ from src.data.universe_marketdata import UniverseMarketData
 @dataclass
 class GroupReturnBundle:
     group_id: str
-    member_returns: pd.DataFrame      # cols = stock tickers
-    proxy_returns: pd.Series          # name = proxy ticker
-    benchmark_returns: pd.Series      # name = benchmark ticker
-    aligned_returns: pd.DataFrame     # cols = [members..., proxy, benchmark]
-    risk_free_returns: pd.Series      # name = RF ticker; raw annualized yield in % (e.g. 5.2 = 5.2%)
+    member_returns: pd.DataFrame  # cols = stock tickers
+    proxy_returns: pd.Series  # name = proxy ticker
+    benchmark_returns: pd.Series  # name = benchmark ticker
+    aligned_returns: pd.DataFrame  # cols = [members..., proxy, benchmark]
+    risk_free_returns: pd.Series  # name = RF ticker; raw annualized yield in % (e.g. 5.2 = 5.2%)
 
     @property
     def members(self) -> list[str]:
@@ -67,7 +67,7 @@ def build_group_return_bundle(
     group_id: str,
     field: str = "Close",
     return_method: str = "log",
-    dropna: str = "any",   # "any", "all", "none"
+    dropna: str = "any",  # "any", "all", "none"
 ) -> GroupReturnBundle:
     """
     Build aligned member/proxy/benchmark return series for one group.

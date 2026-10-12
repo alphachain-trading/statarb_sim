@@ -3,7 +3,11 @@ from __future__ import annotations
 from typing import Protocol
 
 from src.simulator.actions import CandidateAction
-from src.simulator.types import CandidateAnalyticsState, CandidateMarketSnapshot, LiveCandidatePosition
+from src.simulator.types import (
+    CandidateAnalyticsState,
+    CandidateMarketSnapshot,
+    LiveCandidatePosition,
+)
 
 
 class Trader(Protocol):
@@ -22,4 +26,3 @@ class Trader(Protocol):
         live_diagnostics_by_candidate_id: dict[str, CandidateAnalyticsState] | None = None,
         target_group_capital_by_group: dict[str, float] | None = None,
     ) -> list[CandidateAction]: ...
-    

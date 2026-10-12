@@ -16,6 +16,7 @@ own regression coefficients are fitted cleanly on dense data) and only
 apply_causal_residual_model's row-wise subtraction sees the NaN, confined
 to the gapped ticker's column on that one date.
 """
+
 import sys
 import unittest
 from pathlib import Path
@@ -31,9 +32,9 @@ from src.data.returns import GroupReturnBundle
 from src.residuals.causal_residuals import CausalResidualConfig, ResidualMode
 
 N = 50
-FIT_LB = 15          # fit window: last 15 rows -> absolute indices 35..49
-CANDIDATE_LB = 40    # candidate window: last 40 rows -> absolute indices 10..49
-GAP_ABS_INDEX = 15   # inside the candidate window, outside the fit window
+FIT_LB = 15  # fit window: last 15 rows -> absolute indices 35..49
+CANDIDATE_LB = 40  # candidate window: last 40 rows -> absolute indices 10..49
+GAP_ABS_INDEX = 15  # inside the candidate window, outside the fit window
 
 
 def _make_bundle(seed: int = 7) -> GroupReturnBundle:
@@ -112,7 +113,9 @@ class TestGapInjectionRealPipeline(unittest.TestCase):
         candidate_start = idx[N - CANDIDATE_LB]
         gap_date = idx[GAP_ABS_INDEX]
         self.assertLess(gap_date, fit_start, "gap must be outside the fit window")
-        self.assertGreaterEqual(gap_date, candidate_start, "gap must be inside the candidate window")
+        self.assertGreaterEqual(
+            gap_date, candidate_start, "gap must be inside the candidate window"
+        )
 
     def test_clean_pairs_beta_is_bit_identical_with_and_without_the_gap(self):
         clean_rows, clean_weights = _build_rows(_make_bundle())

@@ -43,6 +43,7 @@ non-empty, unless --allow-existing-artifacts is passed. Guard only — it never
 deletes anything; clear PANEL_DIR by hand (or pass the flag once you've
 confirmed the leftovers are harmless for what you're about to measure).
 """
+
 from __future__ import annotations
 
 import argparse
@@ -98,10 +99,18 @@ OUT_PATH = PROJECT_ROOT / "docs" / "refactor" / "B_baseline.txt"
 PANEL_DIR = Path(CANDIDATE_PANELS_ROOT) / PANEL_SUBDIR
 
 TRADE_COLS = [
-    "trade_id", "group_id", "spread_id",
-    "entry_date", "exit_date", "days_open", "direction",
-    "pair_notional", "entry_z_score", "exit_z_score",
-    "realized_pnl_gross", "realized_pnl_net",
+    "trade_id",
+    "group_id",
+    "spread_id",
+    "entry_date",
+    "exit_date",
+    "days_open",
+    "direction",
+    "pair_notional",
+    "entry_z_score",
+    "exit_z_score",
+    "realized_pnl_gross",
+    "realized_pnl_net",
 ]
 
 
@@ -133,8 +142,8 @@ def _check_artifacts_dir(*, allow_existing: bool) -> None:
             f"[harness] {PANEL_DIR} is non-empty ({len(files)} files) — refusing to "
             "run a before/after comparison against a directory that may contain "
             "stale panel/weights/residual-params files from a previous run "
-            "(found.md: \"A leftover artifacts directory silently serves stale "
-            "values into a before/after diff\"). Inspect and clear it by hand, or "
+            '(found.md: "A leftover artifacts directory silently serves stale '
+            'values into a before/after diff"). Inspect and clear it by hand, or '
             "pass --allow-existing-artifacts once you've confirmed the leftovers "
             "are harmless for what you're about to measure."
         )
@@ -172,7 +181,9 @@ def _build_sim_config(selected_groups: list[str]) -> SimulatorConfig:
             # reads universe_config_name, and generate_candidate_panels_by_group
             # (F2 C6b) reads selected_groups directly, not resolved_groups().
             groups=[
-                GroupDataSource(universe_config_name=f"{UNIVERSE_NAME}/{gid}.yaml", candidate_panel_stem="")
+                GroupDataSource(
+                    universe_config_name=f"{UNIVERSE_NAME}/{gid}.yaml", candidate_panel_stem=""
+                )
                 for gid in selected_groups
             ],
             selected_groups=selected_groups,
@@ -188,7 +199,9 @@ def _build_sim_config(selected_groups: list[str]) -> SimulatorConfig:
             start_date=PANEL_START_DATE,
             max_steps=MAX_STEPS,
         ),
-        "z_score": ZScoreConfig(lookback=21, ddof=1, method="ewm", residual_key=_residual_cfg().key),
+        "z_score": ZScoreConfig(
+            lookback=21, ddof=1, method="ewm", residual_key=_residual_cfg().key
+        ),
         "trader": PairSpreadTraderConfig(entry_z=1.75, exit_z=0.0),
         "sizing": SizingConfig(
             base_pair_notional=100_000.0,
@@ -206,7 +219,10 @@ def _build_sim_config(selected_groups: list[str]) -> SimulatorConfig:
     # committed-file-only run: no quantstats HTML report, no run-dir persistence.
     bundle = dict(get_default_bundle("standard_v1"))
     bundle["performance"] = PerformanceConfig(
-        enabled=True, metrics_table=True, report_html=False, per_group_breakdown=False,
+        enabled=True,
+        metrics_table=True,
+        report_html=False,
+        per_group_breakdown=False,
     )
     bundle["persistence"] = PersistenceConfig(enabled=False)
 
@@ -233,10 +249,9 @@ def main() -> None:
     panel_results = generate_candidate_panels_by_group(prelim_sim_config)
     panel_build_time = time.perf_counter() - t0
 
-    active_groups = sorted({
-        group_id for (group_id, _residual_key), v in panel_results.items()
-        if len(v["panel"]) > 0
-    })
+    active_groups = sorted(
+        {group_id for (group_id, _residual_key), v in panel_results.items() if len(v["panel"]) > 0}
+    )
 
     sim_time: float | None = None
     trades_df = None
@@ -259,12 +274,16 @@ def main() -> None:
 
     lines: list[str] = []
     lines.append("# Track B baseline harness output")
-    lines.append(f"# groups={GROUPS} max_steps={MAX_STEPS} "
-                  f"hedge_ratio_lb={HEDGE_RATIO_LB} mr_diag_lb={MR_DIAG_LB} "
-                  f"min_obs={MIN_OBS} residual={_residual_cfg().key}")
+    lines.append(
+        f"# groups={GROUPS} max_steps={MAX_STEPS} "
+        f"hedge_ratio_lb={HEDGE_RATIO_LB} mr_diag_lb={MR_DIAG_LB} "
+        f"min_obs={MIN_OBS} residual={_residual_cfg().key}"
+    )
     lines.append(f"# active_groups={active_groups}")
     lines.append(f"# panel build time: {panel_build_time:.2f}s")
-    lines.append(f"# simulate time: {'n/a (no active groups)' if sim_time is None else f'{sim_time:.2f}s'}")
+    lines.append(
+        f"# simulate time: {'n/a (no active groups)' if sim_time is None else f'{sim_time:.2f}s'}"
+    )
     lines.append("")
 
     # Counts first: at a few dozen trades the performance numbers are noise

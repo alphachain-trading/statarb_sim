@@ -14,8 +14,8 @@ HedgeRatioMethod: TypeAlias = Literal["unit", "ols", "pca"]
 
 @dataclass
 class SpreadConstructionResult:
-    spread_returns: pd.DataFrame      # index=date, columns=spread_id
-    spread_metadata: pd.DataFrame     # index=spread_id
+    spread_returns: pd.DataFrame  # index=date, columns=spread_id
+    spread_metadata: pd.DataFrame  # index=spread_id
 
 
 def spread_id(tickers: Ticker | list[Ticker]) -> SpreadId:
@@ -107,9 +107,7 @@ def _parse_weights_json(weights_json: str | list[float] | tuple[float, ...]) -> 
     elif isinstance(weights_json, (list, tuple)):
         weights = list(weights_json)
     else:
-        raise TypeError(
-            "weights_json must be a JSON string, list, or tuple of numeric weights."
-        )
+        raise TypeError("weights_json must be a JSON string, list, or tuple of numeric weights.")
 
     if not isinstance(weights, list):
         raise ValueError("Parsed weights must be a list.")
@@ -191,9 +189,7 @@ def add_relative_weights(
 
     for i in range(max_len):
         col = f"{prefix}_{i + 2}"
-        out[col] = rel_series.apply(
-            lambda x: float(x[i]) if i < len(x) else pd.NA
-        )
+        out[col] = rel_series.apply(lambda x: float(x[i]) if i < len(x) else pd.NA)
 
     return out
 
@@ -275,9 +271,7 @@ def build_spread_returns(
                 x=right_series,
             )
         else:
-            raise NotImplementedError(
-                f"Unsupported hedge_ratio_method={hedge_ratio_method!r}"
-            )
+            raise NotImplementedError(f"Unsupported hedge_ratio_method={hedge_ratio_method!r}")
 
         weights_json = _weights_json_from_pair_weights(1.0, -beta)
 
@@ -295,11 +289,7 @@ def build_spread_returns(
 
     spread_returns = pd.DataFrame(data, index=residual_returns.index)
 
-    spread_metadata = (
-        pd.DataFrame(meta_rows)
-        .set_index("spread_id")
-        .sort_index()
-    )
+    spread_metadata = pd.DataFrame(meta_rows).set_index("spread_id").sort_index()
 
     return SpreadConstructionResult(
         spread_returns=spread_returns,

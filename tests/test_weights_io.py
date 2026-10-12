@@ -13,6 +13,7 @@ ticker) key must fail loud, and a round trip through save/load/
 weights_lookup_from_df must reproduce exact float64 values, not
 12-significant-digit-rounded ones.
 """
+
 import json
 import sys
 import tempfile
@@ -27,8 +28,16 @@ sys.path.insert(0, str(REPO_ROOT))
 from src.candidates.candidate_panel import load_weights, save_weights, weights_lookup_from_df
 
 
-def _row(*, group_id="mat", residual_key="exp_hl20_rf", hedge_key="pca",
-         spread_id="AAA|BBB", asof_date="2020-01-03", ticker="AAA", weight=1.0):
+def _row(
+    *,
+    group_id="mat",
+    residual_key="exp_hl20_rf",
+    hedge_key="pca",
+    spread_id="AAA|BBB",
+    asof_date="2020-01-03",
+    ticker="AAA",
+    weight=1.0,
+):
     return {
         "group_id": group_id,
         "residual_key": residual_key,
@@ -53,7 +62,9 @@ class TestWeightsIO(unittest.TestCase):
     def test_duplicate_key_raises(self):
         rows = [
             _row(ticker="AAA", weight=1.0),
-            _row(ticker="AAA", weight=2.0),  # same (group_id, residual_key, hedge_key, spread_id, asof_date, ticker)
+            _row(
+                ticker="AAA", weight=2.0
+            ),  # same (group_id, residual_key, hedge_key, spread_id, asof_date, ticker)
         ]
         with self.assertRaises(ValueError):
             save_weights(rows, self.path)

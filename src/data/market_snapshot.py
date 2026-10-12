@@ -286,7 +286,9 @@ def _download_group(
     return config, umd, missing
 
 
-def _build_group_manifest_entry(config: UniverseConfig, umd: UniverseMarketData, group_dir: Path) -> dict:
+def _build_group_manifest_entry(
+    config: UniverseConfig, umd: UniverseMarketData, group_dir: Path
+) -> dict:
     # The ticker set is the group membership roster (what membership.parquet
     # holds), not umd.tickers() — the latter also includes proxy/benchmark/
     # risk-free tickers, which are not sector membership and would make this
@@ -307,7 +309,9 @@ def _build_group_manifest_entry(config: UniverseConfig, umd: UniverseMarketData,
     }
 
 
-def _format_missing_tickers_error(universe_version: str, missing_by_group: dict[str, list[str]]) -> str:
+def _format_missing_tickers_error(
+    universe_version: str, missing_by_group: dict[str, list[str]]
+) -> str:
     total = sum(len(v) for v in missing_by_group.values())
     lines = [
         f"mint aborted for universe '{universe_version}': {total} ticker(s) missing data "
@@ -362,7 +366,8 @@ def _mint_snapshot(
 
         iterator = (
             tqdm(group_entries, desc=f"snapshot {snapshot_id}", unit="group")
-            if progress else group_entries
+            if progress
+            else group_entries
         )
         for group_id, yaml_path in iterator:
             config, umd, missing = _download_group(group_id, yaml_path, tmp_dir, progress)

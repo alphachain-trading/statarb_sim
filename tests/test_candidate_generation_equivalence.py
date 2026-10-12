@@ -33,6 +33,7 @@ persistence (they are local variables otherwise) — persists to a disposable,
 uniquely-named subdirectory under CANDIDATE_PANELS_ROOT, cleaned up in
 tearDown regardless of outcome, never touching the shared harness directory.
 """
+
 import shutil
 import sys
 import unittest
@@ -47,7 +48,11 @@ SCRIPTS_DIR = REPO_ROOT / "scripts"
 sys.path.insert(0, str(REPO_ROOT))
 sys.path.insert(0, str(SCRIPTS_DIR))
 
-from src.candidates.candidate_panel import load_candidate_panel_result, load_weights, weights_lookup_from_df
+from src.candidates.candidate_panel import (
+    load_candidate_panel_result,
+    load_weights,
+    weights_lookup_from_df,
+)
 from src.candidates.pair_candidate_panel_creator import (
     PairSpreadConfig,
     create_pair_candidate_panel,
@@ -80,7 +85,11 @@ def _bundle_for(harness, group_id: str):
     # run_panel_batch actually loads under.
     umd = loader.load(force_download=False, check_for_corruptions=False, start_after_nan=True)
     return build_group_return_bundle(
-        umd=umd, group_id=group_id, field="Close", return_method="log", dropna="any",
+        umd=umd,
+        group_id=group_id,
+        field="Close",
+        return_method="log",
+        dropna="any",
     )
 
 
@@ -110,7 +119,9 @@ class TestCandidateGenerationEquivalence(unittest.TestCase):
                 bundle = _bundle_for(harness, group_id)
                 bundle_rebuilt = _bundle_for(harness, group_id)
                 pd.testing.assert_frame_equal(
-                    bundle.aligned_returns, bundle_rebuilt.aligned_returns, check_exact=True,
+                    bundle.aligned_returns,
+                    bundle_rebuilt.aligned_returns,
+                    check_exact=True,
                 )
                 stem = f"{group_id}_test"
 
@@ -133,7 +144,9 @@ class TestCandidateGenerationEquivalence(unittest.TestCase):
                 self.assertGreater(len(offline_panel), 0, f"{group_id}: empty offline panel")
 
                 offline_weights = load_weights(str(self._tmp_dir / f"{stem}_weights.parquet"))
-                offline_params = load_residual_params(str(self._tmp_dir / f"{stem}_residual_params.parquet"))
+                offline_params = load_residual_params(
+                    str(self._tmp_dir / f"{stem}_residual_params.parquet")
+                )
 
                 rows, weight_rows, fitted_params = generate_candidates(
                     bundle=bundle,
@@ -160,7 +173,9 @@ class TestCandidateGenerationEquivalence(unittest.TestCase):
                     left = a[col].to_numpy()
                     right = b[col].to_numpy()
                     if np.issubdtype(left.dtype, np.floating):
-                        np.testing.assert_array_equal(left, right, err_msg=f"{group_id}: column {col!r} differs")
+                        np.testing.assert_array_equal(
+                            left, right, err_msg=f"{group_id}: column {col!r} differs"
+                        )
                     else:
                         mismatch = ~((left == right) | (pd.isna(left) & pd.isna(right)))
                         self.assertFalse(mismatch.any(), msg=f"{group_id}: column {col!r} differs")
@@ -172,7 +187,8 @@ class TestCandidateGenerationEquivalence(unittest.TestCase):
                 wb = new_weights.sort_values(w_sort, kind="stable").reset_index(drop=True)
                 self.assertEqual(len(wa), len(wb))
                 np.testing.assert_array_equal(
-                    wa["weight"].to_numpy(dtype=float), wb["weight"].to_numpy(dtype=float),
+                    wa["weight"].to_numpy(dtype=float),
+                    wb["weight"].to_numpy(dtype=float),
                 )
 
                 # ── residual params, at outer dates only ────────────────

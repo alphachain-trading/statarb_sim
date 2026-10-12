@@ -6,7 +6,11 @@ import numpy as np
 
 from src.simulator.actions import CandidateAction, CloseCandidateAction, OpenCandidateAction
 from src.simulator.config import PairSpreadTraderConfig
-from src.simulator.types import CandidateAnalyticsState, CandidateMarketSnapshot, LiveCandidatePosition
+from src.simulator.types import (
+    CandidateAnalyticsState,
+    CandidateMarketSnapshot,
+    LiveCandidatePosition,
+)
 
 
 @dataclass(slots=True)
@@ -40,8 +44,16 @@ class PairSpreadMeanReversionTrader:
         if df.empty:
             return actions
 
-        actions.extend(self._generate_closes(df, live_positions_by_candidate_id, live_diagnostics_by_candidate_id))
-        actions.extend(self._generate_opens_independent(df, live_positions_by_candidate_id, live_diagnostics_by_candidate_id))
+        actions.extend(
+            self._generate_closes(
+                df, live_positions_by_candidate_id, live_diagnostics_by_candidate_id
+            )
+        )
+        actions.extend(
+            self._generate_opens_independent(
+                df, live_positions_by_candidate_id, live_diagnostics_by_candidate_id
+            )
+        )
 
         return actions
 
@@ -129,28 +141,32 @@ class PairSpreadMeanReversionTrader:
             rule = self._resolve_exit_rule(pos.residual_key)
             if rule is not None and self._eval_exit_rule(rule, pos):
                 z = float(df.at[cid, "z_score"]) if cid in df.index else None
-                closes.append(CloseCandidateAction(
-                    candidate_id=pos.candidate_id,
-                    group_id=pos.group_id,
-                    spread_id=pos.spread_id,
-                    reason="exit_rule",
-                    z_score=z,
-                    z_components=_spread_z_components(cid),
-                ))
+                closes.append(
+                    CloseCandidateAction(
+                        candidate_id=pos.candidate_id,
+                        group_id=pos.group_id,
+                        spread_id=pos.spread_id,
+                        reason="exit_rule",
+                        z_score=z,
+                        z_components=_spread_z_components(cid),
+                    )
+                )
                 already_closed.add(cid)
                 continue
 
             max_hold = self._resolve_max_hold(pos.residual_key)
             if max_hold is not None and pos.days_open >= max_hold:
                 z = float(df.at[cid, "z_score"]) if cid in df.index else None
-                closes.append(CloseCandidateAction(
-                    candidate_id=pos.candidate_id,
-                    group_id=pos.group_id,
-                    spread_id=pos.spread_id,
-                    reason=f"time_stop_{max_hold}d",
-                    z_score=z,
-                    z_components=_spread_z_components(cid),
-                ))
+                closes.append(
+                    CloseCandidateAction(
+                        candidate_id=pos.candidate_id,
+                        group_id=pos.group_id,
+                        spread_id=pos.spread_id,
+                        reason=f"time_stop_{max_hold}d",
+                        z_score=z,
+                        z_components=_spread_z_components(cid),
+                    )
+                )
                 already_closed.add(cid)
 
         # Z-cross exits
@@ -169,20 +185,21 @@ class PairSpreadMeanReversionTrader:
                 continue
             z = float(z)
 
-            exit_triggered = (
-                (pos.direction > 0 and z >= -self.config.exit_z) or
-                (pos.direction < 0 and z <= self.config.exit_z)
+            exit_triggered = (pos.direction > 0 and z >= -self.config.exit_z) or (
+                pos.direction < 0 and z <= self.config.exit_z
             )
 
             if exit_triggered:
-                closes.append(CloseCandidateAction(
-                    candidate_id=pos.candidate_id,
-                    group_id=pos.group_id,
-                    spread_id=pos.spread_id,
-                    reason="z_cross",
-                    z_score=z,
-                    z_components=_spread_z_components(cid),
-                ))
+                closes.append(
+                    CloseCandidateAction(
+                        candidate_id=pos.candidate_id,
+                        group_id=pos.group_id,
+                        spread_id=pos.spread_id,
+                        reason="z_cross",
+                        z_score=z,
+                        z_components=_spread_z_components(cid),
+                    )
+                )
 
         return closes
 
@@ -195,8 +212,7 @@ class PairSpreadMeanReversionTrader:
         live_diagnostics_by_candidate_id: dict[str, "CandidateAnalyticsState"] | None = None,
     ) -> list[OpenCandidateAction]:
         open_spread_keys: set[tuple[str, str]] = {
-            (pos.spread_id, pos.residual_key)
-            for pos in live_positions_by_candidate_id.values()
+            (pos.spread_id, pos.residual_key) for pos in live_positions_by_candidate_id.values()
         }
 
         if "residual_key" not in df.columns:
@@ -267,32 +283,40 @@ class PairSpreadMeanReversionTrader:
             rkey = str(rkeys[i]) if rkeys is not None else ""
             cid_str = str(cand_ids[i])
 
-            diag = live_diagnostics_by_candidate_id.get(cid_str) if live_diagnostics_by_candidate_id else None
+            diag = (
+                live_diagnostics_by_candidate_id.get(cid_str)
+                if live_diagnostics_by_candidate_id
+                else None
+            )
             z_comps = diag.z_components if diag is not None else ()
 
             if self.config.allow_long and z <= -entry_z:
-                opens.append(OpenCandidateAction(
-                    candidate_id=cid_str,
-                    group_id=str(group_ids[i]),
-                    spread_id=str(spread_ids[i]),
-                    direction=+1.0,
-                    pair_notional=None,    # SizingEngine will populate
-                    reason="entry_long",
-                    z_score=z,
-                    residual_key=rkey,
-                    z_components=z_comps,
-                ))
+                opens.append(
+                    OpenCandidateAction(
+                        candidate_id=cid_str,
+                        group_id=str(group_ids[i]),
+                        spread_id=str(spread_ids[i]),
+                        direction=+1.0,
+                        pair_notional=None,  # SizingEngine will populate
+                        reason="entry_long",
+                        z_score=z,
+                        residual_key=rkey,
+                        z_components=z_comps,
+                    )
+                )
             elif self.config.allow_short and z >= entry_z:
-                opens.append(OpenCandidateAction(
-                    candidate_id=cid_str,
-                    group_id=str(group_ids[i]),
-                    spread_id=str(spread_ids[i]),
-                    direction=-1.0,
-                    pair_notional=None,    # SizingEngine will populate
-                    reason="entry_short",
-                    z_score=z,
-                    residual_key=rkey,
-                    z_components=z_comps,
-                ))
+                opens.append(
+                    OpenCandidateAction(
+                        candidate_id=cid_str,
+                        group_id=str(group_ids[i]),
+                        spread_id=str(spread_ids[i]),
+                        direction=-1.0,
+                        pair_notional=None,  # SizingEngine will populate
+                        reason="entry_short",
+                        z_score=z,
+                        residual_key=rkey,
+                        z_components=z_comps,
+                    )
+                )
 
         return opens

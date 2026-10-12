@@ -14,6 +14,7 @@ Usage:
     # Re-save as pkl for backward compat with view_* helpers
     df.to_pickle("/path/to/runs/sweep_results.pkl")
 """
+
 from __future__ import annotations
 
 import json
@@ -78,10 +79,12 @@ def rebuild_sweep_results(
         if not metrics_path.exists():
             if include_failed:
                 n_fail += 1
-                rows.append({
-                    "run_id": run_id,
-                    "error": "No performance_metrics.json",
-                })
+                rows.append(
+                    {
+                        "run_id": run_id,
+                        "error": "No performance_metrics.json",
+                    }
+                )
             else:
                 n_skip += 1
             continue
@@ -108,13 +111,17 @@ def rebuild_sweep_results(
         except Exception as e:
             n_fail += 1
             if include_failed:
-                rows.append({
-                    "run_id": run_id,
-                    "error": str(e),
-                })
+                rows.append(
+                    {
+                        "run_id": run_id,
+                        "error": str(e),
+                    }
+                )
 
-    print(f"[rebuild] Scanned {n_ok + n_skip + n_fail} dirs: "
-          f"{n_ok} OK, {n_skip} skipped, {n_fail} failed")
+    print(
+        f"[rebuild] Scanned {n_ok + n_skip + n_fail} dirs: "
+        f"{n_ok} OK, {n_skip} skipped, {n_fail} failed"
+    )
 
     if not rows:
         return pd.DataFrame()
@@ -128,6 +135,7 @@ def rebuild_sweep_results(
 
 
 # ── Internal helpers ─────────────────────────────────────────────────
+
 
 def _load_json(path: Path) -> dict:
     with open(path) as f:
@@ -149,10 +157,9 @@ def _extract_config_fields(config: dict) -> dict:
     z_cfg = config.get("z_score", {})
     if isinstance(z_cfg, list):
         # Multi-timescale
-        out["z_score_overrides"] = str([
-            f"{zc.get('residual_key', '')}:zhl{zc.get('lookback', '?')}"
-            for zc in z_cfg
-        ])
+        out["z_score_overrides"] = str(
+            [f"{zc.get('residual_key', '')}:zhl{zc.get('lookback', '?')}" for zc in z_cfg]
+        )
         out["z_method"] = z_cfg[0].get("method", "ewm") if z_cfg else "ewm"
         out["z_lookback"] = [zc.get("lookback") for zc in z_cfg]
         out["n_timescales"] = len(z_cfg)

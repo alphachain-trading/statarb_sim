@@ -76,7 +76,7 @@ def check_prices_for_corruption(
                 )
             )
 
-        bad = (h < l)
+        bad = h < l
         if bad.any():
             n = int(bad.sum())
             warnings.append(

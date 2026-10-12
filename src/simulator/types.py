@@ -12,6 +12,7 @@ class CandidateRef:
     refit date) — not to be confused with a residual model's fit_date (the
     daily grid the residual model itself is fitted on).
     """
+
     candidate_id: str
     spread_id: str
     group_id: str
@@ -32,7 +33,9 @@ class CandidateRef:
         if len(self.members) == 0:
             raise ValueError("members must not be empty.")
         if len(self.members) != len(self.weights):
-            raise ValueError(f"members={self.members} and weights={self.weights} must have the same length.")
+            raise ValueError(
+                f"members={self.members} and weights={self.weights} must have the same length."
+            )
 
 
 @dataclass(slots=True, frozen=True)
@@ -68,9 +71,7 @@ class CandidateMarketSnapshot:
         }
         missing = required_cols.difference(self.candidate_states.columns)
         if missing:
-            raise ValueError(
-                f"candidate_states is missing required columns: {sorted(missing)}"
-            )
+            raise ValueError(f"candidate_states is missing required columns: {sorted(missing)}")
         if self.candidate_states.index.name != "candidate_id":
             self.candidate_states.index.name = "candidate_id"
 
@@ -132,9 +133,9 @@ class LiveCandidatePosition:
     group_id: str
     spread_id: str
 
-    direction: float           # +1.0 or -1.0
-    pair_notional: float       # dollar notional at entry (from SizingEngine)
-    gross_value: float         # current mark-to-market gross value
+    direction: float  # +1.0 or -1.0
+    pair_notional: float  # dollar notional at entry (from SizingEngine)
+    gross_value: float  # current mark-to-market gross value
 
     entry_date: pd.Timestamp
     # The candidate's own outer refit date (CandidateRef.asof_date) -- when
@@ -168,9 +169,13 @@ class LiveCandidatePosition:
 
     def __post_init__(self) -> None:
         if self.direction not in (1.0, -1.0):
-            raise ValueError(f"LiveCandidatePosition.direction must be +1.0 or -1.0, got {self.direction}.")
+            raise ValueError(
+                f"LiveCandidatePosition.direction must be +1.0 or -1.0, got {self.direction}."
+            )
         if self.pair_notional <= 0.0:
-            raise ValueError(f"LiveCandidatePosition.pair_notional must be positive, got {self.pair_notional}.")
+            raise ValueError(
+                f"LiveCandidatePosition.pair_notional must be positive, got {self.pair_notional}."
+            )
         self.entry_date = pd.Timestamp(self.entry_date)
         self.entry_asof_date = pd.Timestamp(self.entry_asof_date)
 
@@ -189,8 +194,8 @@ class ClosedCandidateTrade:
     exit_date: pd.Timestamp
     days_open: int
 
-    direction: float           # +1.0 or -1.0
-    pair_notional: float       # dollar notional at entry
+    direction: float  # +1.0 or -1.0
+    pair_notional: float  # dollar notional at entry
 
     entry_z_score: float | None
     exit_z_score: float | None

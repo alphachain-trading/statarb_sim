@@ -70,6 +70,7 @@ class CandidateSelectionConfig:
         - "candidate_type"
         - "weight_model"
     """
+
     allowed_candidate_subtypes: tuple[str, ...] = ("knee", "dense_knee")
     require_is_valid: bool = True
     require_success: bool = field(kw_only=True)
@@ -121,9 +122,9 @@ def _json_default(obj: Any) -> Any:
 
 
 def save_selected_candidate_panel_result(
-        result: SelectedCandidatePanelResult,
-        out_dir: Path,
-        stem: str,
+    result: SelectedCandidatePanelResult,
+    out_dir: Path,
+    stem: str,
 ) -> None:
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -142,8 +143,8 @@ def save_selected_candidate_panel_result(
 
 
 def load_selected_candidate_panel_result(
-        out_dir: Path,
-        stem: str,
+    out_dir: Path,
+    stem: str,
 ) -> SelectedCandidatePanelResult:
     out_dir = Path(out_dir)
 
@@ -218,8 +219,8 @@ def _choose_reference_row(group: pd.DataFrame) -> pd.Series:
 
 
 def _annotate_reference_relative_metrics(
-        panel: pd.DataFrame,
-        cfg: CandidateSelectionConfig,
+    panel: pd.DataFrame,
+    cfg: CandidateSelectionConfig,
 ) -> pd.DataFrame:
     out = panel.copy()
 
@@ -252,8 +253,8 @@ def _annotate_reference_relative_metrics(
 
 
 def _build_candidate_selection_mask(
-        panel: pd.DataFrame,
-        cfg: CandidateSelectionConfig,
+    panel: pd.DataFrame,
+    cfg: CandidateSelectionConfig,
 ) -> pd.Series:
     mask = pd.Series(True, index=panel.index)
 
@@ -288,19 +289,17 @@ def _build_candidate_selection_mask(
 
     if cfg.excluded_tickers:
         excluded = set(cfg.excluded_tickers)
-        mask &= ~panel["spread_id"].apply(
-            lambda sid: bool(excluded & set(sid.split("|")))
-        )
+        mask &= ~panel["spread_id"].apply(lambda sid: bool(excluded & set(sid.split("|"))))
 
     return mask
 
 
 def select_candidates(
-        candidate_panel: pd.DataFrame,
-        cfg: CandidateSelectionConfig,
-        *,
-        source_out_dir: str | None = None,
-        source_stem: str | None = None,
+    candidate_panel: pd.DataFrame,
+    cfg: CandidateSelectionConfig,
+    *,
+    source_out_dir: str | None = None,
+    source_stem: str | None = None,
 ) -> SelectedCandidatePanelResult:
     if candidate_panel.empty:
         metadata = {
@@ -334,9 +333,7 @@ def select_candidates(
         if missing:
             raise ValueError(f"CandidatePanel missing required columns for selection: {missing}")
 
-    needs_reference = (
-            cfg.mr_retention_min is not None
-            or cfg.half_life_mult_max is not None )
+    needs_reference = cfg.mr_retention_min is not None or cfg.half_life_mult_max is not None
 
     if needs_reference:
         enriched = _annotate_reference_relative_metrics(panel=enriched, cfg=cfg)
@@ -348,7 +345,11 @@ def select_candidates(
     selected = enriched.loc[mask].copy()
 
     input_dates = _extract_asof_date_series(candidate_panel)
-    selected_dates = _extract_asof_date_series(selected) if not selected.empty else pd.Series(dtype="datetime64[ns]")
+    selected_dates = (
+        _extract_asof_date_series(selected)
+        if not selected.empty
+        else pd.Series(dtype="datetime64[ns]")
+    )
 
     metadata = {
         "artifact_type": "selected_candidate_panel",

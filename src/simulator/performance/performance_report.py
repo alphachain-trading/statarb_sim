@@ -12,6 +12,7 @@ from src.simulator.performance.performance_basic import PerformanceResult, compu
 
 try:
     import quantstats as qs
+
     _HAS_QUANTSTATS = True
 except ImportError:
     _HAS_QUANTSTATS = False
@@ -19,49 +20,49 @@ except ImportError:
 
 _METRICS_ORDER = [
     # Return
-    ("total_return_net",            "Total Return (Net)",           ".2%"),
-    ("total_return_gross",          "Total Return (Gross)",         ".2%"),
-    ("annual_return_net",           "Annual Return (Net)",          ".2%"),
-    ("annual_return_gross",         "Annual Return (Gross)",        ".2%"),
+    ("total_return_net", "Total Return (Net)", ".2%"),
+    ("total_return_gross", "Total Return (Gross)", ".2%"),
+    ("annual_return_net", "Annual Return (Net)", ".2%"),
+    ("annual_return_gross", "Annual Return (Gross)", ".2%"),
     # Risk-adjusted
-    ("sharpe_net",                  "Sharpe Ratio (Net)",           ".3f"),
-    ("sortino_net",                 "Sortino Ratio (Net)",          ".3f"),
-    ("sortino_gross",               "Sortino Ratio (Gross)",        ".3f"),
-    ("calmar_net",                  "Calmar Ratio (Net)",           ".3f"),
+    ("sharpe_net", "Sharpe Ratio (Net)", ".3f"),
+    ("sortino_net", "Sortino Ratio (Net)", ".3f"),
+    ("sortino_gross", "Sortino Ratio (Gross)", ".3f"),
+    ("calmar_net", "Calmar Ratio (Net)", ".3f"),
     # Drawdown
-    ("max_drawdown_net",            "Max Drawdown (Net)",           ".2%"),
-    ("max_drawdown_gross",          "Max Drawdown (Gross)",         ".2%"),
+    ("max_drawdown_net", "Max Drawdown (Net)", ".2%"),
+    ("max_drawdown_gross", "Max Drawdown (Gross)", ".2%"),
     # Trades
-    ("n_trades",                    "# Trades",                     "d"),
-    ("n_groups_traded",             "# Groups Traded",              "d"),
-    ("n_trading_days",              "# Trading Days",               "d"),
-    ("avg_concurrent_positions",    "Avg Concurrent Positions",     ".2f"),
-    ("avg_holding_days",            "Avg Holding Period (days)",    ".1f"),
-    ("avg_holding_days_wins",       "Avg Holding — Wins (days)",    ".1f"),
-    ("avg_holding_days_losses",     "Avg Holding — Losses (days)",  ".1f"),
+    ("n_trades", "# Trades", "d"),
+    ("n_groups_traded", "# Groups Traded", "d"),
+    ("n_trading_days", "# Trading Days", "d"),
+    ("avg_concurrent_positions", "Avg Concurrent Positions", ".2f"),
+    ("avg_holding_days", "Avg Holding Period (days)", ".1f"),
+    ("avg_holding_days_wins", "Avg Holding — Wins (days)", ".1f"),
+    ("avg_holding_days_losses", "Avg Holding — Losses (days)", ".1f"),
     # Win/loss
-    ("win_rate_net",                "Win Rate (Net)",               ".1%"),
-    ("loss_rate_net",               "Loss Rate (Net)",              ".1%"),
-    ("win_rate_gross",              "Win Rate (Gross)",             ".1%"),
-    ("profit_factor_net",           "Profit Factor (Net)",          ".3f"),
-    ("mean_gain_per_win_net",       "Mean Gain / Win (Net $)",      ".2f"),
-    ("mean_loss_per_loss_net",      "Mean Loss / Loss (Net $)",     ".2f"),
-    ("mean_gain_per_win_gross",     "Mean Gain / Win (Gross $)",    ".2f"),
-    ("mean_loss_per_loss_gross",    "Mean Loss / Loss (Gross $)",   ".2f"),
+    ("win_rate_net", "Win Rate (Net)", ".1%"),
+    ("loss_rate_net", "Loss Rate (Net)", ".1%"),
+    ("win_rate_gross", "Win Rate (Gross)", ".1%"),
+    ("profit_factor_net", "Profit Factor (Net)", ".3f"),
+    ("mean_gain_per_win_net", "Mean Gain / Win (Net $)", ".2f"),
+    ("mean_loss_per_loss_net", "Mean Loss / Loss (Net $)", ".2f"),
+    ("mean_gain_per_win_gross", "Mean Gain / Win (Gross $)", ".2f"),
+    ("mean_loss_per_loss_gross", "Mean Loss / Loss (Gross $)", ".2f"),
     # Entry/exit quality
-    ("avg_abs_entry_z_score",       "Avg |Entry Z-Score|",          ".3f"),
-    ("avg_entry_z_score",           "Avg Entry Z-Score",            ".3f"),
-    ("avg_exit_z_score",            "Avg Exit Z-Score",             ".3f"),
+    ("avg_abs_entry_z_score", "Avg |Entry Z-Score|", ".3f"),
+    ("avg_entry_z_score", "Avg Entry Z-Score", ".3f"),
+    ("avg_exit_z_score", "Avg Exit Z-Score", ".3f"),
     # PnL
-    ("total_gross_pnl",             "Total Gross PnL ($)",          ".2f"),
-    ("total_net_pnl",               "Total Net PnL ($)",            ".2f"),
+    ("total_gross_pnl", "Total Gross PnL ($)", ".2f"),
+    ("total_net_pnl", "Total Net PnL ($)", ".2f"),
     # Costs
-    ("total_transaction_costs",     "Total Transaction Costs ($)",  ".2f"),
-    ("total_borrow_costs",          "Total Borrow Costs ($)",       ".2f"),
-    ("total_costs",                 "Total Costs ($)",              ".2f"),
-    ("cost_drag_bps",               "Cost Drag (bps)",              ".1f"),
-    ("avg_cost_per_trade",          "Avg Cost / Trade ($)",         ".2f"),
-    ("avg_daily_borrow_cost",       "Avg Daily Borrow Cost ($)",    ".4f"),
+    ("total_transaction_costs", "Total Transaction Costs ($)", ".2f"),
+    ("total_borrow_costs", "Total Borrow Costs ($)", ".2f"),
+    ("total_costs", "Total Costs ($)", ".2f"),
+    ("cost_drag_bps", "Cost Drag (bps)", ".1f"),
+    ("avg_cost_per_trade", "Avg Cost / Trade ($)", ".2f"),
+    ("avg_daily_borrow_cost", "Avg Daily Borrow Cost ($)", ".4f"),
 ]
 
 
@@ -104,6 +105,7 @@ def generate_report(
 # Internal helpers
 # ---------------------------------------------------------------------------
 
+
 def _fmt_value(value: Any, fmt: str) -> str:
     if value is None or (isinstance(value, float) and __import__("math").isnan(value)):
         return "n/a"
@@ -129,16 +131,31 @@ def _print_metrics_table(
     print(f"  {title}")
     print(f"{'─' * 52}")
 
-    rows = _METRICS_ORDER if not trade_only else [
-        r for r in _METRICS_ORDER
-        if r[0] in {
-            "n_trades", "win_rate_net", "loss_rate_net", "win_rate_gross",
-            "profit_factor_net", "avg_holding_days",
-            "mean_gain_per_win_net", "mean_loss_per_loss_net",
-            "total_gross_pnl", "total_net_pnl", "total_costs",
-            "avg_entry_z_score", "avg_abs_entry_z_score", "avg_exit_z_score",
-        }
-    ]
+    rows = (
+        _METRICS_ORDER
+        if not trade_only
+        else [
+            r
+            for r in _METRICS_ORDER
+            if r[0]
+            in {
+                "n_trades",
+                "win_rate_net",
+                "loss_rate_net",
+                "win_rate_gross",
+                "profit_factor_net",
+                "avg_holding_days",
+                "mean_gain_per_win_net",
+                "mean_loss_per_loss_net",
+                "total_gross_pnl",
+                "total_net_pnl",
+                "total_costs",
+                "avg_entry_z_score",
+                "avg_abs_entry_z_score",
+                "avg_exit_z_score",
+            }
+        ]
+    )
 
     for key, label, fmt in rows:
         if key not in metrics:
@@ -150,15 +167,16 @@ def _print_metrics_table(
 
 
 def _write_quantstats_report(
-        returns_net: pd.Series,
-        cfg: PerformanceConfig,
-        title: str,
+    returns_net: pd.Series,
+    cfg: PerformanceConfig,
+    title: str,
 ) -> None:
     import warnings
     import matplotlib
-    matplotlib.rcParams['font.sans-serif'] = ['DejaVu Sans', 'Liberation Sans', 'Arial']
-    warnings.filterwarnings('ignore', category=UserWarning, message='.*findfont.*')
-    logging.getLogger('matplotlib.font_manager').setLevel(logging.ERROR)
+
+    matplotlib.rcParams["font.sans-serif"] = ["DejaVu Sans", "Liberation Sans", "Arial"]
+    warnings.filterwarnings("ignore", category=UserWarning, message=".*findfont.*")
+    logging.getLogger("matplotlib.font_manager").setLevel(logging.ERROR)
     if not _HAS_QUANTSTATS:
         print(
             "\n[performance] quantstats not installed — skipping HTML report. "
