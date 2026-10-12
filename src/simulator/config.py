@@ -137,7 +137,7 @@ def discover_group_data_sources(
         if meta_path.exists():
             import json
 
-            with open(meta_path) as f:
+            with meta_path.open() as f:
                 meta = json.load(f)
             residual_cfg_raw = meta.get("residual_cfg")
             if residual_cfg_raw is not None:

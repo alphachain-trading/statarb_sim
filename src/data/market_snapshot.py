@@ -82,7 +82,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 import re
 import shutil
 import tempfile
@@ -203,7 +202,7 @@ def _finalize_snapshot(tmp_dir: Path, target_dir: Path) -> None:
         raise SnapshotExistsError(
             f"refusing to write snapshot: target directory already exists: {target_dir}"
         )
-    os.rename(tmp_dir, target_dir)
+    tmp_dir.rename(target_dir)
     _make_tree_read_only(target_dir)
 
 

@@ -54,7 +54,7 @@ CONFIG_PATH = CONFIG_ROOT / "demo_materials.yaml"
 def load_config() -> dict:
     if not CONFIG_PATH.exists():
         sys.exit(f"[config] Missing config file: {CONFIG_PATH}")
-    with open(CONFIG_PATH) as f:
+    with CONFIG_PATH.open() as f:
         return yaml.safe_load(f)
 
 

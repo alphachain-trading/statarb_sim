@@ -132,7 +132,7 @@ def rebuild_sweep_results(
 
 
 def _load_json(path: Path) -> dict:
-    with open(path) as f:
+    with path.open() as f:
         return json.load(f)
 
 
