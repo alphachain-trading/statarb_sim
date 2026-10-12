@@ -152,9 +152,7 @@ def compute_x_area_asymmetry_ewm_series(
 
     denom = ewm_above + ewm_below
     with np.errstate(invalid="ignore", divide="ignore"):
-        result = np.where(denom > 0, (ewm_above - ewm_below) / denom, np.nan)
-
-    return result
+        return np.where(denom > 0, (ewm_above - ewm_below) / denom, np.nan)
 
 
 # ── Backward gain ─────────────────────────────────────────────────────────────

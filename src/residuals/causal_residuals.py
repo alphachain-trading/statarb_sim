@@ -485,8 +485,7 @@ def _wls_multi(
 ) -> np.ndarray:
     Xw = X * sqrt_w[:, None]
     Yw = Y * sqrt_w[:, None]
-    B = np.linalg.lstsq(Xw, Yw, rcond=None)[0]
-    return B
+    return np.linalg.lstsq(Xw, Yw, rcond=None)[0]
 
 
 def fit_causal_residual_model(

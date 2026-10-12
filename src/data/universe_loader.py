@@ -181,7 +181,7 @@ class UniverseDataLoader:
 
     def _download_prices_batch(self, symbols: list[str]) -> pd.DataFrame:
         d = self.config.loader_defaults
-        df = yf.download(
+        return yf.download(
             tickers=symbols,
             start=d.get("start_date", None),
             end=d.get("end_date", None),
@@ -194,7 +194,6 @@ class UniverseDataLoader:
             progress=False,
             group_by="column",
         )
-        return df
 
     def _normalize_prices(self, df: pd.DataFrame) -> pd.DataFrame:
         if df.empty:
@@ -236,9 +235,7 @@ class UniverseDataLoader:
 
         df = df.sort_index().sort_index(axis=1)
         df.columns = pd.MultiIndex.from_tuples(df.columns, names=["ticker", "field"])
-        df = df.astype("float64")
-
-        return df
+        return df.astype("float64")
 
     def _build_ticker_info(self) -> pd.DataFrame:
         rows = []
@@ -246,8 +243,7 @@ class UniverseDataLoader:
             row = {"ticker": ticker}
             row.update(meta)
             rows.append(row)
-        df = pd.DataFrame(rows).set_index("ticker").sort_index()
-        return df
+        return pd.DataFrame(rows).set_index("ticker").sort_index()
 
     def _build_group_info(self) -> pd.DataFrame:
         rows = []
@@ -263,16 +259,14 @@ class UniverseDataLoader:
                     "risk_free": meta.get("risk_free"),
                 }
             )
-        df = pd.DataFrame(rows).set_index("group_id").sort_index()
-        return df
+        return pd.DataFrame(rows).set_index("group_id").sort_index()
 
     def _build_membership(self) -> pd.DataFrame:
         rows = []
         for group_id, meta in self.config.groups.items():
             for ticker in meta.get("members", []):
                 rows.append({"group_id": group_id, "ticker": ticker})
-        df = pd.DataFrame(rows).sort_values(["group_id", "ticker"]).reset_index(drop=True)
-        return df
+        return pd.DataFrame(rows).sort_values(["group_id", "ticker"]).reset_index(drop=True)
 
     def _persist(self, data: UniverseMarketData) -> None:
         print(f"_persist prices to {self.prices_path}...")

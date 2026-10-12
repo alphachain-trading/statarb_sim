@@ -47,13 +47,13 @@ _PAIR_CFG = PairSpreadConfig(
 
 
 def _decay(**overrides):
-    base = dict(
-        mode=ResidualMode.DECAY_EXPANDING,
-        subtract_risk_free=True,
-        hl=504,
-        min_lb_type_dec_exp=AbsOrMult.MULTIPLIER,
-        min_lb_dec_exp=2,
-    )
+    base = {
+        "mode": ResidualMode.DECAY_EXPANDING,
+        "subtract_risk_free": True,
+        "hl": 504,
+        "min_lb_type_dec_exp": AbsOrMult.MULTIPLIER,
+        "min_lb_dec_exp": 2,
+    }
     base.update(overrides)
     return CausalResidualConfig(**base)
 

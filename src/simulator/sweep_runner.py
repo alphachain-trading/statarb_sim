@@ -124,7 +124,7 @@ class SweepConfig:
 
         if self.is_multi_timescale:
             ts_count = len(self.z_score_overrides)
-            methods = set(zc.method for zc in self.z_score_overrides)
+            methods = {zc.method for zc in self.z_score_overrides}
             method_str = "+".join(sorted(methods)) if len(methods) > 1 else next(iter(methods))
             zhls = "+".join(str(zc.resolved_lookbacks()[0]) for zc in self.z_score_overrides)
             rhls = "+".join(

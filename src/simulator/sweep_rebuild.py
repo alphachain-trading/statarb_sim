@@ -125,9 +125,7 @@ def rebuild_sweep_results(
     df = pd.DataFrame(rows).set_index("run_id")
 
     # Sort by run_id (chronological since IDs are timestamp-based)
-    df = df.sort_index()
-
-    return df
+    return df.sort_index()
 
 
 # ── Internal helpers ─────────────────────────────────────────────────

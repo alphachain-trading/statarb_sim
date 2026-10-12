@@ -77,15 +77,15 @@ class TestPairSpreadConfigNumericFieldsAreMandatory(unittest.TestCase):
     min_obs — each must raise if omitted, not silently fall back.
     """
 
-    _ALL_REQUIRED = dict(
-        hedge_ratio_methods=["ols"],
-        min_obs=252,
-        min_return_std=1e-8,
-        min_level_std=1e-8,
-        min_kappa=1e-6,
-        max_half_life=126.0,
-        tiny_weight_threshold=1e-6,
-    )
+    _ALL_REQUIRED = {
+        "hedge_ratio_methods": ["ols"],
+        "min_obs": 252,
+        "min_return_std": 1e-8,
+        "min_level_std": 1e-8,
+        "min_kappa": 1e-6,
+        "max_half_life": 126.0,
+        "tiny_weight_threshold": 1e-6,
+    }
 
     def test_full_construction_succeeds(self):
         pcpc.PairSpreadConfig(**self._ALL_REQUIRED)

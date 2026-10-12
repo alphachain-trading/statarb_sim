@@ -245,8 +245,7 @@ def _annotate_reference_relative_metrics(
 
         out.loc[ref.name, "is_reference_candidate"] = True
 
-    out = out.drop(columns=["_asof_date_tmp"])
-    return out
+    return out.drop(columns=["_asof_date_tmp"])
 
 
 def _build_candidate_selection_mask(

@@ -38,14 +38,14 @@ from src.simulator.simulator_factory import _load_panels
 
 
 def _minimal_sim_kwargs():
-    return dict(
-        data=DataConfig(),
-        candidate_selection=CandidateSelectionConfig(require_success=True),
-        activation=ActivationConfig(one_active_per_group=True, switch_only_when_flat=True),
-        diagnostics=MRDiagnosticsConfig(lookback=21, compute_frequency="off"),
-        trader=PairSpreadTraderConfig(entry_z=2.0, exit_z=0.0),
-        run=RunConfig(),
-        execution=ExecutionConfig(
+    return {
+        "data": DataConfig(),
+        "candidate_selection": CandidateSelectionConfig(require_success=True),
+        "activation": ActivationConfig(one_active_per_group=True, switch_only_when_flat=True),
+        "diagnostics": MRDiagnosticsConfig(lookback=21, compute_frequency="off"),
+        "trader": PairSpreadTraderConfig(entry_z=2.0, exit_z=0.0),
+        "run": RunConfig(),
+        "execution": ExecutionConfig(
             min_abs_units=0.5,
             commission_per_share=0.005,
             commission_per_order=0.0,
@@ -54,9 +54,9 @@ def _minimal_sim_kwargs():
             max_commission_pct_of_trade=0.01,
             short_borrow_rate_annual_bps=30.0,
         ),
-        capital=CapitalConfig(total_capital=1_000_000.0),
-        sizing=SizingConfig(base_pair_notional=100_000.0),
-    )
+        "capital": CapitalConfig(total_capital=1_000_000.0),
+        "sizing": SizingConfig(base_pair_notional=100_000.0),
+    }
 
 
 class TestGuard1AdfPvalueMaxAllNaN(unittest.TestCase):
