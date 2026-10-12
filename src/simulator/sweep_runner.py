@@ -39,32 +39,26 @@ from pathlib import Path
 import pandas as pd
 
 from src.settings import (
-    CANDIDATE_PANELS_ROOT,
-    CONFIG_UNIVERSE,
     DATA_UNIVERSES,
     SIMULATION_RUNS_ROOT,
 )
 from src.simulator.config import (
     DataConfig,
-    SimulatorConfig,
-    RunConfig,
-    ZScoreConfig,
+    EntryFeatureConfig,
+    IntervalScoringConfig,
     PairSpreadTraderConfig,
     RiskManagerConfig,
+    RunConfig,
+    SimulatorConfig,
     SizingConfig,
     VolSizingConfig,
-    EntryFeatureConfig,
-    FeatureSpec,
-    FeatureIntervalSpec,
-    IntervalScoringConfig,
-    discover_group_data_sources,
+    ZScoreConfig,
     group_abbrev,
 )
+from src.simulator.simulation_persistence import hash_config
 from src.simulator.simulator import SimulationResult
 from src.simulator.simulator_factory import run_from_config
-from src.simulator.simulation_persistence import hash_config
 from src.simulator.sweep_defaults import get_default_bundle, merge_defaults
-
 
 # ---------------------------------------------------------------------------
 # SweepConfig
@@ -587,15 +581,16 @@ def _run_one_sweep(args: tuple) -> dict:
     """Worker function for run_sweep_parallel."""
     sweep, i, n_total = args
     import time as _t
+    from dataclasses import fields
+    from datetime import datetime
+
+    from src.simulator.simulation_persistence import hash_config
+    from src.simulator.simulator_factory import run_from_config
     from src.simulator.sweep_runner import (
         _build_sim_config,
         _extract_run_id,
         _resolve_panel_subdir,
     )
-    from src.simulator.simulator_factory import run_from_config
-    from src.simulator.simulation_persistence import hash_config
-    from dataclasses import fields
-    from datetime import datetime
 
     print(f"[worker] START [{i + 1}/{n_total}] {sweep.alias}", flush=True)
     t0 = _t.perf_counter()

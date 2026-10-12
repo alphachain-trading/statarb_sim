@@ -26,10 +26,10 @@ from src.simulator.config import (
     CapitalConfig,
     DataConfig,
     ExecutionConfig,
+    GroupDataSource,
     MRDiagnosticsConfig,
     PairSpreadTraderConfig,
     RunConfig,
-    GroupDataSource,
     SimulatorConfig,
     SizingConfig,
     ZScoreConfig,
@@ -175,12 +175,14 @@ class TestGuard3MultiSleeveOccupancy(unittest.TestCase):
         data_cfg = DataConfig(
             groups=[GroupDataSource(universe_config_name="u", candidate_panel_stem="stem")],
         )
-        with patch(
-            "src.simulator.simulator_factory.load_candidate_panel_result",
-            return_value=CandidatePanelResult(panel=fake_panel, metadata={}),
+        with (
+            patch(
+                "src.simulator.simulator_factory.load_candidate_panel_result",
+                return_value=CandidatePanelResult(panel=fake_panel, metadata={}),
+            ),
+            self.assertRaises(ValueError) as cm,
         ):
-            with self.assertRaises(ValueError) as cm:
-                _load_panels(data_cfg, [ZScoreConfig(lookback=21, ddof=1, method="rolling")])
+            _load_panels(data_cfg, [ZScoreConfig(lookback=21, ddof=1, method="rolling")])
         msg = str(cm.exception)
         self.assertIn("weight_model", msg)
         self.assertIn("separate runs", msg)

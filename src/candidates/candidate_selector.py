@@ -357,8 +357,8 @@ def select_candidates(
         "source_artifact_type": "candidate_panel",
         "source_out_dir": source_out_dir,
         "source_stem": source_stem,
-        "n_input_rows": int(len(candidate_panel)),
-        "n_selected_rows": int(len(selected)),
+        "n_input_rows": len(candidate_panel),
+        "n_selected_rows": len(selected),
         "n_input_dates": int(pd.Index(input_dates).nunique()),
         "n_selected_dates": int(pd.Index(selected_dates).nunique()),
     }

@@ -118,9 +118,9 @@ class PairSpreadMeanReversionTrader:
 
     def _generate_closes(
         self,
-        df: "pd.DataFrame",
+        df: pd.DataFrame,
         live_positions_by_candidate_id: dict[str, LiveCandidatePosition],
-        live_diagnostics_by_candidate_id: dict[str, "CandidateAnalyticsState"] | None = None,
+        live_diagnostics_by_candidate_id: dict[str, CandidateAnalyticsState] | None = None,
     ) -> list[CloseCandidateAction]:
         if not live_positions_by_candidate_id:
             return []
@@ -207,9 +207,9 @@ class PairSpreadMeanReversionTrader:
 
     def _generate_opens_independent(
         self,
-        df: "pd.DataFrame",
+        df: pd.DataFrame,
         live_positions_by_candidate_id: dict[str, LiveCandidatePosition],
-        live_diagnostics_by_candidate_id: dict[str, "CandidateAnalyticsState"] | None = None,
+        live_diagnostics_by_candidate_id: dict[str, CandidateAnalyticsState] | None = None,
     ) -> list[OpenCandidateAction]:
         open_spread_keys: set[tuple[str, str]] = {
             (pos.spread_id, pos.residual_key) for pos in live_positions_by_candidate_id.values()
@@ -241,8 +241,8 @@ class PairSpreadMeanReversionTrader:
 
     def _threshold_entries(
         self,
-        candidates: "pd.DataFrame",
-        live_diagnostics_by_candidate_id: dict[str, "CandidateAnalyticsState"] | None = None,
+        candidates: pd.DataFrame,
+        live_diagnostics_by_candidate_id: dict[str, CandidateAnalyticsState] | None = None,
     ) -> list[OpenCandidateAction]:
         """
         Apply entry_z threshold, signal quality gates, and emit OpenCandidateActions.

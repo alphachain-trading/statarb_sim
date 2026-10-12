@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+import numpy as np
+
 from src.simulator.actions import CandidateAction, CloseCandidateAction, OpenCandidateAction
 from src.simulator.config import PortfolioMeanReversionConfig
 from src.simulator.types import (
@@ -9,8 +11,6 @@ from src.simulator.types import (
     CandidateMarketSnapshot,
     LiveCandidatePosition,
 )
-
-import numpy as np
 
 
 @dataclass(slots=True)

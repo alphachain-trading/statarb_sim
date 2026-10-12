@@ -2,13 +2,13 @@ from __future__ import annotations
 
 import logging
 from collections import OrderedDict
-from dataclasses import dataclass, field as dc_field
+from dataclasses import dataclass
+from dataclasses import field as dc_field
+
 import numpy as np
 import pandas as pd
 
 from src.analytics.spread_primitives import compute_spread_level
-from src.simulator.config import MRDiagnosticsConfig, ZScoreConfig
-from src.simulator.types import CandidateAnalyticsState, CandidateRef, ZScoreComponent
 from src.data.returns import GroupReturnBundle, build_group_return_bundle
 from src.data.universe_marketdata import UniverseMarketData
 from src.residuals.causal_residuals import (
@@ -16,6 +16,8 @@ from src.residuals.causal_residuals import (
     FittedCausalResidualModel,
     apply_causal_residual_model,
 )
+from src.simulator.config import MRDiagnosticsConfig, ZScoreConfig
+from src.simulator.types import CandidateAnalyticsState, CandidateRef, ZScoreComponent
 
 try:
     from statsmodels.tsa.stattools import adfuller
@@ -86,7 +88,7 @@ def _rolling_mean_std_last(
     Rows where T < min_periods return NaN.
     """
     T, N = x.shape
-    if T < min_periods:
+    if min_periods > T:
         return np.full(N, np.nan), np.full(N, np.nan)
     w = min(T, window)
     tail = x[-w:]  # (w, N)
@@ -110,7 +112,7 @@ def _ewm_mean_std_last(
     if it becomes a bottleneck.
     """
     T, N = x.shape
-    if T < min_periods:
+    if min_periods > T:
         return np.full(N, np.nan), np.full(N, np.nan)
     df = pd.DataFrame(x)
     ewm = df.ewm(halflife=halflife, min_periods=min_periods)
@@ -160,7 +162,7 @@ class CandidateSignalGenerator:
     _bundle_cache: dict[str, GroupReturnBundle] = dc_field(
         default_factory=dict, init=False, repr=False
     )
-    _asof_residual_cache: "OrderedDict[tuple[str, str, pd.Timestamp], pd.DataFrame]" = dc_field(
+    _asof_residual_cache: OrderedDict[tuple[str, str, pd.Timestamp], pd.DataFrame] = dc_field(
         default_factory=OrderedDict, init=False, repr=False
     )
 
@@ -728,7 +730,7 @@ class CandidateSignalGenerator:
 
     def get_level_series(
         self,
-        ref: "CandidateRef",
+        ref: CandidateRef,
         date: pd.Timestamp,
     ) -> pd.Series | None:
         """

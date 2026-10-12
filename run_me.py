@@ -35,11 +35,11 @@ from pathlib import Path
 import yaml
 
 from src.settings import (
+    CANDIDATE_PANELS_ROOT,
     CONFIG_ROOT,
     CONFIG_UNIVERSE,
-    PROJECT_ROOT,
     DATA_UNIVERSES,
-    CANDIDATE_PANELS_ROOT,
+    PROJECT_ROOT,
     SIMULATION_RUNS_ROOT,
 )
 
@@ -222,9 +222,9 @@ def _update_panel_stem(cfg: dict, stem: str) -> None:
 
 def _make_panel_batch_cfg(cfg: dict):
     """Build the PanelBatchConfig shared by the single- and multi-group paths."""
-    from src.candidates.panel_batch import PanelBatchConfig
     from src.candidates.pair_candidate_panel_creator import PairSpreadConfig
-    from src.residuals.causal_residuals import CausalResidualConfig, ResidualMode, AbsOrMult
+    from src.candidates.panel_batch import PanelBatchConfig
+    from src.residuals.causal_residuals import AbsOrMult, CausalResidualConfig, ResidualMode
 
     # decay_expanding, hl=504, min_history = 504 * 2 = 1008, subtract RF.
     # Reproduces the historical residual_key exp_hl504_mh1008_rf exactly.
@@ -346,23 +346,23 @@ def _bootstrap_panel_from_fixtures(cfg: dict) -> None:
 def _build_sim_config(cfg: dict):
     """Assemble a SimulatorConfig from demo_materials.yaml for a single-group,
     single-timescale pair-spread run."""
+    from src.candidates.candidate_selector import CandidateSelectionConfig
     from src.simulator.config import (
-        SimulatorConfig,
-        DataConfig,
-        CapitalConfig,
         ActivationConfig,
-        ZScoreConfig,
+        CapitalConfig,
+        DataConfig,
+        ExecutionConfig,
         MRDiagnosticsConfig,
         PairSpreadTraderConfig,
-        RunConfig,
-        ExecutionConfig,
-        SizingConfig,
-        VolSizingConfig,
-        RiskManagerConfig,
         PerformanceConfig,
         PersistenceConfig,
+        RiskManagerConfig,
+        RunConfig,
+        SimulatorConfig,
+        SizingConfig,
+        VolSizingConfig,
+        ZScoreConfig,
     )
-    from src.candidates.candidate_selector import CandidateSelectionConfig
 
     z = cfg["z_score"]
     data_cfg = cfg["data"]
@@ -457,8 +457,8 @@ def stage_simulate(cfg: dict, force: bool) -> None:
         # stage and discovered at run time, with no fixtures to bootstrap from.
         _bootstrap_panel_from_fixtures(cfg)
 
-    from src.simulator.simulator_factory import run_from_config
     from src.simulator.simulation_persistence import hash_config
+    from src.simulator.simulator_factory import run_from_config
 
     result = run_from_config(sim_config)
 

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
@@ -146,7 +146,7 @@ def _compute_trade_metrics(
 
     t = trades.copy()
 
-    n_trades = int(len(t))
+    n_trades = len(t)
 
     # Win/loss on net PnL
     wins_net = t[t["realized_pnl_net"] > 0.0]
@@ -266,7 +266,7 @@ def _compute_equity_metrics(
     first_active = returns_net.index[0]
     df = df.loc[first_active:]
 
-    n_days = int(len(returns_net))
+    n_days = len(returns_net)
     n_months = max(n_days / 21, 1.0)
 
     # Sortino (net and gross)

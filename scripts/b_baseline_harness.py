@@ -51,26 +51,26 @@ import sys
 import time
 from pathlib import Path
 
-from src.settings import CANDIDATE_PANELS_ROOT, DATA_UNIVERSES, PROJECT_ROOT
 from src.candidates.pair_candidate_panel_creator import PairSpreadConfig
 from src.residuals.causal_residuals import CausalResidualConfig, ResidualMode
+from src.settings import CANDIDATE_PANELS_ROOT, DATA_UNIVERSES, PROJECT_ROOT
 from src.simulator.config import (
-    SimulatorConfig,
     CandidateGenerationConfig,
     DataConfig,
     GroupDataSource,
-    ZScoreConfig,
     PairSpreadTraderConfig,
-    SizingConfig,
-    VolSizingConfig,
-    RiskManagerConfig,
-    RunConfig,
     PerformanceConfig,
     PersistenceConfig,
+    RiskManagerConfig,
+    RunConfig,
+    SimulatorConfig,
+    SizingConfig,
+    VolSizingConfig,
+    ZScoreConfig,
 )
-from src.simulator.simulator_factory import run_from_config, generate_candidate_panels_by_group
-from src.simulator.sweep_defaults import get_default_bundle, merge_defaults
 from src.simulator.performance.performance_report import _METRICS_ORDER, _fmt_value
+from src.simulator.simulator_factory import generate_candidate_panels_by_group, run_from_config
+from src.simulator.sweep_defaults import get_default_bundle, merge_defaults
 
 UNIVERSE_NAME = "sp500_v1"  # config/universes/{UNIVERSE_NAME}/{group_id}.yaml
 GROUPS = ["energy", "materials"]

@@ -3,7 +3,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
-
 ActionKind = Literal[
     "open_candidate",
     "close_candidate",
@@ -52,7 +51,7 @@ class OpenCandidateAction(CandidateAction):
     def action_kind(self) -> str:
         return "open_candidate"
 
-    def with_notional(self, pair_notional: float) -> "OpenCandidateAction":
+    def with_notional(self, pair_notional: float) -> OpenCandidateAction:
         """Return a copy of this action with pair_notional set."""
         return OpenCandidateAction(
             candidate_id=self.candidate_id,

@@ -36,7 +36,6 @@ from src.data.market_snapshot import (
 )
 from src.data.universe_loader import UniverseDataLoader
 
-
 # Symbols in this set are dropped from a fake download response, mimicking
 # yfinance returning no data for a ticker. Tests set/clear it directly.
 _MISSING_SYMBOLS: set[str] = set()
@@ -201,15 +200,14 @@ class TestUniverseImmutability(MarketSnapshotTestBase):
         # Edit the group's yaml after the fact — add a ticker to membership.
         _write_universe(self.universe_root, universe_version, {"g1": ["AAA", "BBB", "CCC"]})
 
-        with _MOCK_DOWNLOAD:
-            with self.assertRaises(UniverseChangedError) as cm:
-                ensure_market_snapshot(
-                    universe_version,
-                    universe_dir=self.universe_root,
-                    snapshot_root=self.snapshot_root,
-                    force=True,
-                    progress=False,
-                )
+        with _MOCK_DOWNLOAD, self.assertRaises(UniverseChangedError) as cm:
+            ensure_market_snapshot(
+                universe_version,
+                universe_dir=self.universe_root,
+                snapshot_root=self.snapshot_root,
+                force=True,
+                progress=False,
+            )
         self.assertIn("g1", str(cm.exception))
 
     def test_added_group_raises_at_mint_against_existing_snapshot(self):
@@ -225,15 +223,14 @@ class TestUniverseImmutability(MarketSnapshotTestBase):
             },
         )
 
-        with _MOCK_DOWNLOAD:
-            with self.assertRaises(UniverseChangedError) as cm:
-                ensure_market_snapshot(
-                    universe_version,
-                    universe_dir=self.universe_root,
-                    snapshot_root=self.snapshot_root,
-                    force=True,
-                    progress=False,
-                )
+        with _MOCK_DOWNLOAD, self.assertRaises(UniverseChangedError) as cm:
+            ensure_market_snapshot(
+                universe_version,
+                universe_dir=self.universe_root,
+                snapshot_root=self.snapshot_root,
+                force=True,
+                progress=False,
+            )
         self.assertIn("added", str(cm.exception))
 
     def test_removed_group_raises_at_mint_against_existing_snapshot(self):
@@ -249,15 +246,14 @@ class TestUniverseImmutability(MarketSnapshotTestBase):
         shutil.rmtree(self.universe_root / universe_version)
         _write_universe(self.universe_root, universe_version, {"g1": ["AAA", "BBB"]})
 
-        with _MOCK_DOWNLOAD:
-            with self.assertRaises(UniverseChangedError) as cm:
-                ensure_market_snapshot(
-                    universe_version,
-                    universe_dir=self.universe_root,
-                    snapshot_root=self.snapshot_root,
-                    force=True,
-                    progress=False,
-                )
+        with _MOCK_DOWNLOAD, self.assertRaises(UniverseChangedError) as cm:
+            ensure_market_snapshot(
+                universe_version,
+                universe_dir=self.universe_root,
+                snapshot_root=self.snapshot_root,
+                force=True,
+                progress=False,
+            )
         self.assertIn("removed", str(cm.exception))
 
     def test_unchanged_universe_does_not_raise_on_forced_remint(self):
@@ -290,14 +286,13 @@ class TestIncompleteDownload(MarketSnapshotTestBase):
         )
         _MISSING_SYMBOLS.update({"BBB", "DDD"})
 
-        with _MOCK_DOWNLOAD:
-            with self.assertRaises(IncompleteUniverseDownloadError) as cm:
-                ensure_market_snapshot(
-                    universe_version,
-                    universe_dir=self.universe_root,
-                    snapshot_root=self.snapshot_root,
-                    progress=False,
-                )
+        with _MOCK_DOWNLOAD, self.assertRaises(IncompleteUniverseDownloadError) as cm:
+            ensure_market_snapshot(
+                universe_version,
+                universe_dir=self.universe_root,
+                snapshot_root=self.snapshot_root,
+                progress=False,
+            )
         msg = str(cm.exception)
         # Every missing ticker across every group must be listed — not just
         # the first group's gap.

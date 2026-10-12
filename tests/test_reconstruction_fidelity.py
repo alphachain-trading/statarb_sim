@@ -42,11 +42,10 @@ from src.residuals.causal_residuals import (
 from src.simulator.candidate_signals import CandidateSignalGenerator
 from src.simulator.config import DebugSampleConfig, MRDiagnosticsConfig, ZScoreConfig
 from src.simulator.reconstruction import (
-    reconstruct_level_and_zscore,
     reconstruct_candidate_view,
+    reconstruct_level_and_zscore,
     reconstruct_position_view,
 )
-from src.simulator.types import CandidateRef
 
 # Two spread_ids confirmed (via docs/refactor/B_baseline.txt) to actually trade
 # on the Track B harness's committed config — guarantees non-empty position-view
@@ -59,7 +58,9 @@ class TestReconstructionFidelity(unittest.TestCase):
     def setUpClass(cls):
         import dataclasses
         import tempfile
+
         import b_baseline_harness as harness
+
         from src.candidates.candidate_panel import (
             load_candidate_panel_result,
             load_weights,
@@ -67,13 +68,13 @@ class TestReconstructionFidelity(unittest.TestCase):
         )
         from src.residuals.causal_residuals import load_residual_params
         from src.simulator.config import PersistenceConfig
+        from src.simulator.simulation_persistence import _resolve_run_dir
         from src.simulator.simulator_factory import (
-            run_from_config,
+            _load_umd,
             create_simulator,
             generate_candidate_panels_by_group,
-            _load_umd,
+            run_from_config,
         )
-        from src.simulator.simulation_persistence import _resolve_run_dir
 
         # F2 C6c (F1): this test's whole point is verifying reconstruction
         # from persisted artifacts, independently reloaded from the live

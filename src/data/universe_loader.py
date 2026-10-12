@@ -1,8 +1,8 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
-import json
 import pandas as pd
 import yfinance as yf
 
@@ -411,7 +411,7 @@ class UniverseDataLoader:
                     print(" done and persisted.")
 
             except Exception as e:
-                summary["failed"].append(f"{symbol} (Error: {str(e)})")
+                summary["failed"].append(f"{symbol} (Error: {e!s})")
                 print(f"\nError processing {symbol}: {e}")
 
         # Generate the report

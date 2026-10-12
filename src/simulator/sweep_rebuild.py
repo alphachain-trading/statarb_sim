@@ -18,7 +18,6 @@ Usage:
 from __future__ import annotations
 
 import json
-from dataclasses import asdict
 from pathlib import Path
 
 import pandas as pd
@@ -298,7 +297,7 @@ def _build_alias_from_config(config: dict) -> str:
         if zhls:
             parts.append("zhl" + "+".join(zhls))
     else:
-        parts.append(f"mt1")
+        parts.append("mt1")
         method = z_cfg.get("method", "ewm")
         parts.append(method)
         lb = z_cfg.get("lookback")

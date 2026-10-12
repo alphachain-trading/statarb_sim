@@ -2,12 +2,12 @@ from __future__ import annotations
 
 import dataclasses
 import os
-import psutil
-from dataclasses import dataclass, field, asdict
+from dataclasses import asdict, dataclass, field
 from typing import Any
 
 import numpy as np
 import pandas as pd
+import psutil
 
 from src.data.universe_marketdata import UniverseMarketData
 from src.simulator.actions import CandidateAction, CloseCandidateAction, OpenCandidateAction
@@ -15,9 +15,9 @@ from src.simulator.candidate_activation import CandidateActivation
 from src.simulator.candidate_filter import CandidateFilter
 from src.simulator.candidate_signals import CandidateSignalGenerator
 from src.simulator.config import PerformanceConfig, SimulatorConfig
+from src.simulator.entry_feature_engine import EntryFeatureEngine
 from src.simulator.execution import ExecutionEngine
 from src.simulator.position_translator import PositionTranslator
-from src.simulator.entry_feature_engine import EntryFeatureEngine
 from src.simulator.risk_manager import RiskManager
 from src.simulator.sizing_engine import SizingEngine
 from src.simulator.traders.protocol import Trader
@@ -204,7 +204,7 @@ class Simulator:
         run_dir = None
 
         if self.config.persistence.enabled:
-            from src.simulator.simulation_persistence import make_run_id, _resolve_run_dir
+            from src.simulator.simulation_persistence import _resolve_run_dir, make_run_id
 
             if run_id is None:
                 run_id = make_run_id(self.config)
@@ -507,8 +507,8 @@ class Simulator:
                 and date == last_date_by_year[date.year]
             ):
                 from src.simulator.simulation_persistence import (
-                    save_simulation_run,
                     flush_yearly_logs,
+                    save_simulation_run,
                 )
 
                 if label_to_meta:
@@ -616,7 +616,7 @@ class Simulator:
             )
 
         if self.config.persistence.enabled:
-            from src.simulator.simulation_persistence import save_simulation_run, flush_yearly_logs
+            from src.simulator.simulation_persistence import flush_yearly_logs, save_simulation_run
 
             if run_dir is not None and action_log:
                 last_date = pd.Timestamp(dates[-1])
@@ -1119,7 +1119,7 @@ class Simulator:
         *,
         live_positions_by_candidate_id: dict[str, LiveCandidatePosition],
     ) -> dict[str, bool]:
-        return {candidate_id: False for candidate_id in live_positions_by_candidate_id}
+        return dict.fromkeys(live_positions_by_candidate_id, False)
 
     @staticmethod
     def _increment_days_open(

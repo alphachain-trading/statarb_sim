@@ -27,9 +27,9 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
-from src.residuals.causal_residuals import CausalResidualConfig, ResidualMode, AbsOrMult
-from src.candidates.panel_batch import PanelBatchConfig
 from src.candidates.pair_candidate_panel_creator import PairSpreadConfig
+from src.candidates.panel_batch import PanelBatchConfig
+from src.residuals.causal_residuals import AbsOrMult, CausalResidualConfig, ResidualMode
 
 # TestPanelBatchConfigValidation below tests residual_configs/hedge_ratio_lb/
 # mr_diag_lb validation only — pair_cfg is irrelevant to what's asserted, so
@@ -172,8 +172,8 @@ class TestCausalResidualConfigValidation(unittest.TestCase):
 
     def test_from_dict_roundtrip(self):
         cfg = _decay()
-        from dataclasses import asdict
         import json
+        from dataclasses import asdict
 
         raw = json.loads(json.dumps(asdict(cfg)))
         back = CausalResidualConfig.from_dict(raw)

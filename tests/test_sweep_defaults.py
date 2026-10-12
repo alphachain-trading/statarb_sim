@@ -18,6 +18,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
+from src.candidates.candidate_selector import CandidateSelectionConfig
 from src.simulator.config import (
     ActivationConfig,
     CapitalConfig,
@@ -26,7 +27,6 @@ from src.simulator.config import (
     PerformanceConfig,
     PersistenceConfig,
 )
-from src.candidates.candidate_selector import CandidateSelectionConfig
 from src.simulator.sweep_defaults import (
     DEFAULT_CONFIGS,
     get_default_bundle,

@@ -49,9 +49,7 @@ sys.path.insert(0, str(REPO_ROOT))
 sys.path.insert(0, str(SCRIPTS_DIR))
 
 from src.candidates.candidate_panel import (
-    load_candidate_panel_result,
     load_weights,
-    weights_lookup_from_df,
 )
 from src.candidates.pair_candidate_panel_creator import (
     PairSpreadConfig,

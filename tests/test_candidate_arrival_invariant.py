@@ -34,6 +34,7 @@ class TestEntryAsofDateInvariant(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         import b_baseline_harness as harness
+
         from src.simulator.simulator_factory import (
             generate_candidate_panels_by_group,
             run_from_config,

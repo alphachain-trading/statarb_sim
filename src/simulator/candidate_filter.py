@@ -4,13 +4,12 @@ from dataclasses import dataclass
 
 import pandas as pd
 
-from src.simulator.types import CandidateRef
-from src.simulator.config import ZScoreConfig
 from src.candidates.candidate_selector import (
     CandidateSelectionConfig,
     select_candidates,
 )
-
+from src.simulator.config import ZScoreConfig
+from src.simulator.types import CandidateRef
 
 REQUIRED_SELECTED_COLS = {
     "candidate_id",

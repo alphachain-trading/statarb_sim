@@ -21,9 +21,11 @@ are already typed, frozen config objects either way.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from types import MappingProxyType
-from typing import Any, Mapping
+from typing import Any
 
+from src.candidates.candidate_selector import CandidateSelectionConfig
 from src.simulator.config import (
     ActivationConfig,
     CapitalConfig,
@@ -32,8 +34,6 @@ from src.simulator.config import (
     PerformanceConfig,
     PersistenceConfig,
 )
-from src.candidates.candidate_selector import CandidateSelectionConfig
-
 
 # Exactly the literals _build_sim_config carried before the registry existed.
 # Changing any value here is a new bundle (standard_v2, ...), never an edit.

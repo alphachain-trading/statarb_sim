@@ -4,7 +4,7 @@ import logging
 import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -33,13 +33,11 @@ from src.residuals.causal_residuals import (
 from src.residuals.spreads import (
     HedgeRatioMethod,
     generate_spread_ids,
-    spread_members,
     ols_beta_no_intercept,
+    spread_members,
 )
-from src.utils.date_utils import make_ranking_dates
-
 from src.settings import CANDIDATE_PANELS_ROOT
-
+from src.utils.date_utils import make_ranking_dates
 
 HedgeRatioMethodList = list[HedgeRatioMethod]
 
@@ -634,7 +632,7 @@ def create_pair_candidates_for_date(
         "group_id": bundle.group_id,
         "asof_date": str(dt.normalize().date()),
         "debug": debug,
-        "n_rows": int(len(panel)),
+        "n_rows": len(panel),
         "pair_cfg": asdict(pair_cfg),
         "residual_cfg": asdict(residual_cfg),
     }
@@ -910,8 +908,8 @@ def create_pair_candidate_panel(
         "explicit_dates": None if dates is None else [str(d.date()) for d in asof_datetimes],
         "hedge_ratio_methods": list(pair_cfg.hedge_ratio_methods),
         "debug": debug,
-        "n_rows": int(len(panel)),
-        "n_asof_datetimes": int(len(asof_datetimes)),
+        "n_rows": len(panel),
+        "n_asof_datetimes": len(asof_datetimes),
         "asof_date_min": (
             None if panel.empty else str(pd.Timestamp(panel["asof_date"].min()).date())
         ),

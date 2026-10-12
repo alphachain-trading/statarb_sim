@@ -43,24 +43,21 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
 
 import pandas as pd
 from tqdm.auto import tqdm
 
-from src.settings import CONFIG_UNIVERSE, DATA_UNIVERSES, CANDIDATE_PANELS_ROOT
-
-from src.simulator.config import GroupDataSource, group_abbrev
 from src.candidates.pair_candidate_panel_creator import (
+    CandidatePanelResult,
     PairSpreadConfig,
     create_pair_candidate_panel,
-    CandidatePanelResult,
 )
 from src.data.returns import build_group_return_bundle
-from src.data.universe_loader import UniverseDataLoader
 from src.data.universe_config import UniverseConfig
+from src.data.universe_loader import UniverseDataLoader
 from src.residuals.causal_residuals import CausalResidualConfig
-
+from src.settings import CONFIG_UNIVERSE, DATA_UNIVERSES
+from src.simulator.config import group_abbrev
 
 # ── group discovery ─────────────────────────────────────────────────────
 

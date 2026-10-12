@@ -33,7 +33,6 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-
 # ── EWM area asymmetry ────────────────────────────────────────────────────────
 
 
@@ -211,7 +210,7 @@ def _weighted_gain_stats(
 
 
 def _nan_gain_dict() -> dict[str, float]:
-    return {k: np.nan for k in _GAIN_KEYS}
+    return dict.fromkeys(_GAIN_KEYS, np.nan)
 
 
 def compute_bw_gain_stats(

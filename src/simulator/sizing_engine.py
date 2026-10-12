@@ -8,7 +8,6 @@ from src.simulator.actions import OpenCandidateAction
 from src.simulator.config import IntervalScoringConfig, SizingConfig
 from src.simulator.types import CandidateAnalyticsState
 
-
 # ── SizingEngine ─────────────────────────────────────────────────────────────
 
 

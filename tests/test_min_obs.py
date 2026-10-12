@@ -93,9 +93,8 @@ class TestPairSpreadConfigNumericFieldsAreMandatory(unittest.TestCase):
     def test_omitting_any_required_field_raises(self):
         for missing in self._ALL_REQUIRED:
             kwargs = {k: v for k, v in self._ALL_REQUIRED.items() if k != missing}
-            with self.subTest(missing=missing):
-                with self.assertRaises(TypeError):
-                    pcpc.PairSpreadConfig(**kwargs)
+            with self.subTest(missing=missing), self.assertRaises(TypeError):
+                pcpc.PairSpreadConfig(**kwargs)
 
 
 class TestMinObsGate(unittest.TestCase):

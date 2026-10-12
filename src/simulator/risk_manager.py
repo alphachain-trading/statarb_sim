@@ -6,7 +6,7 @@ import pandas as pd
 
 from src.simulator.actions import OpenCandidateAction
 from src.simulator.config import RiskManagerConfig
-from src.simulator.types import CandidateAnalyticsState, LiveCandidatePosition
+from src.simulator.types import LiveCandidatePosition
 
 
 @dataclass(slots=True)

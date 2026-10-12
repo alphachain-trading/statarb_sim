@@ -150,7 +150,7 @@ class CausalResidualConfig:
     _KEY_RE_EQ_EXPANDING = re.compile(r"exp_mh(?P<mh>\d+)(?:_pc(?P<pc>\d+))?(?P<rf>_rf)?$")
 
     @classmethod
-    def from_key(cls, key: str) -> "CausalResidualConfig":
+    def from_key(cls, key: str) -> CausalResidualConfig:
         """
         Parse a residual_key string (as produced by .key) back into a
         CausalResidualConfig.
@@ -179,7 +179,7 @@ class CausalResidualConfig:
                 remove_residual_pcs=int(m.group("pc")) if m.group("pc") else 0,
                 lb=lb,
             )
-        elif key.startswith("exp_hl"):
+        if key.startswith("exp_hl"):
             m = cls._KEY_RE_DECAY_EXPANDING.fullmatch(key)
             if not m:
                 raise ValueError(f"Malformed DECAY_EXPANDING residual key: {key!r}")
@@ -191,7 +191,7 @@ class CausalResidualConfig:
                 min_lb_type_dec_exp=AbsOrMult.ABSOLUTE,
                 min_lb_dec_exp=int(m.group("mh")),
             )
-        elif key.startswith("exp_mh"):
+        if key.startswith("exp_mh"):
             m = cls._KEY_RE_EQ_EXPANDING.fullmatch(key)
             if not m:
                 raise ValueError(f"Malformed EQ_EXPANDING residual key: {key!r}")
@@ -201,8 +201,7 @@ class CausalResidualConfig:
                 remove_residual_pcs=int(m.group("pc")) if m.group("pc") else 0,
                 min_lb_eq_exp=int(m.group("mh")),
             )
-        else:
-            raise ValueError(f"Unrecognized residual key format: {key!r}")
+        raise ValueError(f"Unrecognized residual key format: {key!r}")
 
     @property
     def key(self) -> str:

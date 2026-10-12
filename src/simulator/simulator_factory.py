@@ -1,36 +1,10 @@
 from __future__ import annotations
 
-import json
-from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
 import pandas as pd
 
-from src.settings import CANDIDATE_PANELS_ROOT, CONFIG_UNIVERSE
-from src.simulator.candidate_activation import CandidateActivation
-from src.simulator.candidate_filter import CandidateFilter
-from src.simulator.candidate_signals import CandidateSignalGenerator
-from src.simulator.config import (
-    CapitalConfig,
-    DataConfig,
-    PairSpreadTraderConfig,
-    PortfolioMeanReversionConfig,
-    RiskManagerConfig,
-    GroupDataSource,
-    SimulatorConfig,
-    ZScoreConfig,
-    group_resolve,
-    discover_group_data_sources,
-)
-from src.simulator.entry_feature_engine import EntryFeatureEngine
-from src.simulator.execution import ExecutionEngine
-from src.simulator.position_translator import PositionTranslator
-from src.simulator.risk_manager import RiskManager
-from src.simulator.sizing_engine import SizingEngine
-from src.simulator.simulator import SimulationResult, Simulator
-from src.simulator.traders.pair_spread_mean_reversion import PairSpreadMeanReversionTrader
-from src.simulator.traders.portfolio_mean_reversion import PortfolioMeanReversionTrader
 from src.candidates.candidate_panel import (
     CandidatePanelResult,
     load_candidate_panel_result,
@@ -44,6 +18,27 @@ from src.residuals.causal_residuals import (
     FittedCausalResidualModel,
     load_residual_params,
 )
+from src.settings import CANDIDATE_PANELS_ROOT, CONFIG_UNIVERSE
+from src.simulator.candidate_activation import CandidateActivation
+from src.simulator.candidate_filter import CandidateFilter
+from src.simulator.candidate_signals import CandidateSignalGenerator
+from src.simulator.config import (
+    DataConfig,
+    GroupDataSource,
+    PairSpreadTraderConfig,
+    PortfolioMeanReversionConfig,
+    SimulatorConfig,
+    ZScoreConfig,
+    group_resolve,
+)
+from src.simulator.entry_feature_engine import EntryFeatureEngine
+from src.simulator.execution import ExecutionEngine
+from src.simulator.position_translator import PositionTranslator
+from src.simulator.risk_manager import RiskManager
+from src.simulator.simulator import SimulationResult, Simulator
+from src.simulator.sizing_engine import SizingEngine
+from src.simulator.traders.pair_spread_mean_reversion import PairSpreadMeanReversionTrader
+from src.simulator.traders.portfolio_mean_reversion import PortfolioMeanReversionTrader
 
 
 def create_simulator(
@@ -175,7 +170,7 @@ def run_from_config(config: SimulatorConfig) -> SimulationResult:
         # disabled, matching Simulator.run()'s own guard.
         run_dir: Path | None = None
         if config.persistence.enabled:
-            from src.simulator.simulation_persistence import make_run_id, _resolve_run_dir
+            from src.simulator.simulation_persistence import _resolve_run_dir, make_run_id
 
             run_id = make_run_id(config)
             run_dir = _resolve_run_dir(config.persistence, run_id)
@@ -395,7 +390,6 @@ def persist_live_candidate_artifacts(
     columns, fewer rows.
     """
     from src.candidates.candidate_panel import (
-        CandidatePanelResult,
         save_candidate_panel_result,
         save_weights,
     )

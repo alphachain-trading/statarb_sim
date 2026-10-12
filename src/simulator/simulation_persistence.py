@@ -3,16 +3,14 @@ from __future__ import annotations
 import hashlib
 import json
 import shutil
-from dataclasses import asdict, is_dataclass
+from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
 import pandas as pd
 
-from src.simulator.config import PersistenceConfig, SimulatorConfig
-
 from src.settings import SIMULATION_RUNS_ROOT
-
+from src.simulator.config import PersistenceConfig, SimulatorConfig
 
 # ---------------------------------------------------------------------------
 # Run ID
@@ -382,7 +380,7 @@ def _copy_performance_html(config: SimulatorConfig, run_dir: Path) -> None:
     if not perf_cfg.report_html:
         return
 
-    source_dir = Path(perf_cfg.report_output_dir) if perf_cfg.report_output_dir else Path(".")
+    source_dir = Path(perf_cfg.report_output_dir) if perf_cfg.report_output_dir else Path()
     for html_file in source_dir.glob("*_quantstats.html"):
         dest = run_dir / html_file.name
         if not dest.exists():

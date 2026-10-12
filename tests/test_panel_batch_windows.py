@@ -21,12 +21,12 @@ from unittest import mock
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
-from src.settings import DATA_UNIVERSES
-from src.candidates.panel_batch import PanelBatchConfig, run_panel_batch
-from src.candidates.pair_candidate_panel_creator import PairSpreadConfig
-from src.residuals.causal_residuals import CausalResidualConfig, ResidualMode
-import src.residuals.causal_residuals as cr
 import src.candidates.pair_candidate_panel_creator as pcpc
+import src.residuals.causal_residuals as cr
+from src.candidates.pair_candidate_panel_creator import PairSpreadConfig
+from src.candidates.panel_batch import PanelBatchConfig, run_panel_batch
+from src.residuals.causal_residuals import CausalResidualConfig, ResidualMode
+from src.settings import DATA_UNIVERSES
 
 _MATERIALS_DATA = Path(DATA_UNIVERSES) / "materials_only_v1"
 # pair_cfg carries no default (Track B) — min_obs=2 is the loosest legal

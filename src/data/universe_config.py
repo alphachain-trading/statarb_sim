@@ -8,7 +8,6 @@ import yaml
 
 from src.types.common import GroupId
 
-
 # -----------------------------
 # Config
 # -----------------------------
@@ -38,7 +37,7 @@ class UniverseConfig:
         return out
 
     @classmethod
-    def from_yaml(cls, path: str | Path) -> "UniverseConfig":
+    def from_yaml(cls, path: str | Path) -> UniverseConfig:
         with path.open("r", encoding="utf-8") as f:
             raw = yaml.safe_load(f)
         cfg = cls(raw=raw)

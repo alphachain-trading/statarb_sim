@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 import math
+from dataclasses import dataclass
+
 import pandas as pd
 
 from src.simulator.config import ExecutionConfig

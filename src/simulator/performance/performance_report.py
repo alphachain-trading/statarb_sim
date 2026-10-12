@@ -172,6 +172,7 @@ def _write_quantstats_report(
     title: str,
 ) -> None:
     import warnings
+
     import matplotlib
 
     matplotlib.rcParams["font.sans-serif"] = ["DejaVu Sans", "Liberation Sans", "Arial"]
@@ -200,7 +201,7 @@ def _write_quantstats_report(
     # Do NOT reset_index() — quantstats needs datetime index to match with benchmark
     returns_clean = returns_clean.astype(np.float64)
 
-    out_dir = Path(cfg.report_output_dir) if cfg.report_output_dir else Path(".")
+    out_dir = Path(cfg.report_output_dir) if cfg.report_output_dir else Path()
     out_dir.mkdir(parents=True, exist_ok=True)
 
     safe_title = title.lower().replace(" ", "_").replace(":", "")

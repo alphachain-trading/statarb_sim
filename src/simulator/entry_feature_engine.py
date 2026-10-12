@@ -27,7 +27,8 @@ params or per-call-site sign multiplication.
 from __future__ import annotations
 
 import importlib
-from dataclasses import dataclass, field as dc_field
+from dataclasses import dataclass
+from dataclasses import field as dc_field
 from typing import Any
 
 import numpy as np
@@ -36,7 +37,6 @@ import pandas as pd
 from src.simulator.actions import OpenCandidateAction
 from src.simulator.config import EntryFeatureConfig, FeatureSpec
 from src.simulator.types import CandidateAnalyticsState, CandidateRef
-
 
 # Registry of available feature functions — all must live in spread_primitives.
 # Key: fn name as used in FeatureSpec.fn

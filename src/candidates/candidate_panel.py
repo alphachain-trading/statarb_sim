@@ -8,7 +8,6 @@ from typing import Any, Literal
 
 import pandas as pd
 
-
 CandidateType = Literal["pair", "portfolio"]
 
 
@@ -166,9 +165,9 @@ def finalize_candidate_panel(panel: pd.DataFrame) -> pd.DataFrame:
         if overlap:
             out = out.reset_index(level=overlap, drop=True)
         out = out.reset_index(drop=True)
-    elif out.index.name is not None and out.index.name in out.columns:
-        out = out.reset_index(drop=True)
-    elif out.index.name is not None:
+    elif (
+        out.index.name is not None and out.index.name in out.columns
+    ) or out.index.name is not None:
         out = out.reset_index(drop=True)
 
     required_cols = [
