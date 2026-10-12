@@ -21,3 +21,15 @@ select = ["E", "W", "F", "I", "UP", "B", "SIM", "C4", "RET", "PTH", "N", "RUF"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = [".", "scripts"]
+
+[tool.mypy]
+python_version = "3.12"
+check_untyped_defs = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+warn_return_any = true
+
+[[tool.mypy.overrides]]
+# Keine Stubs/py.typed vorhanden und kein types-*-Paket verfügbar
+module = ["statsmodels.*", "yfinance"]
+ignore_missing_imports = true
