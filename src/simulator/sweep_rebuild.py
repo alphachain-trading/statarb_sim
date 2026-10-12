@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import cast
 
 import pandas as pd
 
@@ -133,7 +134,7 @@ def rebuild_sweep_results(
 
 def _load_json(path: Path) -> dict:
     with path.open() as f:
-        return json.load(f)
+        return cast(dict, json.load(f))
 
 
 def _extract_config_fields(config: dict) -> dict:
@@ -362,4 +363,4 @@ def _serialize_if_complex(val) -> str | None:
         return None
     if isinstance(val, (dict, list)):
         return str(val)
-    return val
+    return cast("str | None", val)
