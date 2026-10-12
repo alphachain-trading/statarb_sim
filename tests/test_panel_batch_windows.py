@@ -77,7 +77,7 @@ class TestEqualWeightFitting(unittest.TestCase):
         # Every fit must have received half_life=None -> a uniform weight vector.
         self.assertTrue(
             all(hl is None for hl, _ in captured),
-            f"non-None half_life reached the fit: {{hl for hl, _ in captured}}",
+            f"non-None half_life reached the fit: { {hl for hl, _ in captured} }",
         )
         self.assertTrue(
             all(uniform for _, uniform in captured),
