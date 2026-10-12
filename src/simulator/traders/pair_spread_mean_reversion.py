@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import cast
 
 import numpy as np
 import pandas as pd
@@ -80,7 +81,7 @@ class PairSpreadMeanReversionTrader:
             if rhl is None:
                 return None
             try:
-                return round(eval(mhd, {"__builtins__": {}}, {"rhl": rhl}))
+                return cast("int", round(eval(mhd, {"__builtins__": {}}, {"rhl": rhl})))
             except Exception:
                 return None
         return None
@@ -141,7 +142,7 @@ class PairSpreadMeanReversionTrader:
         for cid, pos in live_positions_by_candidate_id.items():
             rule = self._resolve_exit_rule(pos.residual_key)
             if rule is not None and self._eval_exit_rule(rule, pos):
-                z = float(df.at[cid, "z_score"]) if cid in df.index else None
+                z = float(cast("float", df.at[cid, "z_score"])) if cid in df.index else None
                 closes.append(
                     CloseCandidateAction(
                         candidate_id=pos.candidate_id,
@@ -157,7 +158,7 @@ class PairSpreadMeanReversionTrader:
 
             max_hold = self._resolve_max_hold(pos.residual_key)
             if max_hold is not None and pos.days_open >= max_hold:
-                z = float(df.at[cid, "z_score"]) if cid in df.index else None
+                z = float(cast("float", df.at[cid, "z_score"])) if cid in df.index else None
                 closes.append(
                     CloseCandidateAction(
                         candidate_id=pos.candidate_id,
@@ -181,10 +182,10 @@ class PairSpreadMeanReversionTrader:
             if not row.get("is_signal_ready", False):
                 continue
 
-            z = row.get("z_score")
-            if z is None:
+            z_raw = cast("float | None", row.get("z_score"))
+            if z_raw is None:
                 continue
-            z = float(z)
+            z = float(z_raw)
 
             exit_triggered = (pos.direction > 0 and z >= -self.config.exit_z) or (
                 pos.direction < 0 and z <= self.config.exit_z
