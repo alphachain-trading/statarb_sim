@@ -4,7 +4,7 @@ import logging
 import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 import pandas as pd
@@ -704,7 +704,7 @@ def resolve_asof_datetimes(
         if len(asof_datetimes) == 0:
             raise ValueError("dates was provided but no dates remain after parsing.")
 
-        missing_dates = asof_datetimes.difference(aligned_index)
+        missing_dates = asof_datetimes.difference(cast("pd.DatetimeIndex", aligned_index))
         if len(missing_dates) > 0:
             raise ValueError(
                 "Explicit dates contain values not present in bundle.aligned_returns.index: "
@@ -736,7 +736,7 @@ def resolve_asof_datetimes(
         asof_datetimes = make_ranking_dates(
             dates=aligned_index,
             frequency=frequency,
-            min_history=residual_cfg.eff_min_history(),
+            min_history=cast("int", residual_cfg.eff_min_history()),
         )
 
         if start_date is not None:
@@ -813,7 +813,7 @@ def create_pair_candidate_panel(
     daily_dates: pd.DatetimeIndex | None = None
 
     if persist_residual_params:
-        min_history = residual_cfg.eff_min_history()
+        min_history = cast("int", residual_cfg.eff_min_history())
         daily_dates = make_ranking_dates(
             dates=aligned_index,
             frequency="B",
