@@ -16,7 +16,7 @@ from src.simulator.traders.portfolio_mean_reversion import PortfolioMeanReversio
 class TestDefaultAbsTargetGroupExposureIsMandatory(unittest.TestCase):
     def test_omitting_it_raises(self):
         with self.assertRaises(TypeError):
-            PortfolioMeanReversionTrader(
+            PortfolioMeanReversionTrader(  # type: ignore[call-arg]  # Pflichtargument absichtlich weggelassen
                 config=PortfolioMeanReversionConfig(entry_z=2.0, exit_z=0.0),
             )
 
