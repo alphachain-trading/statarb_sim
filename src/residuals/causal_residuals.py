@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Literal
+from typing import Any, Literal, cast
 
 import numpy as np
 import pandas as pd
@@ -36,7 +36,7 @@ def _to_daily_rf(rf_annual_pct: pd.Series, index: pd.Index) -> pd.Series:
     aligned and forward-filled to the target index.
     """
     rf = rf_annual_pct.reindex(index).ffill()
-    return np.log(1.0 + rf / 100.0) / 252.0
+    return cast("pd.Series", np.log(1.0 + rf / 100.0) / 252.0)
 
 
 def _subtract_rf(df: pd.DataFrame, rf_daily: pd.Series) -> pd.DataFrame:
@@ -428,7 +428,7 @@ def load_residual_params(path: str) -> dict[pd.Timestamp, FittedCausalResidualMo
         if pc_cols:
             pc_components = piv.loc[members, pc_cols].to_numpy(dtype=float).T
 
-        result[pd.Timestamp(fit_date)] = FittedCausalResidualModel(
+        result[pd.Timestamp(cast("Any", fit_date))] = FittedCausalResidualModel(
             members=members,
             proxy_name=proxy_name,
             bench_name=bench_name,
@@ -459,7 +459,7 @@ def _slice_fit_window(
         )
 
     if cfg.window_mode == "rolling":
-        aligned = aligned.iloc[-cfg.lookback :]
+        aligned = aligned.iloc[-cast("int", cfg.lookback) :]
 
     # expanding: use all data up to date (no truncation)
 
@@ -488,7 +488,7 @@ def _wls_multi(
 ) -> np.ndarray:
     Xw = X * sqrt_w[:, None]  # noqa: N806  # Matrixnotation wie in der Formel
     Yw = Y * sqrt_w[:, None]  # noqa: N806  # Matrixnotation wie in der Formel
-    return np.linalg.lstsq(Xw, Yw, rcond=None)[0]
+    return cast("np.ndarray", np.linalg.lstsq(Xw, Yw, rcond=None)[0])
 
 
 def fit_causal_residual_model(
@@ -518,8 +518,8 @@ def fit_causal_residual_model(
         aligned = _subtract_rf(aligned, rf_daily)
 
     members = list(bundle.member_returns.columns)
-    proxy_name = bundle.proxy_returns.name
-    bench_name = bundle.benchmark_returns.name
+    proxy_name = cast("str", bundle.proxy_returns.name)
+    bench_name = cast("str", bundle.benchmark_returns.name)
 
     n = len(aligned)
     sqrt_w = _make_sqrt_w(n=n, half_life=cfg.half_life)
