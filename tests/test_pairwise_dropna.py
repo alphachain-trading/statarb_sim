@@ -106,10 +106,10 @@ class TestPairwiseDropna(unittest.TestCase):
                 hedge_ratio_lb=n,
                 mr_diag_lb=n,
                 debug=False,
-                fitted_model=fitted_model,
+                fitted_model=fitted_model,  # type: ignore[arg-type]  # SimpleNamespace als Test-Double
                 progress=False,
             )
-        weights_by_spread = {}
+        weights_by_spread: dict[str, dict[str, float]] = {}
         for wr in weight_rows:
             weights_by_spread.setdefault(wr["spread_id"], {})[wr["ticker"]] = wr["weight"]
         return {r["spread_id"]: r for r in rows}, weights_by_spread
