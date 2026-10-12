@@ -35,6 +35,7 @@ import time as _time
 from dataclasses import dataclass, fields
 from datetime import datetime
 from pathlib import Path
+from typing import Any, cast
 
 import pandas as pd
 
@@ -123,13 +124,14 @@ class SweepConfig:
         ]
 
         if self.is_multi_timescale:
-            ts_count = len(self.z_score_overrides)
-            methods = {zc.method for zc in self.z_score_overrides}
+            overrides = self.z_score_overrides or []
+            ts_count = len(overrides)
+            methods = {zc.method for zc in overrides}
             method_str = "+".join(sorted(methods)) if len(methods) > 1 else next(iter(methods))
-            zhls = "+".join(str(zc.resolved_lookbacks()[0]) for zc in self.z_score_overrides)
+            zhls = "+".join(str(zc.resolved_lookbacks()[0]) for zc in overrides)
             rhls = "+".join(
                 zc.residual_key.split("_hl")[1].split("_")[0] if "_hl" in zc.residual_key else "?"
-                for zc in self.z_score_overrides
+                for zc in overrides
             )
             parts.append(f"mt{ts_count}_{method_str}_rhl{rhls}_zhl{zhls}")
         else:
@@ -173,7 +175,9 @@ class SweepConfig:
             parts.append(f"is-{'+'.join(sc_parts)}")
 
         if self.excluded_groups:
-            parts.append("ex-" + group_abbrev(groups=self.excluded_groups, to_string=True))
+            parts.append(
+                "ex-" + cast("str", group_abbrev(groups=self.excluded_groups, to_string=True))
+            )
         else:
             parts.append("all")
 
@@ -187,7 +191,7 @@ class SweepConfig:
 
 def _extract_run_id(result) -> str:
     if result.run_id is not None:
-        return result.run_id
+        return cast("str", result.run_id)
     return f"unknown_{datetime.now().strftime('%Y%m%d_%H%M')}"
 
 
@@ -227,6 +231,7 @@ def _build_sim_config(sweep: SweepConfig, *, index: int | None = None) -> Simula
 
     panel = _resolve_panel_subdir(sweep, index)
 
+    z_score: ZScoreConfig | list[ZScoreConfig] | None
     if sweep.is_multi_timescale:
         z_score = sweep.z_score_overrides
     else:
@@ -316,7 +321,7 @@ def _sweep_results_path() -> Path:
 def load_sweep_results(*, rebuild: bool = False) -> pd.DataFrame:
     p = _sweep_results_path()
     if not rebuild and p.exists():
-        return pd.read_pickle(p)
+        return cast("pd.DataFrame", pd.read_pickle(p))
 
     from src.simulator.sweep_rebuild import rebuild_sweep_results
 
@@ -487,7 +492,7 @@ def run_sweep(
     runs: list[SweepConfig],
     *,
     skip_existing: bool = True,
-) -> (pd.DataFrame, list[SimulationResult]):
+) -> tuple[pd.DataFrame, list[SimulationResult]]:
     # Validate the whole batch before running anything — a bad RUNS[7] should
     # surface now, not hours into the sweep.
     panels = [_resolve_panel_subdir(sweep, i) for i, sweep in enumerate(runs)]
@@ -540,7 +545,7 @@ def run_sweep(
                 "run_timestamp": datetime.now().isoformat(),
                 "run_duration_s": round(duration_s, 1),
                 **sweep_fields,
-                **result.performance.metrics,
+                **cast("Any", result.performance).metrics,
                 # After the splats: the resolved panel is what actually ran,
                 # and these are the real dedup identity of the run.
                 "config_hash": key,
@@ -618,7 +623,7 @@ def _run_one_sweep(args: tuple) -> dict:
             "run_timestamp": datetime.now().isoformat(),
             "run_duration_s": round(duration_s, 1),
             **sweep_fields,
-            **result.performance.metrics,
+            **cast("Any", result.performance).metrics,
             "config_hash": key,
             "candidate_panel_subdir": panel,
         }
