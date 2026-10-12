@@ -10,6 +10,7 @@ day-by-day accumulation (commit 8b/8c).
 """
 
 import unittest
+from typing import cast
 
 import pandas as pd
 
@@ -20,6 +21,11 @@ from src.simulator.position_translator import PositionTranslator
 from src.simulator.types import LiveCandidatePosition
 
 DATES = pd.bdate_range("2020-01-01", periods=6)  # d0..d5
+
+
+def _cell(df: pd.DataFrame, row: pd.Timestamp, col: str) -> float:
+    """Typed scalar lookup (df.loc[row, col] is typed as a wide scalar union)."""
+    return cast("float", df.loc[row, col])
 
 
 def _price_matrix():
@@ -131,12 +137,12 @@ class TestReconstructDailyPortfolioStateClosedTradeOnly(unittest.TestCase):
         self.assertEqual(df.loc[DATES[1], "total_equity_gross"], capital)
         # d2: MTM at d2's prices (AAA=102, BBB=49) vs entry (AAA=100, BBB=50):
         #   unrealized = 50*(102-100) + (-100)*(49-50) = 100 + 100 = 200
-        self.assertAlmostEqual(df.loc[DATES[2], "total_equity_gross"], capital + 200.0)
+        self.assertAlmostEqual(_cell(df, DATES[2], "total_equity_gross"), capital + 200.0)
         # d3 (exit day): position removed before the snapshot; realized_pnl_gross=400
         # credited on d3 via cumulative_realized_pnl.
-        self.assertAlmostEqual(df.loc[DATES[3], "total_equity_gross"], capital + 400.0)
+        self.assertAlmostEqual(_cell(df, DATES[3], "total_equity_gross"), capital + 400.0)
         # d4 and onward: still capital + realized, nothing live.
-        self.assertAlmostEqual(df.loc[DATES[4], "total_equity_gross"], capital + 400.0)
+        self.assertAlmostEqual(_cell(df, DATES[4], "total_equity_gross"), capital + 400.0)
 
         # Zero costs in this fixture => equity_net == equity_gross throughout.
         pd.testing.assert_series_equal(
@@ -220,10 +226,10 @@ class TestReconstructDailyPortfolioStateBorrowAndCommission(unittest.TestCase):
         # rate = 100*100/10000/252 = 1.0/252 per day *252*100bps... use the same
         # formula the reconstruction uses: rate_annual_bps/10000/252
         rate = (252 * 100) / 10_000.0 / 252.0  # = 0.01 exactly
-        self.assertAlmostEqual(df.loc[DATES[2], "daily_borrow_cost"], 10_000.0 * rate)
+        self.assertAlmostEqual(_cell(df, DATES[2], "daily_borrow_cost"), 10_000.0 * rate)
         # d3 (exit day): still charged (removed only after accrual) -- gross_value
         # at d3 prices: |-50*104| + |100*48| = 5200 + 4800 = 10000
-        self.assertAlmostEqual(df.loc[DATES[3], "daily_borrow_cost"], 10_000.0 * rate)
+        self.assertAlmostEqual(_cell(df, DATES[3], "daily_borrow_cost"), 10_000.0 * rate)
         # d4: position gone, no more borrow.
         self.assertEqual(df.loc[DATES[4], "daily_borrow_cost"], 0.0)
 
@@ -266,11 +272,11 @@ class TestReconstructDailyPortfolioStateBorrowAndCommission(unittest.TestCase):
         ).set_index("date")
 
         # Entry commission (3.5) charged on d1; exit commission (3.5) charged on d3.
-        self.assertAlmostEqual(df.loc[DATES[0], "cumulative_transaction_costs"], 0.0)
-        self.assertAlmostEqual(df.loc[DATES[1], "cumulative_transaction_costs"], 3.5)
-        self.assertAlmostEqual(df.loc[DATES[2], "cumulative_transaction_costs"], 3.5)
-        self.assertAlmostEqual(df.loc[DATES[3], "cumulative_transaction_costs"], 7.0)
-        self.assertAlmostEqual(df.loc[DATES[4], "cumulative_transaction_costs"], 7.0)
+        self.assertAlmostEqual(_cell(df, DATES[0], "cumulative_transaction_costs"), 0.0)
+        self.assertAlmostEqual(_cell(df, DATES[1], "cumulative_transaction_costs"), 3.5)
+        self.assertAlmostEqual(_cell(df, DATES[2], "cumulative_transaction_costs"), 3.5)
+        self.assertAlmostEqual(_cell(df, DATES[3], "cumulative_transaction_costs"), 7.0)
+        self.assertAlmostEqual(_cell(df, DATES[4], "cumulative_transaction_costs"), 7.0)
 
 
 class TestReconstructDailyPortfolioStateStillOpenPosition(unittest.TestCase):
@@ -325,11 +331,11 @@ class TestReconstructDailyPortfolioStateStillOpenPosition(unittest.TestCase):
         self.assertEqual(df.loc[DATES[-1], "n_live_candidate_positions"], 1)
         # d5 unrealized: AAA 108 vs 100 (+8*50=400), BBB 46 vs 50 (-4*-100=+400) => 800.
         # total_equity_gross does not subtract costs -- that's total_equity_net's job.
-        self.assertAlmostEqual(df.loc[DATES[-1], "total_equity_gross"], 1_000_000.0 + 800.0)
-        self.assertAlmostEqual(df.loc[DATES[-1], "total_equity_net"], 1_000_000.0 + 800.0 - 3.5)
+        self.assertAlmostEqual(_cell(df, DATES[-1], "total_equity_gross"), 1_000_000.0 + 800.0)
+        self.assertAlmostEqual(_cell(df, DATES[-1], "total_equity_net"), 1_000_000.0 + 800.0 - 3.5)
         # entry commission (3.5) charged once, on d1, never an exit commission (still open).
-        self.assertAlmostEqual(df.loc[DATES[1], "cumulative_transaction_costs"], 3.5)
-        self.assertAlmostEqual(df.loc[DATES[-1], "cumulative_transaction_costs"], 3.5)
+        self.assertAlmostEqual(_cell(df, DATES[1], "cumulative_transaction_costs"), 3.5)
+        self.assertAlmostEqual(_cell(df, DATES[-1], "cumulative_transaction_costs"), 3.5)
 
 
 if __name__ == "__main__":
