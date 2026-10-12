@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import yaml
 
@@ -38,7 +38,7 @@ class UniverseConfig:
 
     @classmethod
     def from_yaml(cls, path: str | Path) -> UniverseConfig:
-        with path.open("r", encoding="utf-8") as f:
+        with Path(path).open("r", encoding="utf-8") as f:
             raw = yaml.safe_load(f)
         cfg = cls(raw=raw)
         cfg.validate()
@@ -76,23 +76,23 @@ class UniverseConfig:
 
     @property
     def universe_name(self) -> str:
-        return self.raw["meta"]["universe_name"]
+        return cast("str", self.raw["meta"]["universe_name"])
 
     @property
     def root_group(self) -> str:
-        return self.raw["hierarchy"]["root"]
+        return cast("str", self.raw["hierarchy"]["root"])
 
     @property
     def loader_defaults(self) -> dict[str, Any]:
-        return self.raw.get("loader_defaults", {})
+        return cast("dict[str, Any]", self.raw.get("loader_defaults", {}))
 
     @property
     def groups(self) -> dict[str, dict[str, Any]]:
-        return self.raw["groups"]
+        return cast("dict[str, dict[str, Any]]", self.raw["groups"])
 
     @property
     def tickers(self) -> dict[str, dict[str, Any]]:
-        return self.raw["tickers"]
+        return cast("dict[str, dict[str, Any]]", self.raw["tickers"])
 
     def all_symbols(self) -> list[str]:
         out = set(self.tickers.keys())
