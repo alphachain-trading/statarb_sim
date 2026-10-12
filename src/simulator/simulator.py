@@ -3,7 +3,7 @@ from __future__ import annotations
 import dataclasses
 import os
 from dataclasses import asdict, dataclass, field
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 import pandas as pd
@@ -14,7 +14,7 @@ from src.simulator.actions import CandidateAction, CloseCandidateAction, OpenCan
 from src.simulator.candidate_activation import CandidateActivation
 from src.simulator.candidate_filter import CandidateFilter
 from src.simulator.candidate_signals import CandidateSignalGenerator
-from src.simulator.config import PerformanceConfig, SimulatorConfig
+from src.simulator.config import DebugSampleConfig, PerformanceConfig, SimulatorConfig
 from src.simulator.entry_feature_engine import EntryFeatureEngine
 from src.simulator.execution import ExecutionEngine
 from src.simulator.position_translator import PositionTranslator
@@ -254,7 +254,7 @@ class Simulator:
         )
 
         logger.log("[run] Starting preflight validation...")
-        self._preflight_validate(selected, price_matrix, dates)
+        self._preflight_validate(selected, price_matrix, cast("list[pd.Timestamp]", dates))
         logger.log("[run] Preflight done.")
 
         live_positions_by_candidate_id: dict[str, LiveCandidatePosition] = {}
@@ -271,7 +271,7 @@ class Simulator:
         if self.config.run.progress:
             from tqdm import tqdm
 
-            date_iter = tqdm(dates, desc="Simulating", smoothing=0.1, unit="step")
+            date_iter: Any = tqdm(dates, desc="Simulating", smoothing=0.1, unit="step")
         else:
             date_iter = dates
 
@@ -295,7 +295,7 @@ class Simulator:
                     f"snapshots={len(live_positions_by_candidate_id)}"
                 )
 
-            current_prices = price_matrix.loc[date].dropna()
+            current_prices = cast("pd.Series", price_matrix.loc[date]).dropna()
 
             self._increment_days_open(live_positions_by_candidate_id=live_positions_by_candidate_id)
             self._mark_to_market_live_positions(
@@ -476,8 +476,8 @@ class Simulator:
                 approved_sized = sized_opens
 
             # Execute approved opens
-            for action, pair_notional, feature_scores, size_multiplier in approved_sized:
-                sized_action = action.with_notional(pair_notional)
+            for open_action, pair_notional, feature_scores, size_multiplier in approved_sized:
+                sized_action = open_action.with_notional(pair_notional)
                 self._apply_action(
                     date=date,
                     action=sized_action,
@@ -713,7 +713,7 @@ class Simulator:
                 group_id=action.group_id,
                 spread_id=action.spread_id,
                 direction=action.direction,
-                pair_notional=action.pair_notional,
+                pair_notional=cast("float", action.pair_notional),
                 gross_value=gross_value,
                 entry_date=pd.Timestamp(date),
                 entry_asof_date=ref.asof_date,
@@ -1025,9 +1025,9 @@ class Simulator:
         end = min(market_dates.max(), cp_dates.max())
 
         if self.config.run.start_date is not None:
-            start = max(start, self.config.run.start_date)
+            start = max(start, pd.Timestamp(self.config.run.start_date))
         if self.config.run.end_date is not None:
-            end = min(end, self.config.run.end_date)
+            end = min(end, pd.Timestamp(self.config.run.end_date))
 
         dates = market_dates[(market_dates >= start) & (market_dates <= end)]
         if len(dates) == 0:
@@ -1048,7 +1048,7 @@ class Simulator:
 
     def _draw_debug_sample(self, selected_panel: pd.DataFrame) -> frozenset[str]:
         """F2 C5: sample spread_ids for the debug sample, or use the explicit override."""
-        cfg = self.config.debug_sample
+        cfg = cast("DebugSampleConfig", self.config.debug_sample)
         if cfg.spread_ids is not None:
             return frozenset(cfg.spread_ids)
 
@@ -1109,7 +1109,7 @@ class Simulator:
                         "asof_date": pd.Timestamp(ref.asof_date),
                         "date": pd.Timestamp(date),
                         "ticker": member,
-                        "residual_return": float(resid_row[member]),
+                        "residual_return": float(cast("float", resid_row[member])),
                         "weight": float(weight),
                         "level": state.level,
                         "z_score": state.z_score,
