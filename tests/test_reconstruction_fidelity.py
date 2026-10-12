@@ -22,6 +22,7 @@ reproduce -- an open position's own frozen ref, and the latest ref per
 """
 
 import unittest
+from typing import Any, cast
 
 import numpy as np
 import pandas as pd
@@ -47,6 +48,14 @@ SAMPLE_SPREAD_IDS = ("APA|VLO", "APD|IP")
 
 
 class TestReconstructionFidelity(unittest.TestCase):
+    _scratch_dir: str
+    debug_sample_df: pd.DataFrame
+    open_intervals: dict[str, list[tuple[pd.Timestamp, pd.Timestamp]]]
+    precomputed: dict[tuple[str, str], Any]
+    weights_lookup: dict[tuple[str, pd.Timestamp], dict[str, float]]
+    selected_panel: pd.DataFrame
+    signal_generator: CandidateSignalGenerator
+
     @classmethod
     def setUpClass(cls):
         import dataclasses
@@ -107,10 +116,13 @@ class TestReconstructionFidelity(unittest.TestCase):
         assert len(cls.debug_sample_df) > 0, "debug sample captured no rows"
 
         trades_df = result.closed_trades_df()
-        cls.open_intervals: dict[str, list[tuple[pd.Timestamp, pd.Timestamp]]] = {}
-        for row in trades_df.itertuples(index=False):
+        cls.open_intervals = {}
+        for row in cast("Any", trades_df.itertuples(index=False)):
             cls.open_intervals.setdefault(row.candidate_id, []).append(
-                (pd.Timestamp(row.entry_date), pd.Timestamp(row.exit_date))
+                (
+                    pd.Timestamp(cast("Any", row.entry_date)),
+                    pd.Timestamp(cast("Any", row.exit_date)),
+                )
             )
 
         # Fresh signal generator, built from persisted artifacts independently
@@ -120,7 +132,7 @@ class TestReconstructionFidelity(unittest.TestCase):
         run_dir = _resolve_run_dir(sim_config.persistence, result.run_id)
         candidates_dir = run_dir / "candidates"
 
-        residual_key = sim_config.residual.key
+        residual_key = cast("Any", sim_config.residual).key
         weight_dfs = []
         cls.precomputed = {}
         panel_frames = []
@@ -134,7 +146,7 @@ class TestReconstructionFidelity(unittest.TestCase):
             )
 
         cls.weights_lookup = weights_lookup_from_df(pd.concat(weight_dfs, ignore_index=True))
-        residual_configs = {residual_key: sim_config.residual}
+        residual_configs = {residual_key: cast("Any", sim_config.residual)}
 
         umd = _load_umd(sim_config.data)
         cls.selected_panel = result.selected_panel
@@ -170,7 +182,7 @@ class TestReconstructionFidelity(unittest.TestCase):
 
     def test_every_row_reconstructs_exactly(self):
         n_checked = 0
-        for row in self.debug_sample_df.itertuples(index=False):
+        for row in cast("Any", self.debug_sample_df.itertuples(index=False)):
             state = reconstruct_level_and_zscore(
                 signal_generator=self.signal_generator,
                 weights_lookup=self.weights_lookup,
@@ -189,7 +201,7 @@ class TestReconstructionFidelity(unittest.TestCase):
 
     def test_position_view_reconstructs_exactly_via_dedicated_function(self):
         checked = 0
-        for row in self.debug_sample_df.itertuples(index=False):
+        for row in cast("Any", self.debug_sample_df.itertuples(index=False)):
             if not self._is_position_view(row):
                 continue
             state = reconstruct_position_view(
@@ -224,8 +236,8 @@ class TestReconstructionFidelity(unittest.TestCase):
         one_row_dedupe = self.debug_sample_df.drop_duplicates(
             subset=["spread_id", "date", "asof_date", "candidate_id"]
         )
-        for (spread_id, date), group in one_row_dedupe.groupby(["spread_id", "date"]):
-            latest_row = group.loc[group["asof_date"].idxmax()]
+        for (spread_id, date), group in cast("Any", one_row_dedupe.groupby(["spread_id", "date"])):
+            latest_row = cast("Any", group.loc[group["asof_date"].idxmax()])
             state = reconstruct_candidate_view(
                 signal_generator=self.signal_generator,
                 weights_lookup=self.weights_lookup,
@@ -237,6 +249,7 @@ class TestReconstructionFidelity(unittest.TestCase):
                 timescale_label=latest_row["timescale_label"],
             )
             self.assertIsNotNone(state)
+            assert state is not None  # narrowing for mypy
             self.assertEqual(state.level, latest_row["level"])
             self.assertEqual(state.z_score, latest_row["z_score"])
             checked += 1
@@ -289,7 +302,7 @@ def _make_generator(
                 mode=ResidualMode.EQ_EXPANDING, subtract_risk_free=False, min_lb_eq_exp=5
             )
         },
-        umd=None,
+        umd=None,  # type: ignore[arg-type]  # never touched; bundle is pre-populated below
     )
     gen._bundle_cache["g"] = bundle
     gen.precomputed_residual_params[("g", "")] = {asof_date: model}
