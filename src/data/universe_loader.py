@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import ClassVar
+from typing import Any, ClassVar, cast
 
 import pandas as pd
 import yfinance as yf
@@ -178,22 +178,25 @@ class UniverseDataLoader:
         if not frames:
             raise RuntimeError("All ticker downloads failed.")
 
-        return pd.concat(frames, axis=1).sort_index(axis=1)
+        return cast("pd.DataFrame", pd.concat(frames, axis=1).sort_index(axis=1))
 
     def _download_prices_batch(self, symbols: list[str]) -> pd.DataFrame:
         d = self.config.loader_defaults
-        return yf.download(
-            tickers=symbols,
-            start=d.get("start_date", None),
-            end=d.get("end_date", None),
-            interval=d.get("interval", "1d"),
-            auto_adjust=d.get("auto_adjust", True),
-            actions=False,
-            repair=d.get("repair", True),
-            keepna=d.get("keepna", False),
-            threads=d.get("threads", True),
-            progress=False,
-            group_by="column",
+        return cast(
+            "pd.DataFrame",
+            yf.download(
+                tickers=symbols,
+                start=d.get("start_date", None),
+                end=d.get("end_date", None),
+                interval=d.get("interval", "1d"),
+                auto_adjust=d.get("auto_adjust", True),
+                actions=False,
+                repair=d.get("repair", True),
+                keepna=d.get("keepna", False),
+                threads=d.get("threads", True),
+                progress=False,
+                group_by="column",
+            ),
         )
 
     def _normalize_prices(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -235,7 +238,9 @@ class UniverseDataLoader:
         df.index.name = "Date"
 
         df = df.sort_index().sort_index(axis=1)
-        df.columns = pd.MultiIndex.from_tuples(df.columns, names=["ticker", "field"])
+        df.columns = pd.MultiIndex.from_tuples(
+            cast("list[tuple[str, str]]", list(df.columns)), names=["ticker", "field"]
+        )
         return df.astype("float64")
 
     def _build_ticker_info(self) -> pd.DataFrame:
@@ -323,7 +328,7 @@ class UniverseDataLoader:
 
         # rebuild column MultiIndex names consistently
         df.columns = pd.MultiIndex.from_tuples(
-            [(str(a), str(b)) for a, b in df.columns],
+            [(str(a), str(b)) for a, b in cast("list[tuple[Any, Any]]", list(df.columns))],
             names=["ticker", "field"],
         )
 
@@ -348,7 +353,12 @@ class UniverseDataLoader:
             d = {"auto_adjust": True, "repair": True}
 
         d = self.config.loader_defaults
-        summary = {"skipped": [], "success": [], "failed": [], "corrupted": []}
+        summary: dict[str, list[str]] = {
+            "skipped": [],
+            "success": [],
+            "failed": [],
+            "corrupted": [],
+        }
 
         for symbol in symbols:
             target_path = self.pool_dir / f"{symbol}.parquet"
