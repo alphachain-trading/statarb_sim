@@ -171,7 +171,7 @@ class TestSweepDefaults(unittest.TestCase):
     def test_registry_is_read_only(self):
         """MappingProxyType — a bundle must not be mutable in place."""
         with self.assertRaises(TypeError):
-            DEFAULT_CONFIGS["standard_v1"]["capital"] = None
+            DEFAULT_CONFIGS["standard_v1"]["capital"] = None  # type: ignore[index]  # Mapping ist bewusst read-only
 
 
 if __name__ == "__main__":
