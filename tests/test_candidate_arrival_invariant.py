@@ -13,6 +13,7 @@ Two independent halves:
 """
 
 import unittest
+from typing import cast
 
 import numpy as np
 import pandas as pd
@@ -23,6 +24,8 @@ from src.residuals.causal_residuals import CausalResidualConfig, ResidualMode, _
 
 class TestEntryAsofDateInvariant(unittest.TestCase):
     """Half (a): entry_asof_date <= entry_date on a real, small end-to-end run."""
+
+    trades_df: pd.DataFrame | None = None
 
     @classmethod
     def setUpClass(cls):
@@ -58,10 +61,10 @@ class TestEntryAsofDateInvariant(unittest.TestCase):
         """Sanity check on the fixture: a vacuously-true invariant over zero
         trades would not be evidence of anything."""
         self.assertIsNotNone(self.trades_df)
-        self.assertGreater(len(self.trades_df), 0)
+        self.assertGreater(len(cast("pd.DataFrame", self.trades_df)), 0)
 
     def test_entry_asof_date_le_entry_date(self):
-        df = self.trades_df
+        df = cast("pd.DataFrame", self.trades_df)
         self.assertIn("entry_asof_date", df.columns)
         self.assertIn("entry_date", df.columns)
         violations = df[df["entry_asof_date"] > df["entry_date"]]
