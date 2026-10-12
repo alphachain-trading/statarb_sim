@@ -31,6 +31,7 @@ import re
 import shutil
 import sys
 from pathlib import Path
+from typing import cast
 
 import yaml
 
@@ -55,7 +56,7 @@ def load_config() -> dict:
     if not CONFIG_PATH.exists():
         sys.exit(f"[config] Missing config file: {CONFIG_PATH}")
     with CONFIG_PATH.open() as f:
-        return yaml.safe_load(f)
+        return cast("dict", yaml.safe_load(f))
 
 
 # ---------------------------------------------------------------------------
@@ -81,7 +82,7 @@ def _done(stage: str) -> None:
 
 
 def _panel_dir(cfg: dict) -> Path:
-    return CANDIDATE_PANELS_ROOT / cfg["panels"]["subdir"]
+    return cast("Path", CANDIDATE_PANELS_ROOT / cfg["panels"]["subdir"])
 
 
 def _panel_file(cfg: dict) -> Path:
@@ -95,7 +96,7 @@ def _selected_groups(cfg: dict) -> list[str]:
 
 def _universe_name(cfg: dict) -> str:
     """The universe directory name, from demo_materials.yaml's `universe_name`."""
-    return cfg["universe_name"]
+    return cast("str", cfg["universe_name"])
 
 
 def _universe_dir(cfg: dict) -> Path:
