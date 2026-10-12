@@ -18,6 +18,7 @@ to the gapped ticker's column on that one date.
 """
 
 import unittest
+from typing import cast
 
 import numpy as np
 import pandas as pd
@@ -55,7 +56,7 @@ def _make_bundle(seed: int = 7) -> GroupReturnBundle:
 
 def _punch_hole(bundle: GroupReturnBundle, ticker: str, abs_index: int) -> GroupReturnBundle:
     aligned = bundle.aligned_returns.copy()
-    aligned.iloc[abs_index, aligned.columns.get_loc(ticker)] = np.nan
+    aligned.iloc[abs_index, cast("int", aligned.columns.get_loc(ticker))] = np.nan
     return GroupReturnBundle(
         group_id=bundle.group_id,
         member_returns=bundle.member_returns,
