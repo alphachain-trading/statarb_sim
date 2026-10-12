@@ -17,15 +17,10 @@ apply_causal_residual_model's row-wise subtraction sees the NaN, confined
 to the gapped ticker's column on that one date.
 """
 
-import sys
 import unittest
-from pathlib import Path
 
 import numpy as np
 import pandas as pd
-
-REPO_ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(REPO_ROOT))
 
 import src.candidates.pair_candidate_panel_creator as pcpc
 from src.data.returns import GroupReturnBundle

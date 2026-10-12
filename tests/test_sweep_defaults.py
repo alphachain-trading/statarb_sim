@@ -11,12 +11,7 @@ Two things to prove:
      ever name the same field — the guard against silent precedence bugs.
 """
 
-import sys
 import unittest
-from pathlib import Path
-
-REPO_ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(REPO_ROOT))
 
 from src.candidates.candidate_selector import CandidateSelectionConfig
 from src.simulator.config import (

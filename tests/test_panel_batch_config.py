@@ -20,16 +20,14 @@ Covers, without touching disk or market data:
 """
 
 import json
-import sys
 import unittest
 from pathlib import Path
-
-REPO_ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(REPO_ROOT))
 
 from src.candidates.pair_candidate_panel_creator import PairSpreadConfig
 from src.candidates.panel_batch import PanelBatchConfig
 from src.residuals.causal_residuals import AbsOrMult, CausalResidualConfig, ResidualMode
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
 
 # TestPanelBatchConfigValidation below tests residual_configs/hedge_ratio_lb/
 # mr_diag_lb validation only — pair_cfg is irrelevant to what's asserted, so

@@ -9,15 +9,11 @@ make_candidate_id, so a duplicate is a structural bug in the caller, not a
 legitimate repeat.
 """
 
-import sys
 import tempfile
 import unittest
 from pathlib import Path
 
 import pandas as pd
-
-REPO_ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(REPO_ROOT))
 
 from src.candidates.candidate_panel import CandidatePanelResult, save_candidate_panel_result
 

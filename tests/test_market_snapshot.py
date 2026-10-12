@@ -11,7 +11,6 @@ tickers without touching committed config.
 """
 
 import shutil
-import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -19,9 +18,6 @@ from unittest.mock import patch
 
 import pandas as pd
 import yaml
-
-REPO_ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(REPO_ROOT))
 
 from src.data.market_snapshot import (
     IncompleteUniverseDownloadError,

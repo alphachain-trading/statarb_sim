@@ -6,16 +6,11 @@ configuration not exercised by any config in DEFAULT_CONFIGS or any howto
 notebook today (see docs/refactor/A_spec.md section 11).
 """
 
-import sys
 import unittest
-from pathlib import Path
 from unittest.mock import patch
 
 import numpy as np
 import pandas as pd
-
-REPO_ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(REPO_ROOT))
 
 from src.candidates.candidate_panel import CandidatePanelResult
 from src.candidates.candidate_selector import CandidateSelectionConfig, select_candidates

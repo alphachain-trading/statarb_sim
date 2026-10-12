@@ -35,18 +35,12 @@ tearDown regardless of outcome, never touching the shared harness directory.
 """
 
 import shutil
-import sys
 import unittest
 import uuid
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
-
-REPO_ROOT = Path(__file__).resolve().parent.parent
-SCRIPTS_DIR = REPO_ROOT / "scripts"
-sys.path.insert(0, str(REPO_ROOT))
-sys.path.insert(0, str(SCRIPTS_DIR))
 
 from src.candidates.candidate_panel import (
     load_weights,

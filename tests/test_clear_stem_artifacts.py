@@ -12,13 +12,9 @@ deleted the series/ cache entirely), but a stem-scoped clear must still leave
 arbitrary unrelated content alone regardless of what it happens to be.
 """
 
-import sys
 import tempfile
 import unittest
 from pathlib import Path
-
-REPO_ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(REPO_ROOT))
 
 from src.candidates.pair_candidate_panel_creator import _clear_stem_artifacts
 

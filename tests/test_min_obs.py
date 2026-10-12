@@ -11,18 +11,13 @@ counted on the pair's own retained rows after its own pairwise dropna
 different pair's rows.
 """
 
-import sys
 import unittest
-from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, ClassVar
 from unittest.mock import patch
 
 import numpy as np
 import pandas as pd
-
-REPO_ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(REPO_ROOT))
 
 import src.candidates.pair_candidate_panel_creator as pcpc
 from src.data.returns import GroupReturnBundle

@@ -21,17 +21,10 @@ reproduce -- an open position's own frozen ref, and the latest ref per
 (spread_id, date), respectively.
 """
 
-import sys
 import unittest
-from pathlib import Path
 
 import numpy as np
 import pandas as pd
-
-REPO_ROOT = Path(__file__).resolve().parent.parent
-SCRIPTS_DIR = REPO_ROOT / "scripts"
-sys.path.insert(0, str(REPO_ROOT))
-sys.path.insert(0, str(SCRIPTS_DIR))
 
 from src.data.returns import GroupReturnBundle
 from src.residuals.causal_residuals import (

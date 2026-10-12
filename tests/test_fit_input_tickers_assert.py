@@ -10,13 +10,8 @@ different universe than the one the panel was built against, before a
 residual fit fails partway through with a confusing KeyError.
 """
 
-import sys
 import unittest
-from pathlib import Path
 from types import SimpleNamespace
-
-REPO_ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(REPO_ROOT))
 
 from src.simulator.simulator_factory import _assert_fit_input_tickers_available
 

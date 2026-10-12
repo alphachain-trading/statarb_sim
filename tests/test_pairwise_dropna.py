@@ -24,17 +24,12 @@ apply_causal_residual_model so the residual window can carry a synthetic
 gap without needing a real fit.
 """
 
-import sys
 import unittest
-from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
 import numpy as np
 import pandas as pd
-
-REPO_ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(REPO_ROOT))
 
 import src.candidates.pair_candidate_panel_creator as pcpc
 from src.data.returns import GroupReturnBundle

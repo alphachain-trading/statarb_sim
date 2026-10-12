@@ -15,15 +15,11 @@ weights_lookup_from_df must reproduce exact float64 values, not
 """
 
 import json
-import sys
 import tempfile
 import unittest
 from pathlib import Path
 
 import pandas as pd
-
-REPO_ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(REPO_ROOT))
 
 from src.candidates.candidate_panel import load_weights, save_weights, weights_lookup_from_df
 

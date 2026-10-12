@@ -13,13 +13,9 @@ Proves the two behavioural claims the refactor rests on:
 Skips cleanly if the materials market data is not present.
 """
 
-import sys
 import unittest
 from pathlib import Path
 from unittest import mock
-
-REPO_ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(REPO_ROOT))
 
 import src.candidates.pair_candidate_panel_creator as pcpc
 import src.residuals.causal_residuals as cr

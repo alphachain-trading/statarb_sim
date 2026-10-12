@@ -9,14 +9,9 @@ this commit stands up to eventually replace DailyPortfolioStateLogEntry's
 day-by-day accumulation (commit 8b/8c).
 """
 
-import sys
 import unittest
-from pathlib import Path
 
 import pandas as pd
-
-REPO_ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(REPO_ROOT))
 
 from src.simulator.config import ExecutionConfig
 from src.simulator.execution import ExecutionEngine

@@ -9,7 +9,6 @@ a test failure instead of a broken clone.
 
 import importlib
 import pkgutil
-import sys
 import unittest
 from pathlib import Path
 
@@ -18,7 +17,6 @@ SRC_ROOT = REPO_ROOT / "src"
 
 # Resolve `src` against this repo rather than whatever an ambient PYTHONPATH
 # happens to point at, so the test cannot end up grading a sibling checkout.
-sys.path.insert(0, str(REPO_ROOT))
 
 
 def iter_module_names():

@@ -13,12 +13,7 @@ lives on the SweepConfig and is required, so an unset panel raises loud
 (naming the offending RUNS[i]) rather than silently running the default.
 """
 
-import sys
 import unittest
-from pathlib import Path
-
-REPO_ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(REPO_ROOT))
 
 from src.simulator.config import FeatureIntervalSpec, IntervalScoringConfig, ZScoreConfig
 from src.simulator.sweep_runner import SweepConfig, _resolve_panel_subdir, dedup_key

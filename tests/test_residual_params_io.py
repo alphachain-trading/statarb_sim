@@ -11,16 +11,12 @@ without optional PC removal, and must reject a malformed model that would
 silently collide two rows onto the same (fit_date, ticker, factor) key.
 """
 
-import sys
 import tempfile
 import unittest
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
-
-REPO_ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(REPO_ROOT))
 
 from src.residuals.causal_residuals import (
     FittedCausalResidualModel,

@@ -7,12 +7,7 @@ never constructs a PortfolioMeanReversionConfig/-Trader), so there is no
 B_baseline.txt signal for this one — this test is the verification instead.
 """
 
-import sys
 import unittest
-from pathlib import Path
-
-REPO_ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(REPO_ROOT))
 
 from src.simulator.config import PortfolioMeanReversionConfig
 from src.simulator.traders.portfolio_mean_reversion import PortfolioMeanReversionTrader
