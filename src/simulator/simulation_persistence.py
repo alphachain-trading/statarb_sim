@@ -5,7 +5,7 @@ import json
 import shutil
 from dataclasses import asdict
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pandas as pd
 
@@ -299,7 +299,7 @@ def _resolve_run_dir(cfg: PersistenceConfig, run_id: str) -> Path:
 
 def _config_to_serializable(config: SimulatorConfig) -> dict[str, Any]:
     """Convert config to a JSON-serializable dict."""
-    return _to_serializable(asdict(config))
+    return cast("dict[str, Any]", _to_serializable(asdict(config)))
 
 
 def _to_serializable(obj: Any) -> Any:
