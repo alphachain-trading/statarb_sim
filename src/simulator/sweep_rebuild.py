@@ -44,10 +44,7 @@ def rebuild_sweep_results(
     -------
     DataFrame indexed by run_id with config + performance columns.
     """
-    if runs_dir is None:
-        runs_dir = Path(SIMULATION_RUNS_ROOT)
-    else:
-        runs_dir = Path(runs_dir)
+    runs_dir = Path(SIMULATION_RUNS_ROOT) if runs_dir is None else Path(runs_dir)
 
     if not runs_dir.exists():
         print(f"[rebuild] Directory not found: {runs_dir}")

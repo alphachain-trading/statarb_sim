@@ -81,17 +81,14 @@ class CandidateSelectionConfig:
     excluded_tickers: list[str] | None = None
 
     def __post_init__(self) -> None:
-        if self.adf_pvalue_max is not None:
-            if not (0.0 < self.adf_pvalue_max <= 1.0):
-                raise ValueError("adf_pvalue_max must be in (0, 1].")
+        if self.adf_pvalue_max is not None and not (0.0 < self.adf_pvalue_max <= 1.0):
+            raise ValueError("adf_pvalue_max must be in (0, 1].")
 
-        if self.mr_retention_min is not None:
-            if not (0.0 < self.mr_retention_min <= 1.0):
-                raise ValueError("mr_retention_min must be in (0, 1].")
+        if self.mr_retention_min is not None and not (0.0 < self.mr_retention_min <= 1.0):
+            raise ValueError("mr_retention_min must be in (0, 1].")
 
-        if self.half_life_mult_max is not None:
-            if self.half_life_mult_max <= 0.0:
-                raise ValueError("half_life_mult_max must be positive.")
+        if self.half_life_mult_max is not None and self.half_life_mult_max <= 0.0:
+            raise ValueError("half_life_mult_max must be positive.")
 
         scope = tuple(self.reference_scope_cols)
         if len(scope) != len(set(scope)):

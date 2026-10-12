@@ -69,9 +69,11 @@ class RiskManager:
 
         for action, pair_notional, feature_scores, size_multiplier in ranked:
             # Position count cap
-            if self.config.max_concurrent_positions is not None:
-                if n_positions >= self.config.max_concurrent_positions:
-                    break
+            if (
+                self.config.max_concurrent_positions is not None
+                and n_positions >= self.config.max_concurrent_positions
+            ):
+                break
 
             # Gross exposure check
             if (
