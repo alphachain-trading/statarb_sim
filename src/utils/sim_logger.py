@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import TextIO
 
 
 class SimLogger:
     def __init__(self) -> None:
-        self._file = None
+        self._file: TextIO | None = None
 
     def configure(self, log_path: Path) -> None:
         if self._file is not None:
