@@ -28,35 +28,43 @@ Usage from Jupyter:
     df = load_sweep_results()
     view_signal(df)
 """
+
 from __future__ import annotations
 
 import time as _time
 from dataclasses import dataclass, fields
 from datetime import datetime
 from pathlib import Path
+from typing import Any, cast
 
 import pandas as pd
 
-from src.settings import CANDIDATE_PANELS_ROOT, CONFIG_UNIVERSE, DATA_UNIVERSES, SIMULATION_RUNS_ROOT
-from src.simulator.config import (
-    DataConfig, SimulatorConfig,
-    RunConfig,
-    ZScoreConfig,
-    PairSpreadTraderConfig, RiskManagerConfig,
-    SizingConfig, VolSizingConfig,
-    EntryFeatureConfig, FeatureSpec,
-    FeatureIntervalSpec, IntervalScoringConfig,
-    discover_group_data_sources, group_abbrev,
+from src.settings import (
+    DATA_UNIVERSES,
+    SIMULATION_RUNS_ROOT,
 )
+from src.simulator.config import (
+    DataConfig,
+    EntryFeatureConfig,
+    IntervalScoringConfig,
+    PairSpreadTraderConfig,
+    RiskManagerConfig,
+    RunConfig,
+    SimulatorConfig,
+    SizingConfig,
+    VolSizingConfig,
+    ZScoreConfig,
+    group_abbrev,
+)
+from src.simulator.simulation_persistence import hash_config
 from src.simulator.simulator import SimulationResult
 from src.simulator.simulator_factory import run_from_config
-from src.simulator.simulation_persistence import hash_config
 from src.simulator.sweep_defaults import get_default_bundle, merge_defaults
-
 
 # ---------------------------------------------------------------------------
 # SweepConfig
 # ---------------------------------------------------------------------------
+
 
 @dataclass
 class SweepConfig:
@@ -79,7 +87,7 @@ class SweepConfig:
 
     # Sizing
     base_pair_notional: float = 100_000.0
-    vol_normalize: bool = True             # True = VolSizingConfig with defaults
+    vol_normalize: bool = True  # True = VolSizingConfig with defaults
     entry_features: EntryFeatureConfig | None = None
     interval_scoring: IntervalScoringConfig | None = None
 
@@ -116,14 +124,14 @@ class SweepConfig:
         ]
 
         if self.is_multi_timescale:
-            ts_count = len(self.z_score_overrides)
-            methods = set(zc.method for zc in self.z_score_overrides)
+            overrides = self.z_score_overrides or []
+            ts_count = len(overrides)
+            methods = {zc.method for zc in overrides}
             method_str = "+".join(sorted(methods)) if len(methods) > 1 else next(iter(methods))
-            zhls = "+".join(str(zc.resolved_lookbacks()[0]) for zc in self.z_score_overrides)
+            zhls = "+".join(str(zc.resolved_lookbacks()[0]) for zc in overrides)
             rhls = "+".join(
-                zc.residual_key.split("_hl")[1].split("_")[0]
-                if "_hl" in zc.residual_key else "?"
-                for zc in self.z_score_overrides
+                zc.residual_key.split("_hl")[1].split("_")[0] if "_hl" in zc.residual_key else "?"
+                for zc in overrides
             )
             parts.append(f"mt{ts_count}_{method_str}_rhl{rhls}_zhl{zhls}")
         else:
@@ -145,7 +153,9 @@ class SweepConfig:
         if self.exit_rule is not None:
             if isinstance(self.exit_rule, str):
                 alias = self.exit_rule.replace(" AND ", "+").replace(" OR ", "|")
-                alias = alias.replace(" ", "").replace("*", "x").replace("<", "lt").replace(">", "gt")
+                alias = (
+                    alias.replace(" ", "").replace("*", "x").replace("<", "lt").replace(">", "gt")
+                )
                 parts.append(f"xr-{alias}")
             else:
                 parts.append(f"xr-dict{hash(repr(sorted(self.exit_rule.items()))) % 10000:04d}")
@@ -165,7 +175,9 @@ class SweepConfig:
             parts.append(f"is-{'+'.join(sc_parts)}")
 
         if self.excluded_groups:
-            parts.append("ex-" + group_abbrev(groups=self.excluded_groups, to_string=True))
+            parts.append(
+                "ex-" + cast("str", group_abbrev(groups=self.excluded_groups, to_string=True))
+            )
         else:
             parts.append("all")
 
@@ -179,7 +191,7 @@ class SweepConfig:
 
 def _extract_run_id(result) -> str:
     if result.run_id is not None:
-        return result.run_id
+        return cast("str", result.run_id)
     return f"unknown_{datetime.now().strftime('%Y%m%d_%H%M')}"
 
 
@@ -219,6 +231,7 @@ def _build_sim_config(sweep: SweepConfig, *, index: int | None = None) -> Simula
 
     panel = _resolve_panel_subdir(sweep, index)
 
+    z_score: ZScoreConfig | list[ZScoreConfig] | None
     if sweep.is_multi_timescale:
         z_score = sweep.z_score_overrides
     else:
@@ -226,7 +239,9 @@ def _build_sim_config(sweep: SweepConfig, *, index: int | None = None) -> Simula
 
     sizing = SizingConfig(
         base_pair_notional=sweep.base_pair_notional,
-        vol_normalize=VolSizingConfig(floor_multiplier=0.2, cap_multiplier=5.0) if sweep.vol_normalize else None,
+        vol_normalize=VolSizingConfig(floor_multiplier=0.2, cap_multiplier=5.0)
+        if sweep.vol_normalize
+        else None,
         interval_scoring=sweep.interval_scoring,
     )
 
@@ -306,9 +321,10 @@ def _sweep_results_path() -> Path:
 def load_sweep_results(*, rebuild: bool = False) -> pd.DataFrame:
     p = _sweep_results_path()
     if not rebuild and p.exists():
-        return pd.read_pickle(p)
+        return cast("pd.DataFrame", pd.read_pickle(p))
 
     from src.simulator.sweep_rebuild import rebuild_sweep_results
+
     df = rebuild_sweep_results()
     if not df.empty:
         _save_sweep_results(df)
@@ -326,46 +342,91 @@ def _save_sweep_results(df: pd.DataFrame) -> None:
 # ---------------------------------------------------------------------------
 
 _CONFIG_COLS = [
-    "alias", "z_method", "z_lookback", "entry_z", "exit_z",
-    "base_pair_notional", "vol_normalize", "max_ticker_exposure_pct", "max_gross_exposure",
-    "excluded_groups", "z_score_overrides",
+    "alias",
+    "z_method",
+    "z_lookback",
+    "entry_z",
+    "exit_z",
+    "base_pair_notional",
+    "vol_normalize",
+    "max_ticker_exposure_pct",
+    "max_gross_exposure",
+    "excluded_groups",
+    "z_score_overrides",
 ]
 
 _RETURN_COLS = [
-    "alias", "sharpe_net", "sortino_net", "calmar_net",
-    "annual_return_net", "total_return_net",
-    "max_drawdown_net", "max_drawdown_gross",
+    "alias",
+    "sharpe_net",
+    "sortino_net",
+    "calmar_net",
+    "annual_return_net",
+    "total_return_net",
+    "max_drawdown_net",
+    "max_drawdown_gross",
 ]
 
 _TRADE_COLS = [
-    "alias", "n_trades", "avg_holding_days",
-    "win_rate_net", "profit_factor_net",
+    "alias",
+    "n_trades",
+    "avg_holding_days",
+    "win_rate_net",
+    "profit_factor_net",
     "avg_concurrent_positions",
-    "mean_gain_per_win_net", "mean_loss_per_loss_net",
+    "mean_gain_per_win_net",
+    "mean_loss_per_loss_net",
 ]
 
 _COST_COLS = [
-    "alias", "total_costs", "total_transaction_costs", "total_borrow_costs",
-    "cost_drag_bps", "avg_cost_per_trade", "avg_daily_borrow_cost",
+    "alias",
+    "total_costs",
+    "total_transaction_costs",
+    "total_borrow_costs",
+    "cost_drag_bps",
+    "avg_cost_per_trade",
+    "avg_daily_borrow_cost",
 ]
 
 _SIGNAL_COLS = [
-    "alias", "z_method", "z_lookback", "entry_z", "exit_z",
-    "sharpe_net", "annual_return_net", "max_drawdown_net",
-    "n_trades", "avg_holding_days", "profit_factor_net",
-    "avg_abs_entry_z_score", "avg_entry_z_score", "avg_exit_z_score",
+    "alias",
+    "z_method",
+    "z_lookback",
+    "entry_z",
+    "exit_z",
+    "sharpe_net",
+    "annual_return_net",
+    "max_drawdown_net",
+    "n_trades",
+    "avg_holding_days",
+    "profit_factor_net",
+    "avg_abs_entry_z_score",
+    "avg_entry_z_score",
+    "avg_exit_z_score",
 ]
 
 _RISK_COLS = [
-    "alias", "max_ticker_exposure_pct", "max_gross_exposure", "base_pair_notional",
-    "vol_normalize", "sharpe_net", "annual_return_net", "max_drawdown_net", "calmar_net",
-    "avg_concurrent_positions", "n_trades",
+    "alias",
+    "max_ticker_exposure_pct",
+    "max_gross_exposure",
+    "base_pair_notional",
+    "vol_normalize",
+    "sharpe_net",
+    "annual_return_net",
+    "max_drawdown_net",
+    "calmar_net",
+    "avg_concurrent_positions",
+    "n_trades",
 ]
 
 _UNIVERSE_COLS = [
-    "alias", "excluded_groups",
-    "sharpe_net", "annual_return_net", "max_drawdown_net", "calmar_net",
-    "n_trades", "n_groups_traded",
+    "alias",
+    "excluded_groups",
+    "sharpe_net",
+    "annual_return_net",
+    "max_drawdown_net",
+    "calmar_net",
+    "n_trades",
+    "n_groups_traded",
 ]
 
 
@@ -380,29 +441,44 @@ def _view(df: pd.DataFrame, cols: list[str], sort_by: str = "sharpe_net") -> pd.
 def view_returns(df: pd.DataFrame) -> pd.DataFrame:
     return _view(df, _RETURN_COLS, "sharpe_net")
 
+
 def view_trades(df: pd.DataFrame) -> pd.DataFrame:
     return _view(df, _TRADE_COLS, "profit_factor_net")
+
 
 def view_costs(df: pd.DataFrame) -> pd.DataFrame:
     return _view(df, _COST_COLS, "cost_drag_bps")
 
+
 def view_signal(df: pd.DataFrame) -> pd.DataFrame:
     return _view(df, _SIGNAL_COLS, "sharpe_net")
+
 
 def view_risk(df: pd.DataFrame) -> pd.DataFrame:
     return _view(df, _RISK_COLS, "calmar_net")
 
+
 def view_universe(df: pd.DataFrame) -> pd.DataFrame:
     return _view(df, _UNIVERSE_COLS, "sharpe_net")
+
 
 def view_config(df: pd.DataFrame) -> pd.DataFrame:
     return _view(df, _CONFIG_COLS, "alias")
 
+
 def view_summary(df: pd.DataFrame) -> pd.DataFrame:
-    cols = ['start_date', 'end_date',
-        "alias", "sharpe_net", "calmar_net", "annual_return_net",
-        "max_drawdown_net", "n_trades", "profit_factor_net",
-        "avg_holding_days", "run_duration_s",
+    cols = [
+        "start_date",
+        "end_date",
+        "alias",
+        "sharpe_net",
+        "calmar_net",
+        "annual_return_net",
+        "max_drawdown_net",
+        "n_trades",
+        "profit_factor_net",
+        "avg_holding_days",
+        "run_duration_s",
     ]
     return _view(df, cols, "sharpe_net")
 
@@ -411,11 +487,12 @@ def view_summary(df: pd.DataFrame) -> pd.DataFrame:
 # Main entry point
 # ---------------------------------------------------------------------------
 
+
 def run_sweep(
     runs: list[SweepConfig],
     *,
     skip_existing: bool = True,
-) -> (pd.DataFrame, list[SimulationResult]):
+) -> tuple[pd.DataFrame, list[SimulationResult]]:
     # Validate the whole batch before running anything — a bad RUNS[7] should
     # surface now, not hours into the sweep.
     panels = [_resolve_panel_subdir(sweep, i) for i, sweep in enumerate(runs)]
@@ -434,12 +511,14 @@ def run_sweep(
         key = hash_config(sim_config)
 
         if skip_existing and key in existing_keys:
-            print(f"[sweep {i+1}/{n_total}] Skipping {sweep.alias} [{key[:8]}] — already in results")
+            print(
+                f"[sweep {i + 1}/{n_total}] Skipping {sweep.alias} [{key[:8]}] — already in results"
+            )
             n_skipped += 1
             continue
 
         print("=" * 100)
-        print(f"[sweep {i+1}/{n_total}] {sweep.alias} [{key[:8]}]")
+        print(f"[sweep {i + 1}/{n_total}] {sweep.alias} [{key[:8]}]")
         print("=" * 100)
 
         t0 = _time.perf_counter()
@@ -454,10 +533,9 @@ def run_sweep(
             for f in fields(sweep):
                 val = getattr(sweep, f.name)
                 if f.name == "z_score_overrides" and val is not None:
-                    sweep_fields[f.name] = str([
-                        f"{zc.residual_key}:zhl{zc.resolved_lookbacks()[0]}"
-                        for zc in val
-                    ])
+                    sweep_fields[f.name] = str(
+                        [f"{zc.residual_key}:zhl{zc.resolved_lookbacks()[0]}" for zc in val]
+                    )
                 else:
                     sweep_fields[f.name] = val
 
@@ -467,7 +545,7 @@ def run_sweep(
                 "run_timestamp": datetime.now().isoformat(),
                 "run_duration_s": round(duration_s, 1),
                 **sweep_fields,
-                **result.performance.metrics,
+                **cast("Any", result.performance).metrics,
                 # After the splats: the resolved panel is what actually ran,
                 # and these are the real dedup identity of the run.
                 "config_hash": key,
@@ -503,19 +581,23 @@ def run_sweep(
 # Parallel sweep
 # ---------------------------------------------------------------------------
 
+
 def _run_one_sweep(args: tuple) -> dict:
     """Worker function for run_sweep_parallel."""
     sweep, i, n_total = args
     import time as _t
-    from src.simulator.sweep_runner import (
-        _build_sim_config, _extract_run_id, _resolve_panel_subdir,
-    )
-    from src.simulator.simulator_factory import run_from_config
-    from src.simulator.simulation_persistence import hash_config
     from dataclasses import fields
     from datetime import datetime
 
-    print(f"[worker] START [{i+1}/{n_total}] {sweep.alias}", flush=True)
+    from src.simulator.simulation_persistence import hash_config
+    from src.simulator.simulator_factory import run_from_config
+    from src.simulator.sweep_runner import (
+        _build_sim_config,
+        _extract_run_id,
+        _resolve_panel_subdir,
+    )
+
+    print(f"[worker] START [{i + 1}/{n_total}] {sweep.alias}", flush=True)
     t0 = _t.perf_counter()
     panel = _resolve_panel_subdir(sweep, i)
     sim_config = _build_sim_config(sweep, index=i)
@@ -529,10 +611,9 @@ def _run_one_sweep(args: tuple) -> dict:
         for f in fields(sweep):
             val = getattr(sweep, f.name)
             if f.name == "z_score_overrides" and val is not None:
-                sweep_fields[f.name] = str([
-                    f"{zc.residual_key}:zhl{zc.resolved_lookbacks()[0]}"
-                    for zc in val
-                ])
+                sweep_fields[f.name] = str(
+                    [f"{zc.residual_key}:zhl{zc.resolved_lookbacks()[0]}" for zc in val]
+                )
             else:
                 sweep_fields[f.name] = val
 
@@ -542,14 +623,18 @@ def _run_one_sweep(args: tuple) -> dict:
             "run_timestamp": datetime.now().isoformat(),
             "run_duration_s": round(duration_s, 1),
             **sweep_fields,
-            **result.performance.metrics,
+            **cast("Any", result.performance).metrics,
             "config_hash": key,
             "candidate_panel_subdir": panel,
         }
-        print(f"[worker] DONE  [{i+1}/{n_total}] {sweep.alias} [{key[:8]}] in {duration_s/60:.1f}min", flush=True)
+        print(
+            f"[worker] DONE  [{i + 1}/{n_total}] {sweep.alias} [{key[:8]}] "
+            f"in {duration_s / 60:.1f}min",
+            flush=True,
+        )
     except Exception as e:
         duration_s = _t.perf_counter() - t0
-        print(f"[worker] FAIL  [{i+1}/{n_total}] {sweep.alias}: {e}", flush=True)
+        print(f"[worker] FAIL  [{i + 1}/{n_total}] {sweep.alias}: {e}", flush=True)
         row = {
             "run_id": f"FAILED_{datetime.now().strftime('%Y%m%d_%H%M')}",
             "alias": sweep.alias,
@@ -581,11 +666,14 @@ def run_sweep_parallel(
     existing_keys = _existing_keys(existing)
 
     pending = [
-        s for i, s in enumerate(runs)
+        s
+        for i, s in enumerate(runs)
         if not (skip_existing and dedup_key(s, index=i) in existing_keys)
     ]
     skipped = len(runs) - len(pending)
-    print(f"[sweep_parallel] {len(pending)} runs to execute, {skipped} skipped. Workers: {n_workers}")
+    print(
+        f"[sweep_parallel] {len(pending)} runs to execute, {skipped} skipped. Workers: {n_workers}"
+    )
 
     if not pending:
         return existing

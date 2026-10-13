@@ -1,36 +1,10 @@
 from __future__ import annotations
 
-import json
-from dataclasses import asdict
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pandas as pd
 
-from src.settings import CANDIDATE_PANELS_ROOT, CONFIG_UNIVERSE
-from src.simulator.candidate_activation import CandidateActivation
-from src.simulator.candidate_filter import CandidateFilter
-from src.simulator.candidate_signals import CandidateSignalGenerator
-from src.simulator.config import (
-    CapitalConfig,
-    DataConfig,
-    PairSpreadTraderConfig,
-    PortfolioMeanReversionConfig,
-    RiskManagerConfig,
-    GroupDataSource,
-    SimulatorConfig,
-    ZScoreConfig,
-    group_resolve,
-    discover_group_data_sources,
-)
-from src.simulator.entry_feature_engine import EntryFeatureEngine
-from src.simulator.execution import ExecutionEngine
-from src.simulator.position_translator import PositionTranslator
-from src.simulator.risk_manager import RiskManager
-from src.simulator.sizing_engine import SizingEngine
-from src.simulator.simulator import SimulationResult, Simulator
-from src.simulator.traders.pair_spread_mean_reversion import PairSpreadMeanReversionTrader
-from src.simulator.traders.portfolio_mean_reversion import PortfolioMeanReversionTrader
 from src.candidates.candidate_panel import (
     CandidatePanelResult,
     load_candidate_panel_result,
@@ -39,7 +13,33 @@ from src.candidates.candidate_panel import (
 )
 from src.data.universe_loader import UniverseConfig, UniverseDataLoader
 from src.data.universe_marketdata import UniverseMarketData
-from src.residuals.causal_residuals import CausalResidualConfig, FittedCausalResidualModel, load_residual_params
+from src.residuals.causal_residuals import (
+    CausalResidualConfig,
+    FittedCausalResidualModel,
+    load_residual_params,
+)
+from src.settings import CANDIDATE_PANELS_ROOT, CONFIG_UNIVERSE
+from src.simulator.candidate_activation import CandidateActivation
+from src.simulator.candidate_filter import CandidateFilter
+from src.simulator.candidate_signals import CandidateSignalGenerator
+from src.simulator.config import (
+    DataConfig,
+    GroupDataSource,
+    PairSpreadTraderConfig,
+    PortfolioMeanReversionConfig,
+    SimulatorConfig,
+    ZScoreConfig,
+    group_resolve,
+)
+from src.simulator.entry_feature_engine import EntryFeatureEngine
+from src.simulator.execution import ExecutionEngine
+from src.simulator.position_translator import PositionTranslator
+from src.simulator.risk_manager import RiskManager
+from src.simulator.simulator import SimulationResult, Simulator
+from src.simulator.sizing_engine import SizingEngine
+from src.simulator.traders.pair_spread_mean_reversion import PairSpreadMeanReversionTrader
+from src.simulator.traders.portfolio_mean_reversion import PortfolioMeanReversionTrader
+from src.simulator.traders.protocol import Trader
 
 
 def create_simulator(
@@ -47,7 +47,10 @@ def create_simulator(
     *,
     umd: UniverseMarketData | None = None,
     residual_configs: dict[str, CausalResidualConfig] | None = None,
-    precomputed_residual_params: dict[tuple[str, str], dict[pd.Timestamp, FittedCausalResidualModel]] | None = None,
+    precomputed_residual_params: dict[
+        tuple[str, str], dict[pd.Timestamp, FittedCausalResidualModel]
+    ]
+    | None = None,
     weights_lookup: dict[tuple[str, pd.Timestamp], dict[str, float]] | None = None,
 ) -> Simulator:
     """
@@ -91,9 +94,11 @@ def create_simulator(
         precomputed_residual_params=precomputed_residual_params or {},
     )
 
+    trader: Trader
     if isinstance(config.trader, PortfolioMeanReversionConfig):
         trader = PortfolioMeanReversionTrader(
-            config=config.trader, default_abs_target_group_exposure=1.0,
+            config=config.trader,
+            default_abs_target_group_exposure=1.0,
         )
     elif isinstance(config.trader, PairSpreadTraderConfig):
         trader = PairSpreadMeanReversionTrader(config=config.trader)
@@ -151,6 +156,10 @@ def run_from_config(config: SimulatorConfig) -> SimulationResult:
     z_configs = config.resolved_z_score_configs()
 
     run_id: str | None = None
+    precomputed_residual_params: (
+        dict[tuple[str, str], dict[pd.Timestamp, FittedCausalResidualModel]] | None
+    )
+    weights_lookup: dict[tuple[str, pd.Timestamp], dict[str, float]] | None
     if config.candidate_generation is not None:
         # F2 C6b: generate live, inside the simulator, instead of loading a
         # panel/weights/residual_params built earlier by the offline
@@ -167,7 +176,8 @@ def run_from_config(config: SimulatorConfig) -> SimulationResult:
         # disabled, matching Simulator.run()'s own guard.
         run_dir: Path | None = None
         if config.persistence.enabled:
-            from src.simulator.simulation_persistence import make_run_id, _resolve_run_dir
+            from src.simulator.simulation_persistence import _resolve_run_dir, make_run_id
+
             run_id = make_run_id(config)
             run_dir = _resolve_run_dir(config.persistence, run_id)
             run_dir.mkdir(parents=True, exist_ok=True)
@@ -216,6 +226,7 @@ def run_from_config(config: SimulatorConfig) -> SimulationResult:
 # ---------------------------------------------------------------------------
 # F2 C6b — live candidate generation (opt-in, alongside the offline load path)
 # ---------------------------------------------------------------------------
+
 
 def generate_candidate_panels_by_group(
     config: SimulatorConfig,
@@ -342,13 +353,18 @@ def _generate_candidates_live(
     panel = pd.concat(panels, ignore_index=True) if panels else pd.DataFrame()
 
     all_weight_rows: list[dict[str, Any]] = []
-    precomputed_residual_params: dict[tuple[str, str], dict[pd.Timestamp, FittedCausalResidualModel]] = {}
+    precomputed_residual_params: dict[
+        tuple[str, str], dict[pd.Timestamp, FittedCausalResidualModel]
+    ] = {}
     for key, v in by_group.items():
         all_weight_rows.extend(v["weight_rows"])
         precomputed_residual_params[key] = v["fitted_params"]
 
-    weights_lookup = weights_lookup_from_df(pd.DataFrame(all_weight_rows)) if all_weight_rows else {}
-    residual_configs = {config.residual.key: config.residual}
+    weights_lookup = (
+        weights_lookup_from_df(pd.DataFrame(all_weight_rows)) if all_weight_rows else {}
+    )
+    residual = cast("CausalResidualConfig", config.residual)
+    residual_configs = {residual.key: residual}
 
     return panel, residual_configs, precomputed_residual_params, weights_lookup
 
@@ -380,7 +396,10 @@ def persist_live_candidate_artifacts(
     downstream reads fits at non-outer dates (F2_spec.md D5/P3) — same
     columns, fewer rows.
     """
-    from src.candidates.candidate_panel import CandidatePanelResult, save_candidate_panel_result, save_weights
+    from src.candidates.candidate_panel import (
+        save_candidate_panel_result,
+        save_weights,
+    )
     from src.residuals.causal_residuals import save_residual_params
 
     out_dir = run_dir / "candidates"
@@ -401,12 +420,15 @@ def persist_live_candidate_artifacts(
         if v["weight_rows"]:
             save_weights(v["weight_rows"], str(out_dir / f"{stem}_weights.parquet"))
         if v["fitted_params"]:
-            save_residual_params(v["fitted_params"], str(out_dir / f"{stem}_residual_params.parquet"))
+            save_residual_params(
+                v["fitted_params"], str(out_dir / f"{stem}_residual_params.parquet")
+            )
 
 
 # ---------------------------------------------------------------------------
 # Internal helpers — data loading
 # ---------------------------------------------------------------------------
+
 
 def _load_umd(data_cfg: DataConfig) -> UniverseMarketData:
     """
@@ -417,7 +439,7 @@ def _load_umd(data_cfg: DataConfig) -> UniverseMarketData:
     """
     groups = data_cfg.resolved_groups()
 
-    seen_universes: dict[str, UniverseMarketData] = {}
+    seen_universes: dict[str, UniverseMarketData | None] = {}
     unique_groups: list[GroupDataSource] = []
     for src in groups:
         if src.universe_config_name not in seen_universes:
@@ -449,7 +471,9 @@ def _load_umd(data_cfg: DataConfig) -> UniverseMarketData:
     return _merge_umds(umds, validate_overlap=True)
 
 
-def _merge_umds(umds: list[UniverseMarketData], validate_overlap: bool = False) -> UniverseMarketData:
+def _merge_umds(
+    umds: list[UniverseMarketData], validate_overlap: bool = False
+) -> UniverseMarketData:
     """
     Merge multiple single-group UniverseMarketData into one.
 
@@ -459,6 +483,7 @@ def _merge_umds(umds: list[UniverseMarketData], validate_overlap: bool = False) 
     - membership: concat + deduplicate
     """
     import time as _time
+
     t0 = _time.time()
 
     if validate_overlap:
@@ -577,9 +602,7 @@ def _load_panels(
         loaded_keys = set(metadata_by_key.keys())
         missing_keys = requested_keys - loaded_keys
         if missing_keys:
-            available = sorted(
-                {src.residual_key for src in groups if src.residual_key}
-            )
+            available = sorted({src.residual_key for src in groups if src.residual_key})
             raise FileNotFoundError(
                 f"No panels found for residual_keys: {sorted(missing_keys)}. "
                 f"Available residual_keys in {panel_dir}: {available}"
@@ -628,12 +651,15 @@ def _load_panels(
     n_panels = len(panels)
 
     if is_multi:
-        print(f"[panels] Loaded {n_panels} panels across {len(requested_keys)} timescales, {total} total rows:")
-        for (gid, rkey), cnt in group_counts.items():
+        print(
+            f"[panels] Loaded {n_panels} panels across {len(requested_keys)} timescales, "
+            f"{total} total rows:"
+        )
+        for (gid, rkey), cnt in cast("Any", group_counts).items():
             print(f"  {gid} / {rkey}: {cnt} rows")
     else:
         print(f"[panels] Loaded {n_panels} panels, {total} total rows:")
-        for (gid, _), cnt in group_counts.items():
+        for (gid, _), cnt in cast("Any", group_counts).items():
             print(f"  {gid}: {cnt} rows")
 
     return merged, metadata_by_key
@@ -719,7 +745,9 @@ def _load_residual_params(
         if not params_path.exists():
             raise FileNotFoundError(f"Residual params not found: {params_path}")
 
-        params: dict[pd.Timestamp, FittedCausalResidualModel] = load_residual_params(str(params_path))
+        params: dict[pd.Timestamp, FittedCausalResidualModel] = load_residual_params(
+            str(params_path)
+        )
 
         if not params:
             continue
@@ -785,6 +813,7 @@ def _load_weights(
 # ---------------------------------------------------------------------------
 # Internal helpers — config resolution
 # ---------------------------------------------------------------------------
+
 
 def _resolve_residual_configs(
     config: SimulatorConfig,

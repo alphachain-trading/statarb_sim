@@ -3,7 +3,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
-
 ActionKind = Literal[
     "open_candidate",
     "close_candidate",
@@ -36,8 +35,9 @@ class OpenCandidateAction(CandidateAction):
     proposes the trade. It is None when the action is first created by the
     trader and populated by SizingEngine before execution.
     """
-    direction: float = 0.0                  # +1.0 or -1.0; set by trader
-    pair_notional: float | None = None      # set by SizingEngine; None until sized
+
+    direction: float = 0.0  # +1.0 or -1.0; set by trader
+    pair_notional: float | None = None  # set by SizingEngine; None until sized
     residual_key: str = ""
     z_components: tuple = ()
 
@@ -51,7 +51,7 @@ class OpenCandidateAction(CandidateAction):
     def action_kind(self) -> str:
         return "open_candidate"
 
-    def with_notional(self, pair_notional: float) -> "OpenCandidateAction":
+    def with_notional(self, pair_notional: float) -> OpenCandidateAction:
         """Return a copy of this action with pair_notional set."""
         return OpenCandidateAction(
             candidate_id=self.candidate_id,
@@ -71,6 +71,7 @@ class CloseCandidateAction(CandidateAction):
     """
     Close an existing candidate position fully.
     """
+
     z_components: tuple = ()
 
     @property
@@ -83,6 +84,7 @@ class ScaleCandidateAction(CandidateAction):
     """
     Change exposure of an already open candidate without changing candidate_id.
     """
+
     direction: float = 0.0
     pair_notional: float | None = None
 
@@ -102,6 +104,7 @@ class FlipCandidateAction(CandidateAction):
     """
     Reverse direction of an already open candidate.
     """
+
     direction: float = 0.0
     pair_notional: float | None = None
 
@@ -121,6 +124,7 @@ class SubstituteCandidateAction:
     """
     Replace one open candidate by a newer candidate in the same group.
     """
+
     old_candidate_id: str
     old_spread_id: str
     new_candidate_id: str

@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Literal
+from typing import Any, Literal, cast
 
 import numpy as np
 import pandas as pd
@@ -11,20 +11,22 @@ import pandas as pd
 from src.data.returns import GroupReturnBundle
 
 
-class ResidualMode(str, Enum):
+class ResidualMode(str, Enum):  # noqa: UP042  # StrEnum changes str()/format() output; keep for serialized keys
     """Residual-fitting mode for CausalResidualConfig.
 
     decay_rolling is deliberately excluded — time-decay + rolling window is
     redundant/ambiguous with decay_expanding.
     """
-    EQ_ROLLING = "eq_rolling"          # equal-weight, rolling fit window (lb)
-    EQ_EXPANDING = "eq_expanding"      # equal-weight, expanding fit window
+
+    EQ_ROLLING = "eq_rolling"  # equal-weight, rolling fit window (lb)
+    EQ_EXPANDING = "eq_expanding"  # equal-weight, expanding fit window
     DECAY_EXPANDING = "decay_expanding"  # half-life decay, expanding fit window
 
 
-class AbsOrMult(str, Enum):
+class AbsOrMult(str, Enum):  # noqa: UP042  # StrEnum changes str()/format() output; keep for serialized keys
     """How min_lb_dec_exp is interpreted for DECAY_EXPANDING's min_history."""
-    ABSOLUTE = "absolute"      # min_history = min_lb_dec_exp directly
+
+    ABSOLUTE = "absolute"  # min_history = min_lb_dec_exp directly
     MULTIPLIER = "multiplier"  # min_history = hl * min_lb_dec_exp
 
 
@@ -34,7 +36,7 @@ def _to_daily_rf(rf_annual_pct: pd.Series, index: pd.Index) -> pd.Series:
     aligned and forward-filled to the target index.
     """
     rf = rf_annual_pct.reindex(index).ffill()
-    return np.log(1.0 + rf / 100.0) / 252.0
+    return cast("pd.Series", np.log(1.0 + rf / 100.0) / 252.0)
 
 
 def _subtract_rf(df: pd.DataFrame, rf_daily: pd.Series) -> pd.DataFrame:
@@ -55,14 +57,14 @@ class CausalResidualConfig:
     """
 
     mode: ResidualMode
-    subtract_risk_free: bool          # no default — material to computation and to key
-    remove_residual_pcs: int = 0      # genuine "off" state, keeps its default
+    subtract_risk_free: bool  # no default — material to computation and to key
+    remove_residual_pcs: int = 0  # genuine "off" state, keeps its default
 
-    lb: int | None = None                          # EQ_ROLLING only
-    hl: int | None = None                          # DECAY_EXPANDING only
-    min_lb_type_dec_exp: AbsOrMult | None = None   # DECAY_EXPANDING only
-    min_lb_dec_exp: int | None = None              # DECAY_EXPANDING only
-    min_lb_eq_exp: int | None = None               # EQ_EXPANDING only
+    lb: int | None = None  # EQ_ROLLING only
+    hl: int | None = None  # DECAY_EXPANDING only
+    min_lb_type_dec_exp: AbsOrMult | None = None  # DECAY_EXPANDING only
+    min_lb_dec_exp: int | None = None  # DECAY_EXPANDING only
+    min_lb_eq_exp: int | None = None  # EQ_EXPANDING only
 
     window_mode: Literal["rolling", "expanding"] = field(init=False)
     min_history: int = field(init=False)
@@ -81,7 +83,9 @@ class CausalResidualConfig:
                 if self.hl is None:
                     raise ValueError("DECAY_EXPANDING requires hl")
                 if self.min_lb_type_dec_exp is None or self.min_lb_dec_exp is None:
-                    raise ValueError("DECAY_EXPANDING requires both min_lb_type_dec_exp and min_lb_dec_exp")
+                    raise ValueError(
+                        "DECAY_EXPANDING requires both min_lb_type_dec_exp and min_lb_dec_exp"
+                    )
                 if self.lb is not None or self.min_lb_eq_exp is not None:
                     raise ValueError("DECAY_EXPANDING: lb / min_lb_eq_exp must be None")
                 self.min_history = (
@@ -143,12 +147,10 @@ class CausalResidualConfig:
     _KEY_RE_DECAY_EXPANDING = re.compile(
         r"exp_hl(?P<hl>\d+)_mh(?P<mh>\d+)(?:_pc(?P<pc>\d+))?(?P<rf>_rf)?$"
     )
-    _KEY_RE_EQ_EXPANDING = re.compile(
-        r"exp_mh(?P<mh>\d+)(?:_pc(?P<pc>\d+))?(?P<rf>_rf)?$"
-    )
+    _KEY_RE_EQ_EXPANDING = re.compile(r"exp_mh(?P<mh>\d+)(?:_pc(?P<pc>\d+))?(?P<rf>_rf)?$")
 
     @classmethod
-    def from_key(cls, key: str) -> "CausalResidualConfig":
+    def from_key(cls, key: str) -> CausalResidualConfig:
         """
         Parse a residual_key string (as produced by .key) back into a
         CausalResidualConfig.
@@ -177,7 +179,7 @@ class CausalResidualConfig:
                 remove_residual_pcs=int(m.group("pc")) if m.group("pc") else 0,
                 lb=lb,
             )
-        elif key.startswith("exp_hl"):
+        if key.startswith("exp_hl"):
             m = cls._KEY_RE_DECAY_EXPANDING.fullmatch(key)
             if not m:
                 raise ValueError(f"Malformed DECAY_EXPANDING residual key: {key!r}")
@@ -189,7 +191,7 @@ class CausalResidualConfig:
                 min_lb_type_dec_exp=AbsOrMult.ABSOLUTE,
                 min_lb_dec_exp=int(m.group("mh")),
             )
-        elif key.startswith("exp_mh"):
+        if key.startswith("exp_mh"):
             m = cls._KEY_RE_EQ_EXPANDING.fullmatch(key)
             if not m:
                 raise ValueError(f"Malformed EQ_EXPANDING residual key: {key!r}")
@@ -199,8 +201,7 @@ class CausalResidualConfig:
                 remove_residual_pcs=int(m.group("pc")) if m.group("pc") else 0,
                 min_lb_eq_exp=int(m.group("mh")),
             )
-        else:
-            raise ValueError(f"Unrecognized residual key format: {key!r}")
+        raise ValueError(f"Unrecognized residual key format: {key!r}")
 
     @property
     def key(self) -> str:
@@ -239,8 +240,8 @@ class FittedCausalResidualModel:
     members: list[str]
     proxy_name: str
     bench_name: str
-    B_proxy: np.ndarray   # shape (2, 1)
-    B_stock: np.ndarray   # shape (3, n_stocks)
+    B_proxy: np.ndarray  # shape (2, 1)
+    B_stock: np.ndarray  # shape (3, n_stocks)
     # Optional PC removal: eigenvectors to project out of residuals
     pc_components: np.ndarray | None = None  # shape (n_pcs, n_stocks) — rows are unit eigenvectors
     subtract_risk_free: bool = False
@@ -294,28 +295,58 @@ def save_residual_params(
             "subtract_risk_free": bool(model.subtract_risk_free),
         }
 
-        rows.append({**common, "ticker": model.proxy_name,
-                     "factor": _RESIDUAL_PARAMS_FACTOR_CONST,
-                     "loading": float(model.B_proxy[0, 0])})
-        rows.append({**common, "ticker": model.proxy_name,
-                     "factor": _RESIDUAL_PARAMS_FACTOR_BENCH,
-                     "loading": float(model.B_proxy[1, 0])})
+        rows.append(
+            {
+                **common,
+                "ticker": model.proxy_name,
+                "factor": _RESIDUAL_PARAMS_FACTOR_CONST,
+                "loading": float(model.B_proxy[0, 0]),
+            }
+        )
+        rows.append(
+            {
+                **common,
+                "ticker": model.proxy_name,
+                "factor": _RESIDUAL_PARAMS_FACTOR_BENCH,
+                "loading": float(model.B_proxy[1, 0]),
+            }
+        )
 
         for j, ticker in enumerate(model.members):
-            rows.append({**common, "ticker": ticker,
-                         "factor": _RESIDUAL_PARAMS_FACTOR_CONST,
-                         "loading": float(model.B_stock[0, j])})
-            rows.append({**common, "ticker": ticker,
-                         "factor": _RESIDUAL_PARAMS_FACTOR_BENCH,
-                         "loading": float(model.B_stock[1, j])})
-            rows.append({**common, "ticker": ticker,
-                         "factor": _RESIDUAL_PARAMS_FACTOR_PROXY_RESID,
-                         "loading": float(model.B_stock[2, j])})
+            rows.append(
+                {
+                    **common,
+                    "ticker": ticker,
+                    "factor": _RESIDUAL_PARAMS_FACTOR_CONST,
+                    "loading": float(model.B_stock[0, j]),
+                }
+            )
+            rows.append(
+                {
+                    **common,
+                    "ticker": ticker,
+                    "factor": _RESIDUAL_PARAMS_FACTOR_BENCH,
+                    "loading": float(model.B_stock[1, j]),
+                }
+            )
+            rows.append(
+                {
+                    **common,
+                    "ticker": ticker,
+                    "factor": _RESIDUAL_PARAMS_FACTOR_PROXY_RESID,
+                    "loading": float(model.B_stock[2, j]),
+                }
+            )
             if model.pc_components is not None:
                 for k in range(model.pc_components.shape[0]):
-                    rows.append({**common, "ticker": ticker,
-                                 "factor": _pc_factor_name(k),
-                                 "loading": float(model.pc_components[k, j])})
+                    rows.append(
+                        {
+                            **common,
+                            "ticker": ticker,
+                            "factor": _pc_factor_name(k),
+                            "loading": float(model.pc_components[k, j]),
+                        }
+                    )
 
     df = pd.DataFrame(rows)
     df["fit_date"] = pd.to_datetime(df["fit_date"])
@@ -337,7 +368,10 @@ def save_residual_params(
 
 
 def load_residual_params(path: str) -> dict[pd.Timestamp, FittedCausalResidualModel]:
-    """Reconstruct the walkforward dict[fit_date, FittedCausalResidualModel] written by save_residual_params."""
+    """Reconstruct the walkforward dict[fit_date, FittedCausalResidualModel].
+
+    Counterpart of save_residual_params.
+    """
     df = pd.read_parquet(path)
 
     result: dict[pd.Timestamp, FittedCausalResidualModel] = {}
@@ -365,26 +399,36 @@ def load_residual_params(path: str) -> dict[pd.Timestamp, FittedCausalResidualMo
         proxy_name = proxy_names[0]
         members = sorted(t for t in piv.index if t != proxy_name)
 
-        B_proxy = np.array([
-            [piv.loc[proxy_name, _RESIDUAL_PARAMS_FACTOR_CONST]],
-            [piv.loc[proxy_name, _RESIDUAL_PARAMS_FACTOR_BENCH]],
-        ], dtype=float)
+        B_proxy = np.array(  # noqa: N806  # matrix notation as in the formula
+            [
+                [piv.loc[proxy_name, _RESIDUAL_PARAMS_FACTOR_CONST]],
+                [piv.loc[proxy_name, _RESIDUAL_PARAMS_FACTOR_BENCH]],
+            ],
+            dtype=float,
+        )
 
-        B_stock = piv.loc[members, [
-            _RESIDUAL_PARAMS_FACTOR_CONST,
-            _RESIDUAL_PARAMS_FACTOR_BENCH,
-            _RESIDUAL_PARAMS_FACTOR_PROXY_RESID,
-        ]].to_numpy(dtype=float).T
+        B_stock = (  # noqa: N806  # matrix notation as in the formula
+            piv.loc[
+                members,
+                [
+                    _RESIDUAL_PARAMS_FACTOR_CONST,
+                    _RESIDUAL_PARAMS_FACTOR_BENCH,
+                    _RESIDUAL_PARAMS_FACTOR_PROXY_RESID,
+                ],
+            ]
+            .to_numpy(dtype=float)
+            .T
+        )
 
         pc_cols = sorted(
             (c for c in piv.columns if c.startswith("pc") and c.endswith("_weight")),
-            key=lambda c: int(c[len("pc"):-len("_weight")]),
+            key=lambda c: int(c[len("pc") : -len("_weight")]),
         )
         pc_components = None
         if pc_cols:
             pc_components = piv.loc[members, pc_cols].to_numpy(dtype=float).T
 
-        result[pd.Timestamp(fit_date)] = FittedCausalResidualModel(
+        result[pd.Timestamp(cast("Any", fit_date))] = FittedCausalResidualModel(
             members=members,
             proxy_name=proxy_name,
             bench_name=bench_name,
@@ -403,7 +447,7 @@ def _slice_fit_window(
     cfg: CausalResidualConfig,
 ) -> pd.DataFrame:
     aligned = bundle.aligned_returns.copy()
-    aligned = aligned.loc[:pd.Timestamp(date)]
+    aligned = aligned.loc[: pd.Timestamp(date)]
 
     if aligned.empty:
         raise ValueError("No data after slicing by date.")
@@ -415,7 +459,7 @@ def _slice_fit_window(
         )
 
     if cfg.window_mode == "rolling":
-        aligned = aligned.iloc[-cfg.lookback:]
+        aligned = aligned.iloc[-cast("int", cfg.lookback) :]
 
     # expanding: use all data up to date (no truncation)
 
@@ -438,14 +482,13 @@ def _make_sqrt_w(n: int, half_life: int | None) -> np.ndarray:
 
 
 def _wls_multi(
-    Y: np.ndarray,
-    X: np.ndarray,
+    Y: np.ndarray,  # noqa: N803  # matrix notation as in the formula
+    X: np.ndarray,  # noqa: N803  # matrix notation as in the formula
     sqrt_w: np.ndarray,
 ) -> np.ndarray:
-    Xw = X * sqrt_w[:, None]
-    Yw = Y * sqrt_w[:, None]
-    B = np.linalg.lstsq(Xw, Yw, rcond=None)[0]
-    return B
+    Xw = X * sqrt_w[:, None]  # noqa: N806  # matrix notation as in the formula
+    Yw = Y * sqrt_w[:, None]  # noqa: N806  # matrix notation as in the formula
+    return cast("np.ndarray", np.linalg.lstsq(Xw, Yw, rcond=None)[0])
 
 
 def fit_causal_residual_model(
@@ -475,8 +518,8 @@ def fit_causal_residual_model(
         aligned = _subtract_rf(aligned, rf_daily)
 
     members = list(bundle.member_returns.columns)
-    proxy_name = bundle.proxy_returns.name
-    bench_name = bundle.benchmark_returns.name
+    proxy_name = cast("str", bundle.proxy_returns.name)
+    bench_name = cast("str", bundle.benchmark_returns.name)
 
     n = len(aligned)
     sqrt_w = _make_sqrt_w(n=n, half_life=cfg.half_life)
@@ -484,11 +527,13 @@ def fit_causal_residual_model(
     y_proxy = aligned[proxy_name].to_numpy(dtype=float)
     x_bench = aligned[bench_name].to_numpy(dtype=float)
 
-    X_proxy = np.column_stack([
-        np.ones(n, dtype=float),
-        x_bench,
-    ])
-    B_proxy = _wls_multi(
+    X_proxy = np.column_stack(  # noqa: N806  # matrix notation as in the formula
+        [
+            np.ones(n, dtype=float),
+            x_bench,
+        ]
+    )
+    B_proxy = _wls_multi(  # noqa: N806  # matrix notation as in the formula
         Y=y_proxy[:, None],
         X=X_proxy,
         sqrt_w=sqrt_w,
@@ -497,14 +542,16 @@ def fit_causal_residual_model(
     proxy_fit = X_proxy @ B_proxy
     proxy_res = y_proxy - proxy_fit[:, 0]
 
-    X_common = np.column_stack([
-        np.ones(n, dtype=float),
-        x_bench,
-        proxy_res,
-    ])
-    Y = aligned[members].to_numpy(dtype=float)
+    X_common = np.column_stack(  # noqa: N806  # matrix notation as in the formula
+        [
+            np.ones(n, dtype=float),
+            x_bench,
+            proxy_res,
+        ]
+    )
+    Y = aligned[members].to_numpy(dtype=float)  # noqa: N806  # matrix notation as in the formula
 
-    B_stock = _wls_multi(
+    B_stock = _wls_multi(  # noqa: N806  # matrix notation as in the formula
         Y=Y,
         X=X_common,
         sqrt_w=sqrt_w,
@@ -513,15 +560,13 @@ def fit_causal_residual_model(
     if B_proxy.shape != (2, 1):
         raise ValueError(f"Unexpected B_proxy shape: {B_proxy.shape}")
     if B_stock.shape != (3, len(members)):
-        raise ValueError(
-            f"Unexpected B_stock shape: {B_stock.shape}, expected (3, {len(members)})"
-        )
+        raise ValueError(f"Unexpected B_stock shape: {B_stock.shape}, expected (3, {len(members)})")
 
     # Estimate leading PCs of residuals for optional removal
     pc_components = None
     if cfg.remove_residual_pcs > 0:
         # Compute residuals on the fit window to estimate PCs
-        Y_fit = X_common @ B_stock
+        Y_fit = X_common @ B_stock  # noqa: N806  # matrix notation as in the formula
         resid_fit = Y - Y_fit
 
         # Apply same exponential weighting for PC estimation
@@ -529,7 +574,7 @@ def fit_causal_residual_model(
 
         # Covariance of weighted residuals
         cov = np.cov(resid_weighted, rowvar=False)
-        eigenvalues, eigenvectors = np.linalg.eigh(cov)
+        _eigenvalues, eigenvectors = np.linalg.eigh(cov)
 
         # eigh returns ascending order; take top k from the end
         n_pcs = min(cfg.remove_residual_pcs, len(members))
@@ -589,20 +634,24 @@ def apply_causal_residual_model(
     y_proxy = aligned[model.proxy_name].to_numpy(dtype=float)
     x_bench = aligned[model.bench_name].to_numpy(dtype=float)
 
-    X_proxy = np.column_stack([
-        np.ones(n, dtype=float),
-        x_bench,
-    ])
+    X_proxy = np.column_stack(  # noqa: N806  # matrix notation as in the formula
+        [
+            np.ones(n, dtype=float),
+            x_bench,
+        ]
+    )
     proxy_fit = X_proxy @ model.B_proxy
     proxy_res = y_proxy - proxy_fit[:, 0]
 
-    X_common = np.column_stack([
-        np.ones(n, dtype=float),
-        x_bench,
-        proxy_res,
-    ])
-    Y = aligned[model.members].to_numpy(dtype=float)
-    Y_fit = X_common @ model.B_stock
+    X_common = np.column_stack(  # noqa: N806  # matrix notation as in the formula
+        [
+            np.ones(n, dtype=float),
+            x_bench,
+            proxy_res,
+        ]
+    )
+    Y = aligned[model.members].to_numpy(dtype=float)  # noqa: N806  # matrix notation as in the formula
+    Y_fit = X_common @ model.B_stock  # noqa: N806  # matrix notation as in the formula
     residuals = Y - Y_fit
 
     # Remove leading PCs estimated during fit (out-of-sample projection)

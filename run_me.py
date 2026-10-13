@@ -31,15 +31,16 @@ import re
 import shutil
 import sys
 from pathlib import Path
+from typing import cast
 
 import yaml
 
 from src.settings import (
+    CANDIDATE_PANELS_ROOT,
     CONFIG_ROOT,
     CONFIG_UNIVERSE,
-    PROJECT_ROOT,
     DATA_UNIVERSES,
-    CANDIDATE_PANELS_ROOT,
+    PROJECT_ROOT,
     SIMULATION_RUNS_ROOT,
 )
 
@@ -50,16 +51,18 @@ CONFIG_PATH = CONFIG_ROOT / "demo_materials.yaml"
 # Config loading
 # ---------------------------------------------------------------------------
 
+
 def load_config() -> dict:
     if not CONFIG_PATH.exists():
         sys.exit(f"[config] Missing config file: {CONFIG_PATH}")
-    with open(CONFIG_PATH) as f:
-        return yaml.safe_load(f)
+    with CONFIG_PATH.open() as f:
+        return cast("dict", yaml.safe_load(f))
 
 
 # ---------------------------------------------------------------------------
 # Stage logging helpers
 # ---------------------------------------------------------------------------
+
 
 def _start(stage: str) -> None:
     print(f"\n=== [{stage}] START ===")
@@ -77,8 +80,9 @@ def _done(stage: str) -> None:
 # Path resolution (everything derived from settings.py + demo_materials.yaml)
 # ---------------------------------------------------------------------------
 
+
 def _panel_dir(cfg: dict) -> Path:
-    return CANDIDATE_PANELS_ROOT / cfg["panels"]["subdir"]
+    return cast("Path", CANDIDATE_PANELS_ROOT / cfg["panels"]["subdir"])
 
 
 def _panel_file(cfg: dict) -> Path:
@@ -92,7 +96,7 @@ def _selected_groups(cfg: dict) -> list[str]:
 
 def _universe_name(cfg: dict) -> str:
     """The universe directory name, from demo_materials.yaml's `universe_name`."""
-    return cfg["universe_name"]
+    return cast("str", cfg["universe_name"])
 
 
 def _universe_dir(cfg: dict) -> Path:
@@ -108,6 +112,7 @@ def _universe_yaml_path(cfg: dict, group_id: str) -> Path:
 # ---------------------------------------------------------------------------
 # Stage: download
 # ---------------------------------------------------------------------------
+
 
 def stage_download(cfg: dict, force: bool) -> None:
     from src.data.universe_config import UniverseConfig
@@ -134,8 +139,10 @@ def stage_download(cfg: dict, force: bool) -> None:
             _start(stage)
             started = True
 
-        print(f"[download] group '{group_id}': loading universe {config.universe_name} "
-              f"(force_download={force})")
+        print(
+            f"[download] group '{group_id}': loading universe {config.universe_name} "
+            f"(force_download={force})"
+        )
         loader = UniverseDataLoader(config, data_path=DATA_UNIVERSES, progress=True)
         loader.load(force_download=force)
 
@@ -156,6 +163,7 @@ def stage_download(cfg: dict, force: bool) -> None:
 # ---------------------------------------------------------------------------
 # Stage: residuals
 # ---------------------------------------------------------------------------
+
 
 def _extract_panel_stem(results: dict, panel_dir: Path) -> str:
     """
@@ -208,18 +216,16 @@ def _update_panel_stem(cfg: dict, stem: str) -> None:
         text,
     )
     if n != 1:
-        sys.exit(
-            f"[residuals] expected exactly one 'stem:' line in {CONFIG_PATH}, found {n}"
-        )
+        sys.exit(f"[residuals] expected exactly one 'stem:' line in {CONFIG_PATH}, found {n}")
     CONFIG_PATH.write_text(new_text)
     print(f"[residuals] {CONFIG_PATH.name} panels.stem updated: {old} -> {stem}")
 
 
 def _make_panel_batch_cfg(cfg: dict):
     """Build the PanelBatchConfig shared by the single- and multi-group paths."""
-    from src.candidates.panel_batch import PanelBatchConfig
     from src.candidates.pair_candidate_panel_creator import PairSpreadConfig
-    from src.residuals.causal_residuals import CausalResidualConfig, ResidualMode, AbsOrMult
+    from src.candidates.panel_batch import PanelBatchConfig
+    from src.residuals.causal_residuals import AbsOrMult, CausalResidualConfig, ResidualMode
 
     # decay_expanding, hl=504, min_history = 504 * 2 = 1008, subtract RF.
     # Reproduces the historical residual_key exp_hl504_mh1008_rf exactly.
@@ -312,6 +318,7 @@ def stage_residuals(cfg: dict, force: bool) -> None:
 # Stage: simulate
 # ---------------------------------------------------------------------------
 
+
 def _bootstrap_panel_from_fixtures(cfg: dict) -> None:
     """
     Stand-in for the not-yet-implemented residuals stage: ensure the candidate
@@ -340,23 +347,23 @@ def _bootstrap_panel_from_fixtures(cfg: dict) -> None:
 def _build_sim_config(cfg: dict):
     """Assemble a SimulatorConfig from demo_materials.yaml for a single-group,
     single-timescale pair-spread run."""
+    from src.candidates.candidate_selector import CandidateSelectionConfig
     from src.simulator.config import (
-        SimulatorConfig,
-        DataConfig,
-        CapitalConfig,
         ActivationConfig,
-        ZScoreConfig,
+        CapitalConfig,
+        DataConfig,
+        ExecutionConfig,
         MRDiagnosticsConfig,
         PairSpreadTraderConfig,
-        RunConfig,
-        ExecutionConfig,
-        SizingConfig,
-        VolSizingConfig,
-        RiskManagerConfig,
         PerformanceConfig,
         PersistenceConfig,
+        RiskManagerConfig,
+        RunConfig,
+        SimulatorConfig,
+        SizingConfig,
+        VolSizingConfig,
+        ZScoreConfig,
     )
-    from src.candidates.candidate_selector import CandidateSelectionConfig
 
     z = cfg["z_score"]
     data_cfg = cfg["data"]
@@ -405,7 +412,8 @@ def _build_sim_config(cfg: dict):
             base_pair_notional=szg["base_pair_notional"],
             vol_normalize=(
                 VolSizingConfig(floor_multiplier=0.2, cap_multiplier=5.0)
-                if szg.get("vol_normalize", True) else None
+                if szg.get("vol_normalize", True)
+                else None
             ),
         ),
         risk_manager=RiskManagerConfig(
@@ -450,8 +458,8 @@ def stage_simulate(cfg: dict, force: bool) -> None:
         # stage and discovered at run time, with no fixtures to bootstrap from.
         _bootstrap_panel_from_fixtures(cfg)
 
-    from src.simulator.simulator_factory import run_from_config
     from src.simulator.simulation_persistence import hash_config
+    from src.simulator.simulator_factory import run_from_config
 
     result = run_from_config(sim_config)
 

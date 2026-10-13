@@ -54,11 +54,12 @@ windows is easy to get backwards; it is exactly what the day-by-day replay
 below reproduces by construction, rather than by a derived date-range
 formula.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import cast
 
-import numpy as np
 import pandas as pd
 
 from src.simulator.actions import OpenCandidateAction
@@ -106,7 +107,7 @@ def _reconstruct_entry_fill(
 
     if entry_date not in price_matrix.index:
         raise KeyError(f"entry_date={entry_date} not found in the price matrix.")
-    entry_prices = price_matrix.loc[entry_date].dropna()
+    entry_prices = cast("pd.Series", price_matrix.loc[entry_date]).dropna()
 
     action = OpenCandidateAction(
         candidate_id=str(trade_row["candidate_id"]),
@@ -125,7 +126,9 @@ def _reconstruct_entry_fill(
     )
 
     deltas = position_translator.translate_open(
-        action=action, candidate_ref=ref, current_prices=entry_prices,
+        action=action,
+        candidate_ref=ref,
+        current_prices=entry_prices,
     )
     exec_res = execution_engine.execute_deltas(deltas=deltas, current_prices=entry_prices)
 
@@ -173,11 +176,18 @@ def reconstruct_daily_portfolio_state(
     matrix (e.g. Close) it used.
     """
     if dates.empty:
-        return pd.DataFrame(columns=[
-            "date", "total_capital", "total_equity_gross", "total_equity_net",
-            "n_live_candidate_positions", "daily_borrow_cost",
-            "cumulative_transaction_costs", "cumulative_borrow_costs",
-        ])
+        return pd.DataFrame(
+            columns=[
+                "date",
+                "total_capital",
+                "total_equity_gross",
+                "total_equity_net",
+                "n_live_candidate_positions",
+                "daily_borrow_cost",
+                "cumulative_transaction_costs",
+                "cumulative_borrow_costs",
+            ]
+        )
 
     rate = short_borrow_rate_annual_bps / 10_000.0 / 252.0
 
@@ -221,9 +231,9 @@ def reconstruct_daily_portfolio_state(
             entry_prices_by_ticker=dict(live_pos.entry_prices_by_ticker),
             direction=live_pos.direction,
         )
-        opens_by_date.setdefault(
-            pd.Timestamp(live_pos.entry_date), []
-        ).append((candidate_id, pos, live_pos.accumulated_transaction_cost))
+        opens_by_date.setdefault(pd.Timestamp(live_pos.entry_date), []).append(
+            (candidate_id, pos, live_pos.accumulated_transaction_cost)
+        )
 
     open_positions: dict[str, _ReplayPosition] = {}
     cumulative_transaction_costs = 0.0
@@ -232,7 +242,7 @@ def reconstruct_daily_portfolio_state(
     rows: list[dict] = []
     for date in dates:
         date = pd.Timestamp(date)
-        current_prices = price_matrix.loc[date].dropna()
+        current_prices = cast("pd.Series", price_matrix.loc[date]).dropna()
 
         # Step 1-2: MTM positions already open before today, then accrue
         # today's borrow cost from that post-MTM state.
@@ -245,7 +255,7 @@ def reconstruct_daily_portfolio_state(
         cumulative_borrow_costs += daily_borrow_cost
 
         # Step 3: today's closes.
-        for candidate_id, realized_pnl_gross, exit_commission in closes_by_date.get(date, []):
+        for candidate_id, _realized_pnl_gross, exit_commission in closes_by_date.get(date, []):
             open_positions.pop(candidate_id, None)
             cumulative_transaction_costs += exit_commission
         # cumulative_realized_pnl is folded straight into total_equity_gross
@@ -261,14 +271,16 @@ def reconstruct_daily_portfolio_state(
         total_unrealized_pnl = sum(pos.unrealized_pnl for pos in open_positions.values())
         n_live = len(open_positions)
 
-        rows.append({
-            "date": date,
-            "daily_borrow_cost": float(daily_borrow_cost),
-            "cumulative_transaction_costs": float(cumulative_transaction_costs),
-            "cumulative_borrow_costs": float(cumulative_borrow_costs),
-            "n_live_candidate_positions": n_live,
-            "total_unrealized_pnl": float(total_unrealized_pnl),
-        })
+        rows.append(
+            {
+                "date": date,
+                "daily_borrow_cost": float(daily_borrow_cost),
+                "cumulative_transaction_costs": float(cumulative_transaction_costs),
+                "cumulative_borrow_costs": float(cumulative_borrow_costs),
+                "n_live_candidate_positions": n_live,
+                "total_unrealized_pnl": float(total_unrealized_pnl),
+            }
+        )
 
     df = pd.DataFrame(rows)
 
@@ -278,7 +290,8 @@ def reconstruct_daily_portfolio_state(
     if not closed_trades_df.empty:
         realized_by_date = (
             closed_trades_df.assign(exit_date=pd.to_datetime(closed_trades_df["exit_date"]))
-            .groupby("exit_date")["realized_pnl_gross"].sum()
+            .groupby("exit_date")["realized_pnl_gross"]
+            .sum()
         )
         df["cumulative_realized_pnl"] = (
             realized_by_date.reindex(df["date"], fill_value=0.0).cumsum().to_numpy()
@@ -296,8 +309,15 @@ def reconstruct_daily_portfolio_state(
         - df["cumulative_borrow_costs"]
     )
 
-    return df[[
-        "date", "total_capital", "total_equity_gross", "total_equity_net",
-        "n_live_candidate_positions", "daily_borrow_cost",
-        "cumulative_transaction_costs", "cumulative_borrow_costs",
-    ]]
+    return df[
+        [
+            "date",
+            "total_capital",
+            "total_equity_gross",
+            "total_equity_net",
+            "n_live_candidate_positions",
+            "daily_borrow_cost",
+            "cumulative_transaction_costs",
+            "cumulative_borrow_costs",
+        ]
+    ]

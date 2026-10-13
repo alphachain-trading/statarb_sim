@@ -8,15 +8,12 @@ candidate_id already encodes the full row identity
 make_candidate_id, so a duplicate is a structural bug in the caller, not a
 legitimate repeat.
 """
-import sys
+
 import tempfile
 import unittest
 from pathlib import Path
 
 import pandas as pd
-
-REPO_ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(REPO_ROOT))
 
 from src.candidates.candidate_panel import CandidatePanelResult, save_candidate_panel_result
 
@@ -28,12 +25,14 @@ class TestCandidatePanelUniqueness(unittest.TestCase):
         self.out_dir = Path(self._tmp.name)
 
     def test_duplicate_candidate_id_raises(self):
-        panel = pd.DataFrame({
-            "candidate_id": ["c1", "c1"],
-            "spread_id": ["AAA|BBB", "AAA|BBB"],
-            "asof_date": [pd.Timestamp("2020-01-01")] * 2,
-            "group_id": ["g1", "g1"],
-        })
+        panel = pd.DataFrame(
+            {
+                "candidate_id": ["c1", "c1"],
+                "spread_id": ["AAA|BBB", "AAA|BBB"],
+                "asof_date": [pd.Timestamp("2020-01-01")] * 2,
+                "group_id": ["g1", "g1"],
+            }
+        )
         result = CandidatePanelResult(panel=panel, metadata={})
         with self.assertRaises(ValueError) as cm:
             save_candidate_panel_result(result=result, out_dir=self.out_dir, stem="test")
@@ -41,12 +40,14 @@ class TestCandidatePanelUniqueness(unittest.TestCase):
         self.assertFalse((self.out_dir / "test.panel.parquet").exists())
 
     def test_unique_candidate_ids_write_successfully(self):
-        panel = pd.DataFrame({
-            "candidate_id": ["c1", "c2"],
-            "spread_id": ["AAA|BBB", "CCC|DDD"],
-            "asof_date": [pd.Timestamp("2020-01-01")] * 2,
-            "group_id": ["g1", "g1"],
-        })
+        panel = pd.DataFrame(
+            {
+                "candidate_id": ["c1", "c2"],
+                "spread_id": ["AAA|BBB", "CCC|DDD"],
+                "asof_date": [pd.Timestamp("2020-01-01")] * 2,
+                "group_id": ["g1", "g1"],
+            }
+        )
         result = CandidatePanelResult(panel=panel, metadata={})
         save_candidate_panel_result(result=result, out_dir=self.out_dir, stem="test")
         self.assertTrue((self.out_dir / "test.panel.parquet").exists())

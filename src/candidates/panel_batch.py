@@ -38,28 +38,28 @@ mr_diag_lb may be a scalar (broadcast across every residual config) or a
 list of matching length (one value per residual config), but never a list
 when residual_configs has length 1.
 """
+
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import cast
 
 import pandas as pd
 from tqdm.auto import tqdm
 
-from src.settings import CONFIG_UNIVERSE, DATA_UNIVERSES, CANDIDATE_PANELS_ROOT
-
-from src.simulator.config import GroupDataSource, group_abbrev
 from src.candidates.pair_candidate_panel_creator import (
+    CandidatePanelResult,
     PairSpreadConfig,
     create_pair_candidate_panel,
-    CandidatePanelResult,
 )
 from src.data.returns import build_group_return_bundle
-from src.data.universe_loader import UniverseDataLoader
 from src.data.universe_config import UniverseConfig
+from src.data.universe_loader import UniverseDataLoader
 from src.residuals.causal_residuals import CausalResidualConfig
-
+from src.settings import CONFIG_UNIVERSE, DATA_UNIVERSES
+from src.simulator.config import group_abbrev
 
 # ── group discovery ─────────────────────────────────────────────────────
 
@@ -144,7 +144,7 @@ class PanelBatchConfig:
     # Paths
     universe_name: str = "sp500_v1"  # config/universes/{universe_name}/{group_id}.yaml
     universe_dir: str | Path = ""  # "" → CONFIG_UNIVERSE / universe_name; full override otherwise
-    data_path: str | Path = ""     # "" → DATA_UNIVERSES from settings
+    data_path: str | Path = ""  # "" → DATA_UNIVERSES from settings
 
     # Data loading
     force_download: bool = False
@@ -176,7 +176,7 @@ class PanelBatchConfig:
             )
         if all(is_str):
             self.residual_configs = [
-                CausalResidualConfig.from_key(rc) for rc in self.residual_configs
+                CausalResidualConfig.from_key(cast("str", rc)) for rc in self.residual_configs
             ]
 
         n = len(self.residual_configs)
@@ -184,9 +184,7 @@ class PanelBatchConfig:
             val = getattr(self, name)
             if isinstance(val, list):
                 if n == 1:
-                    raise ValueError(
-                        f"{name} must be a scalar when residual_configs has length 1."
-                    )
+                    raise ValueError(f"{name} must be a scalar when residual_configs has length 1.")
                 if len(val) != n:
                     raise ValueError(
                         f"{name} list length {len(val)} != len(residual_configs) ({n})."
@@ -195,7 +193,11 @@ class PanelBatchConfig:
     # ── path helpers ─────────────────────────────────────────────────────
 
     def resolved_universe_dir(self) -> Path:
-        return Path(self.universe_dir) if self.universe_dir else Path(CONFIG_UNIVERSE) / self.universe_name
+        return (
+            Path(self.universe_dir)
+            if self.universe_dir
+            else Path(CONFIG_UNIVERSE) / self.universe_name
+        )
 
     def resolved_data_path(self) -> Path:
         return Path(self.data_path) if self.data_path else Path(DATA_UNIVERSES)
@@ -207,13 +209,13 @@ class PanelBatchConfig:
     # ── per-point window resolution ──────────────────────────────────────
 
     def resolved_windows(self) -> list[tuple[int, int]]:
-        """Broadcast hedge_ratio_lb / mr_diag_lb to one (hedge_lb, diag_lb) pair per residual config."""
+        """Broadcast hedge_ratio_lb / mr_diag_lb to one (hedge_lb, diag_lb) pair per config."""
         n = len(self.residual_configs)
 
         def _broadcast(val: int | list[int]) -> list[int]:
             return list(val) if isinstance(val, list) else [val] * n
 
-        return list(zip(_broadcast(self.hedge_ratio_lb), _broadcast(self.mr_diag_lb)))
+        return list(zip(_broadcast(self.hedge_ratio_lb), _broadcast(self.mr_diag_lb), strict=False))
 
 
 # ── batch runner ────────────────────────────────────────────────────────
@@ -243,7 +245,7 @@ def run_panel_batch(
     cfg: PanelBatchConfig,
 ) -> dict[tuple[str, str], CandidatePanelResult]:
     """
-    Run batch panel creation across groups × cfg.residual_configs.
+    Run batch panel creation across groups x cfg.residual_configs.
 
     Returns
     -------
@@ -264,12 +266,13 @@ def run_panel_batch(
             f"(selected={cfg.selected_groups}, excluded={cfg.excluded_groups})"
         )
 
-    points = list(zip(cfg.residual_configs, cfg.resolved_windows()))
+    residual_cfgs = cast("list[CausalResidualConfig]", cfg.residual_configs)
+    points = list(zip(residual_cfgs, cfg.resolved_windows(), strict=False))
 
-    group_labels = [group_abbrev(gid) for gid, _ in group_entries]
+    group_labels = [cast("str", group_abbrev(gid)) for gid, _ in group_entries]
     print(f"Batch {batch_timestamp}")
     print(f"Groups: {len(group_entries)} [{', '.join(group_labels)}]")
-    print(f"Residual configs: {[rc.key for rc in cfg.residual_configs]}")
+    print(f"Residual configs: {[rc.key for rc in residual_cfgs]}")
     total_jobs = len(group_entries) * len(points)
     print(f"Total jobs: {total_jobs}")
 
@@ -278,7 +281,7 @@ def run_panel_batch(
     group_bar = tqdm(group_entries, desc="Groups", unit="group")
 
     for group_id, yaml_path in group_bar:
-        abbrev = group_abbrev(group_id)
+        abbrev = cast("str", group_abbrev(group_id))
         group_bar.set_postfix_str(abbrev)
 
         # Load UMD once per group
@@ -303,7 +306,7 @@ def run_panel_batch(
         )
 
         # Inner loop: residual_configs
-        point_iter = points
+        point_iter: Iterable[tuple[CausalResidualConfig, tuple[int, int]]] = points
         if len(points) > 1:
             point_iter = tqdm(points, desc=f"  {abbrev} sweep", leave=False, unit="pt")
 

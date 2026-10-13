@@ -12,12 +12,8 @@ Also covers the single-source panel requirement: candidate_panel_subdir
 lives on the SweepConfig and is required, so an unset panel raises loud
 (naming the offending RUNS[i]) rather than silently running the default.
 """
-import sys
-import unittest
-from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(REPO_ROOT))
+import unittest
 
 from src.simulator.config import FeatureIntervalSpec, IntervalScoringConfig, ZScoreConfig
 from src.simulator.sweep_runner import SweepConfig, _resolve_panel_subdir, dedup_key
@@ -43,12 +39,17 @@ def _scoring(weight: float) -> IntervalScoringConfig:
 class TestSweepDedupKey(unittest.TestCase):
     def test_panel_subdir_changes_dedup_key(self):
         """Same sweep on two candidate panels must not collide."""
-        v2 = SweepConfig(entry_z=2.0, z_lookback=21, z_method="ewm", candidate_panel_subdir="V2.pair")
-        v3 = SweepConfig(entry_z=2.0, z_lookback=21, z_method="ewm", candidate_panel_subdir="V3.pair")
+        v2 = SweepConfig(
+            entry_z=2.0, z_lookback=21, z_method="ewm", candidate_panel_subdir="V2.pair"
+        )
+        v3 = SweepConfig(
+            entry_z=2.0, z_lookback=21, z_method="ewm", candidate_panel_subdir="V3.pair"
+        )
         self.assertNotIn("V2.pair", v2.alias)
         self.assertNotIn("V3.pair", v3.alias)
         self.assertNotEqual(
-            dedup_key(v2), dedup_key(v3),
+            dedup_key(v2),
+            dedup_key(v3),
             "panel subdir must change the dedup key",
         )
 
@@ -58,7 +59,8 @@ class TestSweepDedupKey(unittest.TestCase):
         b = SweepConfig(entry_z=1.8, interval_scoring=_scoring(1.75), candidate_panel_subdir="V4")
         self.assertEqual(a.alias, b.alias, "precondition: alias omits interval weights")
         self.assertNotEqual(
-            dedup_key(a), dedup_key(b),
+            dedup_key(a),
+            dedup_key(b),
             "interval_scoring weights must change the dedup key",
         )
 
@@ -70,12 +72,18 @@ class TestSweepDedupKey(unittest.TestCase):
 
     def test_multi_timescale_overrides_change_dedup_key(self):
         """Nested ZScoreConfig lists must reach the key too."""
-        a = SweepConfig(candidate_panel_subdir="V4", z_score_overrides=[
-            ZScoreConfig(lookback=21, ddof=1, method="ewm", residual_key="exp_hl126_mh252"),
-        ])
-        b = SweepConfig(candidate_panel_subdir="V4", z_score_overrides=[
-            ZScoreConfig(lookback=42, ddof=1, method="ewm", residual_key="exp_hl126_mh252"),
-        ])
+        a = SweepConfig(
+            candidate_panel_subdir="V4",
+            z_score_overrides=[
+                ZScoreConfig(lookback=21, ddof=1, method="ewm", residual_key="exp_hl126_mh252"),
+            ],
+        )
+        b = SweepConfig(
+            candidate_panel_subdir="V4",
+            z_score_overrides=[
+                ZScoreConfig(lookback=42, ddof=1, method="ewm", residual_key="exp_hl126_mh252"),
+            ],
+        )
         self.assertNotEqual(dedup_key(a), dedup_key(b))
 
     def test_unset_panel_raises(self):
@@ -85,7 +93,7 @@ class TestSweepDedupKey(unittest.TestCase):
         self.assertIn("unset", str(cm.exception))
 
     def test_empty_string_panel_raises(self):
-        """"" is the unset sentinel, so it raises like any other unset panel."""
+        """ "" is the unset sentinel, so it raises like any other unset panel."""
         with self.assertRaises(ValueError):
             _resolve_panel_subdir(SweepConfig(entry_z=2.0, candidate_panel_subdir=""), 0)
 

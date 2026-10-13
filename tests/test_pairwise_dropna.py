@@ -23,17 +23,13 @@ call _build_pair_candidate_rows_for_date directly, mocking
 apply_causal_residual_model so the residual window can carry a synthetic
 gap without needing a real fit.
 """
-import sys
+
 import unittest
-from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
 import numpy as np
 import pandas as pd
-
-REPO_ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(REPO_ROOT))
 
 import src.candidates.pair_candidate_panel_creator as pcpc
 from src.data.returns import GroupReturnBundle
@@ -62,11 +58,13 @@ def _fake_residuals(n: int, gap_row: int | None) -> pd.DataFrame:
     # calls regardless of gap_row, so any difference in AAA|BBB's fitted
     # output can only come from CCC's gap leaking into a shared row set.
     rng = np.random.default_rng(0)
-    df = pd.DataFrame({
-        "AAA": rng.normal(scale=0.01, size=n),
-        "BBB": rng.normal(scale=0.01, size=n),
-        "CCC": rng.normal(scale=0.01, size=n),
-    })
+    df = pd.DataFrame(
+        {
+            "AAA": rng.normal(scale=0.01, size=n),
+            "BBB": rng.normal(scale=0.01, size=n),
+            "CCC": rng.normal(scale=0.01, size=n),
+        }
+    )
     if gap_row is not None:
         df.loc[gap_row, "CCC"] = np.nan
     return df
@@ -84,7 +82,9 @@ class TestPairwiseDropna(unittest.TestCase):
 
         fitted_model = SimpleNamespace(subtract_risk_free=False)
         residual_cfg = CausalResidualConfig(
-            mode=ResidualMode.EQ_ROLLING, subtract_risk_free=False, lb=n,
+            mode=ResidualMode.EQ_ROLLING,
+            subtract_risk_free=False,
+            lb=n,
         )
         pair_cfg = pcpc.PairSpreadConfig(
             hedge_ratio_methods=["ols"],
@@ -106,10 +106,10 @@ class TestPairwiseDropna(unittest.TestCase):
                 hedge_ratio_lb=n,
                 mr_diag_lb=n,
                 debug=False,
-                fitted_model=fitted_model,
+                fitted_model=fitted_model,  # type: ignore[arg-type]  # SimpleNamespace als Test-Double
                 progress=False,
             )
-        weights_by_spread = {}
+        weights_by_spread: dict[str, dict[str, float]] = {}
         for wr in weight_rows:
             weights_by_spread.setdefault(wr["spread_id"], {})[wr["ticker"]] = wr["weight"]
         return {r["spread_id"]: r for r in rows}, weights_by_spread

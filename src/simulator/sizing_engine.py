@@ -8,8 +8,8 @@ from src.simulator.actions import OpenCandidateAction
 from src.simulator.config import IntervalScoringConfig, SizingConfig
 from src.simulator.types import CandidateAnalyticsState
 
-
 # ── SizingEngine ─────────────────────────────────────────────────────────────
+
 
 @dataclass(slots=True)
 class SizingEngine:
@@ -24,6 +24,7 @@ class SizingEngine:
     Trades sized to zero (e.g. future feature grid exclusions) are dropped
     before returning, so RiskManager only sees trades with notional > 0.
     """
+
     config: SizingConfig
 
     def size(
@@ -83,7 +84,9 @@ class SizingEngine:
         if scoring_cfg is not None and analytics_by_id is not None:
             a = analytics_by_id.get(action.candidate_id)
             features = a.features if a is not None else {}
-            size_multiplier, feature_scores = self._compute_interval_multiplier(scoring_cfg, features)
+            size_multiplier, feature_scores = self._compute_interval_multiplier(
+                scoring_cfg, features
+            )
             if size_multiplier == 0.0:
                 return 0.0, feature_scores, 0.0
             base = base * size_multiplier
@@ -143,7 +146,8 @@ class SizingEngine:
         if not analytics_by_id:
             return None
         stds = [
-            a.roll_std for a in analytics_by_id.values()
+            a.roll_std
+            for a in analytics_by_id.values()
             if a.roll_std is not None and a.roll_std > 0.0
         ]
         if not stds:

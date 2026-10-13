@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 import math
+from dataclasses import dataclass
+
 import pandas as pd
 
 from src.simulator.config import ExecutionConfig
@@ -59,7 +60,7 @@ class ExecutionEngine:
             return float(units)
 
         if self.config.share_rounding == "nearest":
-            rounded = int(round(units))
+            rounded = round(units)
         elif self.config.share_rounding == "floor":
             rounded = math.floor(units) if units >= 0 else math.ceil(units)
         elif self.config.share_rounding == "ceil":
@@ -77,8 +78,8 @@ class ExecutionEngine:
     ) -> float:
         """
         IBKR Pro Fixed model:
-        raw = commission_per_order + n_shares × commission_per_share
-        cap = min(max_commission_per_order, max_commission_pct_of_trade × notional)
+        raw = commission_per_order + n_shares x commission_per_share
+        cap = min(max_commission_per_order, max_commission_pct_of_trade x notional)
         If cap < min_commission, cap wins (IBKR rule for penny stocks).
         Otherwise clamp raw between min and cap.
         """

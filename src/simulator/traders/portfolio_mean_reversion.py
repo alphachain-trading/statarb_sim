@@ -1,12 +1,45 @@
+"""
+Portfolio mean-reversion trader (v0.1).
+
+Idea
+----
+Trade spread candidates on a plain z-score rule: open long when z <= -entry_z,
+open short when z >= +entry_z, close on the zero-cross (exit_z). Open positions
+are additionally guarded by three optional stops: a time stop (multiples of the
+entry half-life), an MR-deterioration stop (live mr_score vs. entry mr_score)
+and a PnL stop (fraction of target group capital).
+
+Difference to PairSpreadMeanReversionTrader
+-------------------------------------------
+The pair trader is the live trader: it works on multi-timescale z-score
+components, applies signal-quality gates, and resolves exit rules and max-hold
+per residual_key. This trader has none of that; it reads the single `z_score`
+column and only gates on `is_active` / `is_signal_ready`. It never sets
+residual_key or z_components on its actions, and it proposes direction only:
+position size comes from SizingEngine (`pair_notional`).
+
+Status: dormant since May 2026 (kept for later revival). It is constructed in
+simulator_factory when a PortfolioMeanReversionConfig is given, but no baseline
+or sweep does.
+
+Sizing note: originally the strategy set the position size itself via
+`target_group_exposure` (magnitude). Since bb69f08 it only sets direction;
+size comes from SizingEngine / pair_notional. Revisit the sizing concept on
+revival. `default_abs_target_group_exposure` is kept as a placeholder for it:
+it is still mandatory but not read.
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
 
 from src.simulator.actions import CandidateAction, CloseCandidateAction, OpenCandidateAction
 from src.simulator.config import PortfolioMeanReversionConfig
-from src.simulator.types import CandidateAnalyticsState, CandidateMarketSnapshot, LiveCandidatePosition
-
-import numpy as np
+from src.simulator.types import (
+    CandidateAnalyticsState,
+    CandidateMarketSnapshot,
+    LiveCandidatePosition,
+)
 
 
 @dataclass(slots=True)
@@ -21,8 +54,8 @@ class PortfolioMeanReversionTrader:
         * open long spread when z <= -entry_z
         * open short spread when z >= +entry_z
     - if open:
-        * time stop: exit when days_open >= multiplier × entry_half_life
-        * deterioration stop: exit when fz_mr_score < mr_deterioration_threshold × entry_mr_score
+        * time stop: exit when days_open >= multiplier x entry_half_life
+        * deterioration stop: exit when fz_mr_score < mr_deterioration_threshold x entry_mr_score
         * close long when z >= exit_z
         * close short when z <= exit_z
     """
@@ -56,13 +89,8 @@ class PortfolioMeanReversionTrader:
                 continue
 
             z_score = float(row["z_score"])
-            momentum_z_raw = row.get("momentum_z")
-            momentum_z: float | None = (
-                float(momentum_z_raw)
-                if momentum_z_raw is not None and not (isinstance(momentum_z_raw, float) and np.isnan(momentum_z_raw))
-                else None
-            )
-            live_pos = live_positions_by_candidate_id.get(candidate_id)
+            live_pos = live_positions_by_candidate_id.get(str(candidate_id))
+            action: CandidateAction | None
 
             if live_pos is None:
                 action = self._maybe_open(
@@ -70,7 +98,6 @@ class PortfolioMeanReversionTrader:
                     group_id=str(row["group_id"]),
                     spread_id=str(row["spread_id"]),
                     z_score=z_score,
-                    momentum_z=momentum_z,
                 )
             else:
                 fz_a = diagnostics.get(str(candidate_id))
@@ -94,17 +121,15 @@ class PortfolioMeanReversionTrader:
         group_id: str,
         spread_id: str,
         z_score: float,
-        momentum_z: float | None,
     ) -> OpenCandidateAction | None:
         if self.config.allow_long and z_score <= -self.config.entry_z:
             return OpenCandidateAction(
                 candidate_id=candidate_id,
                 group_id=group_id,
                 spread_id=spread_id,
-                target_group_exposure=+self.default_abs_target_group_exposure,
+                direction=+1.0,
                 reason="entry_long",
                 z_score=z_score,
-                momentum_z=momentum_z,
             )
 
         if self.config.allow_short and z_score >= self.config.entry_z:
@@ -112,10 +137,9 @@ class PortfolioMeanReversionTrader:
                 candidate_id=candidate_id,
                 group_id=group_id,
                 spread_id=spread_id,
-                target_group_exposure=-self.default_abs_target_group_exposure,
+                direction=-1.0,
                 reason="entry_short",
                 z_score=z_score,
-                momentum_z=momentum_z,
             )
 
         return None
@@ -128,11 +152,12 @@ class PortfolioMeanReversionTrader:
         fz_analytics: CandidateAnalyticsState | None,
         target_group_capital: float | None,
     ) -> CloseCandidateAction | None:
-        # Time stop: exit if open longer than multiplier × entry_half_life
+        # Time stop: exit if open longer than multiplier x entry_half_life
         if (
             self.config.time_stop_half_life_multiplier is not None
             and live_pos.entry_half_life is not None
-            and live_pos.days_open >= self.config.time_stop_half_life_multiplier * live_pos.entry_half_life
+            and live_pos.days_open
+            >= self.config.time_stop_half_life_multiplier * live_pos.entry_half_life
         ):
             return CloseCandidateAction(
                 candidate_id=live_pos.candidate_id,
@@ -142,14 +167,15 @@ class PortfolioMeanReversionTrader:
                 z_score=z_score,
             )
 
-        # Deterioration stop: exit if realized-weight MR score drops below threshold × entry
+        # Deterioration stop: exit if realized-weight MR score drops below threshold x entry
         if (
             self.config.mr_deterioration_threshold is not None
             and fz_analytics is not None
             and fz_analytics.mr_score is not None
             and live_pos.entry_mr_score is not None
             and live_pos.entry_mr_score > 0.0
-            and fz_analytics.mr_score < self.config.mr_deterioration_threshold * live_pos.entry_mr_score
+            and fz_analytics.mr_score
+            < self.config.mr_deterioration_threshold * live_pos.entry_mr_score
         ):
             return CloseCandidateAction(
                 candidate_id=live_pos.candidate_id,

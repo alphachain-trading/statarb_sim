@@ -14,11 +14,12 @@ Usage:
     # Re-save as pkl for backward compat with view_* helpers
     df.to_pickle("/path/to/runs/sweep_results.pkl")
 """
+
 from __future__ import annotations
 
 import json
-from dataclasses import asdict
 from pathlib import Path
+from typing import cast
 
 import pandas as pd
 
@@ -44,10 +45,7 @@ def rebuild_sweep_results(
     -------
     DataFrame indexed by run_id with config + performance columns.
     """
-    if runs_dir is None:
-        runs_dir = Path(SIMULATION_RUNS_ROOT)
-    else:
-        runs_dir = Path(runs_dir)
+    runs_dir = Path(SIMULATION_RUNS_ROOT) if runs_dir is None else Path(runs_dir)
 
     if not runs_dir.exists():
         print(f"[rebuild] Directory not found: {runs_dir}")
@@ -78,10 +76,12 @@ def rebuild_sweep_results(
         if not metrics_path.exists():
             if include_failed:
                 n_fail += 1
-                rows.append({
-                    "run_id": run_id,
-                    "error": "No performance_metrics.json",
-                })
+                rows.append(
+                    {
+                        "run_id": run_id,
+                        "error": "No performance_metrics.json",
+                    }
+                )
             else:
                 n_skip += 1
             continue
@@ -108,13 +108,17 @@ def rebuild_sweep_results(
         except Exception as e:
             n_fail += 1
             if include_failed:
-                rows.append({
-                    "run_id": run_id,
-                    "error": str(e),
-                })
+                rows.append(
+                    {
+                        "run_id": run_id,
+                        "error": str(e),
+                    }
+                )
 
-    print(f"[rebuild] Scanned {n_ok + n_skip + n_fail} dirs: "
-          f"{n_ok} OK, {n_skip} skipped, {n_fail} failed")
+    print(
+        f"[rebuild] Scanned {n_ok + n_skip + n_fail} dirs: "
+        f"{n_ok} OK, {n_skip} skipped, {n_fail} failed"
+    )
 
     if not rows:
         return pd.DataFrame()
@@ -122,16 +126,15 @@ def rebuild_sweep_results(
     df = pd.DataFrame(rows).set_index("run_id")
 
     # Sort by run_id (chronological since IDs are timestamp-based)
-    df = df.sort_index()
-
-    return df
+    return df.sort_index()
 
 
 # ── Internal helpers ─────────────────────────────────────────────────
 
+
 def _load_json(path: Path) -> dict:
-    with open(path) as f:
-        return json.load(f)
+    with path.open() as f:
+        return cast(dict, json.load(f))
 
 
 def _extract_config_fields(config: dict) -> dict:
@@ -149,10 +152,9 @@ def _extract_config_fields(config: dict) -> dict:
     z_cfg = config.get("z_score", {})
     if isinstance(z_cfg, list):
         # Multi-timescale
-        out["z_score_overrides"] = str([
-            f"{zc.get('residual_key', '')}:zhl{zc.get('lookback', '?')}"
-            for zc in z_cfg
-        ])
+        out["z_score_overrides"] = str(
+            [f"{zc.get('residual_key', '')}:zhl{zc.get('lookback', '?')}" for zc in z_cfg]
+        )
         out["z_method"] = z_cfg[0].get("method", "ewm") if z_cfg else "ewm"
         out["z_lookback"] = [zc.get("lookback") for zc in z_cfg]
         out["n_timescales"] = len(z_cfg)
@@ -291,7 +293,7 @@ def _build_alias_from_config(config: dict) -> str:
         if zhls:
             parts.append("zhl" + "+".join(zhls))
     else:
-        parts.append(f"mt1")
+        parts.append("mt1")
         method = z_cfg.get("method", "ewm")
         parts.append(method)
         lb = z_cfg.get("lookback")
@@ -309,6 +311,7 @@ def _build_alias_from_config(config: dict) -> str:
     tick = rm.get("max_ticker_exposure_pct")
     if tick is not None:
         parts.append(f"tick{tick:.2f}")
+    sizing = config.get("sizing") or {}
     bpn = sizing.get("base_pair_notional") or rm.get("base_pair_notional")
     if bpn is not None:
         parts.append(f"bpn{int(bpn / 1000)}k")
@@ -317,7 +320,6 @@ def _build_alias_from_config(config: dict) -> str:
         parts.append(f"gx{gx:.1f}")
 
     # Kelly (new: sizing.kelly, legacy: risk_manager.kelly)
-    sizing = config.get("sizing") or {}
     kelly = sizing.get("kelly") or rm.get("kelly")
     if kelly is not None:
         k_parts = [f"f{kelly.get('fraction', 0.5):.1f}"]
@@ -361,4 +363,4 @@ def _serialize_if_complex(val) -> str | None:
         return None
     if isinstance(val, (dict, list)):
         return str(val)
-    return val
+    return cast("str | None", val)

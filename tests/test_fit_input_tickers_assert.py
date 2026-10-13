@@ -9,13 +9,10 @@ present in the loaded UniverseMarketData -- catching a UMD that is a
 different universe than the one the panel was built against, before a
 residual fit fails partway through with a confusing KeyError.
 """
-import sys
-import unittest
-from pathlib import Path
-from types import SimpleNamespace
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(REPO_ROOT))
+import unittest
+from types import SimpleNamespace
+from typing import Any
 
 from src.simulator.simulator_factory import _assert_fit_input_tickers_available
 
@@ -42,14 +39,14 @@ class TestFitInputTickersAssert(unittest.TestCase):
         self.assertIn("exp_hl20_rf", msg)
 
     def test_skips_metadata_without_fit_input_tickers_key(self):
-        """Panel built before F1 commit 6 has no fit_input_tickers -- nothing to check, not an error."""
+        """Panel built before F1 commit 6 has no fit_input_tickers: nothing to check, no error."""
         umd = _umd(["AAA"])
         metadata_by_key = {"": {"group_id": "materials"}}
         _assert_fit_input_tickers_available(umd, metadata_by_key)  # no raise
 
     def test_skips_empty_fit_input_tickers(self):
         umd = _umd(["AAA"])
-        metadata_by_key = {"": {"fit_input_tickers": []}}
+        metadata_by_key: dict[str, dict[str, Any]] = {"": {"fit_input_tickers": []}}
         _assert_fit_input_tickers_available(umd, metadata_by_key)  # no raise
 
     def test_checks_every_residual_key_independently(self):

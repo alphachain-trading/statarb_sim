@@ -82,11 +82,11 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 import re
 import shutil
 import tempfile
 from pathlib import Path
+from typing import Any, cast
 
 import pandas as pd
 from tqdm import tqdm
@@ -182,7 +182,8 @@ def _normalize_prices_df(df: pd.DataFrame) -> pd.DataFrame:
 
     df = df.sort_index().sort_index(axis=1)
     df.columns = pd.MultiIndex.from_tuples(
-        [(str(a), str(b)) for a, b in df.columns], names=["ticker", "field"]
+        [(str(a), str(b)) for a, b in cast("list[tuple[Any, Any]]", list(df.columns))],
+        names=["ticker", "field"],
     )
     for col in df.columns:
         df[col] = pd.to_numeric(df[col], errors="coerce").astype("float64")
@@ -203,7 +204,7 @@ def _finalize_snapshot(tmp_dir: Path, target_dir: Path) -> None:
         raise SnapshotExistsError(
             f"refusing to write snapshot: target directory already exists: {target_dir}"
         )
-    os.rename(tmp_dir, target_dir)
+    tmp_dir.rename(target_dir)
     _make_tree_read_only(target_dir)
 
 
@@ -286,7 +287,9 @@ def _download_group(
     return config, umd, missing
 
 
-def _build_group_manifest_entry(config: UniverseConfig, umd: UniverseMarketData, group_dir: Path) -> dict:
+def _build_group_manifest_entry(
+    config: UniverseConfig, umd: UniverseMarketData, group_dir: Path
+) -> dict:
     # The ticker set is the group membership roster (what membership.parquet
     # holds), not umd.tickers() — the latter also includes proxy/benchmark/
     # risk-free tickers, which are not sector membership and would make this
@@ -307,7 +310,9 @@ def _build_group_manifest_entry(config: UniverseConfig, umd: UniverseMarketData,
     }
 
 
-def _format_missing_tickers_error(universe_version: str, missing_by_group: dict[str, list[str]]) -> str:
+def _format_missing_tickers_error(
+    universe_version: str, missing_by_group: dict[str, list[str]]
+) -> str:
     total = sum(len(v) for v in missing_by_group.values())
     lines = [
         f"mint aborted for universe '{universe_version}': {total} ticker(s) missing data "
@@ -362,7 +367,8 @@ def _mint_snapshot(
 
         iterator = (
             tqdm(group_entries, desc=f"snapshot {snapshot_id}", unit="group")
-            if progress else group_entries
+            if progress
+            else group_entries
         )
         for group_id, yaml_path in iterator:
             config, umd, missing = _download_group(group_id, yaml_path, tmp_dir, progress)
@@ -370,7 +376,9 @@ def _mint_snapshot(
                 missing_by_group[group_id] = missing
                 continue
             group_dir = tmp_dir / config.universe_name
-            manifest_groups[group_id] = _build_group_manifest_entry(config, umd, group_dir)
+            manifest_groups[group_id] = _build_group_manifest_entry(
+                config, cast("UniverseMarketData", umd), group_dir
+            )
 
         if missing_by_group:
             raise IncompleteUniverseDownloadError(
@@ -398,7 +406,7 @@ def _read_manifest(snapshot_dir: Path) -> dict:
     manifest_path = snapshot_dir / "manifest.json"
     if not manifest_path.exists():
         raise FileNotFoundError(f"no manifest.json in snapshot directory: {snapshot_dir}")
-    return json.loads(manifest_path.read_text(encoding="utf-8"))
+    return cast("dict", json.loads(manifest_path.read_text(encoding="utf-8")))
 
 
 def _list_snapshots(universe_version: str, snapshot_root: Path) -> list[str]:

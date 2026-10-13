@@ -3,20 +3,19 @@ from __future__ import annotations
 import hashlib
 import json
 import shutil
-from dataclasses import asdict, is_dataclass
+from dataclasses import asdict
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pandas as pd
 
-from src.simulator.config import PersistenceConfig, SimulatorConfig
-
 from src.settings import SIMULATION_RUNS_ROOT
-
+from src.simulator.config import PersistenceConfig, SimulatorConfig
 
 # ---------------------------------------------------------------------------
 # Run ID
 # ---------------------------------------------------------------------------
+
 
 def make_run_id(config: SimulatorConfig) -> str:
     """
@@ -47,6 +46,7 @@ def hash_config(config: SimulatorConfig) -> str:
 # ---------------------------------------------------------------------------
 # Save
 # ---------------------------------------------------------------------------
+
 
 def save_simulation_run(
     result: Any,
@@ -88,7 +88,8 @@ def save_simulation_run(
             _config_to_serializable(config),
         )
 
-    # DataFrame artifacts — monolithic only (flushable artifacts written per-year by flush_yearly_logs)
+    # DataFrame artifacts — monolithic only
+    # (flushable artifacts written per-year by flush_yearly_logs)
     _df_artifacts = {
         "selected_panel": ("selected_panel", lambda: result.selected_panel),
     }
@@ -201,6 +202,7 @@ def load_closed_trades_df(run_dir: Path) -> pd.DataFrame:
 # Load
 # ---------------------------------------------------------------------------
 
+
 def load_simulation_run(
     run_dir: str | Path,
 ) -> dict[str, Any]:
@@ -232,7 +234,9 @@ def load_simulation_run(
     out["performance_metrics"] = _load_json(perf_path) if perf_path.exists() else None
 
     group_perf_path = run_dir / "performance_group_metrics.json"
-    out["performance_group_metrics"] = _load_json(group_perf_path) if group_perf_path.exists() else None
+    out["performance_group_metrics"] = (
+        _load_json(group_perf_path) if group_perf_path.exists() else None
+    )
 
     # Monolithic artifacts
     for name in ["selected_panel", "daily_portfolio_state"]:
@@ -260,10 +264,7 @@ def list_simulation_runs(
     Reads meta.json from each run directory to build a summary table
     for quick comparison of runs.
     """
-    if runs_dir is None:
-        runs_dir = Path(SIMULATION_RUNS_ROOT)
-    else:
-        runs_dir = Path(runs_dir)
+    runs_dir = Path(SIMULATION_RUNS_ROOT) if runs_dir is None else Path(runs_dir)
 
     if not runs_dir.exists():
         return pd.DataFrame()
@@ -289,6 +290,7 @@ def list_simulation_runs(
 # Internal helpers
 # ---------------------------------------------------------------------------
 
+
 def _resolve_run_dir(cfg: PersistenceConfig, run_id: str) -> Path:
     if cfg.output_dir:
         return Path(cfg.output_dir) / run_id
@@ -297,7 +299,7 @@ def _resolve_run_dir(cfg: PersistenceConfig, run_id: str) -> Path:
 
 def _config_to_serializable(config: SimulatorConfig) -> dict[str, Any]:
     """Convert config to a JSON-serializable dict."""
-    return _to_serializable(asdict(config))
+    return cast("dict[str, Any]", _to_serializable(asdict(config)))
 
 
 def _to_serializable(obj: Any) -> Any:
@@ -353,8 +355,12 @@ def _build_meta(
     if performance_result is not None and hasattr(performance_result, "metrics"):
         m = performance_result.metrics
         for key in [
-            "sortino_net", "sharpe_net", "max_drawdown_net",
-            "total_return_net", "win_rate_net", "n_trades",
+            "sortino_net",
+            "sharpe_net",
+            "max_drawdown_net",
+            "total_return_net",
+            "win_rate_net",
+            "n_trades",
             # n_trading_days used to come from len(daily_portfolio_state_log)
             # (F1 commit 8c deleted it); compute_performance already derives
             # the same figure from the reconstructed equity curve.
@@ -372,7 +378,7 @@ def _copy_performance_html(config: SimulatorConfig, run_dir: Path) -> None:
     if not perf_cfg.report_html:
         return
 
-    source_dir = Path(perf_cfg.report_output_dir) if perf_cfg.report_output_dir else Path(".")
+    source_dir = Path(perf_cfg.report_output_dir) if perf_cfg.report_output_dir else Path()
     for html_file in source_dir.glob("*_quantstats.html"):
         dest = run_dir / html_file.name
         if not dest.exists():

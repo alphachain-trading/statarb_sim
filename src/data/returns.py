@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import cast
+
 import numpy as np
 import pandas as pd
 
@@ -10,11 +12,11 @@ from src.data.universe_marketdata import UniverseMarketData
 @dataclass
 class GroupReturnBundle:
     group_id: str
-    member_returns: pd.DataFrame      # cols = stock tickers
-    proxy_returns: pd.Series          # name = proxy ticker
-    benchmark_returns: pd.Series      # name = benchmark ticker
-    aligned_returns: pd.DataFrame     # cols = [members..., proxy, benchmark]
-    risk_free_returns: pd.Series      # name = RF ticker; raw annualized yield in % (e.g. 5.2 = 5.2%)
+    member_returns: pd.DataFrame  # cols = stock tickers
+    proxy_returns: pd.Series  # name = proxy ticker
+    benchmark_returns: pd.Series  # name = benchmark ticker
+    aligned_returns: pd.DataFrame  # cols = [members..., proxy, benchmark]
+    risk_free_returns: pd.Series  # name = RF ticker; raw annualized yield in % (e.g. 5.2 = 5.2%)
 
     @property
     def members(self) -> list[str]:
@@ -52,8 +54,9 @@ def compute_returns(
 
     prices = prices.sort_index().astype("float64")
 
+    rets: pd.DataFrame
     if method == "log":
-        rets = np.log(prices / prices.shift(1))
+        rets = cast("pd.DataFrame", np.log(prices / prices.shift(1)))
     elif method == "pct":
         rets = prices.pct_change()
     else:
@@ -67,7 +70,7 @@ def build_group_return_bundle(
     group_id: str,
     field: str = "Close",
     return_method: str = "log",
-    dropna: str = "any",   # "any", "all", "none"
+    dropna: str = "any",  # "any", "all", "none"
 ) -> GroupReturnBundle:
     """
     Build aligned member/proxy/benchmark return series for one group.

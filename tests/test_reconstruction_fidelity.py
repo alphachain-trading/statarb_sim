@@ -20,17 +20,12 @@ tested separately against the specific rows each one is actually supposed to
 reproduce -- an open position's own frozen ref, and the latest ref per
 (spread_id, date), respectively.
 """
-import sys
+
 import unittest
-from pathlib import Path
+from typing import Any, cast
 
 import numpy as np
 import pandas as pd
-
-REPO_ROOT = Path(__file__).resolve().parent.parent
-SCRIPTS_DIR = REPO_ROOT / "scripts"
-sys.path.insert(0, str(REPO_ROOT))
-sys.path.insert(0, str(SCRIPTS_DIR))
 
 from src.data.returns import GroupReturnBundle
 from src.residuals.causal_residuals import (
@@ -41,11 +36,10 @@ from src.residuals.causal_residuals import (
 from src.simulator.candidate_signals import CandidateSignalGenerator
 from src.simulator.config import DebugSampleConfig, MRDiagnosticsConfig, ZScoreConfig
 from src.simulator.reconstruction import (
-    reconstruct_level_and_zscore,
     reconstruct_candidate_view,
+    reconstruct_level_and_zscore,
     reconstruct_position_view,
 )
-from src.simulator.types import CandidateRef
 
 # Two spread_ids confirmed (via docs/refactor/B_baseline.txt) to actually trade
 # on the Track B harness's committed config — guarantees non-empty position-view
@@ -54,21 +48,35 @@ SAMPLE_SPREAD_IDS = ("APA|VLO", "APD|IP")
 
 
 class TestReconstructionFidelity(unittest.TestCase):
+    _scratch_dir: str
+    debug_sample_df: pd.DataFrame
+    open_intervals: dict[str, list[tuple[pd.Timestamp, pd.Timestamp]]]
+    precomputed: dict[tuple[str, str], Any]
+    weights_lookup: dict[tuple[str, pd.Timestamp], dict[str, float]]
+    selected_panel: pd.DataFrame
+    signal_generator: CandidateSignalGenerator
+
     @classmethod
     def setUpClass(cls):
         import dataclasses
         import tempfile
+
         import b_baseline_harness as harness
-        from src.candidates.candidate_panel import load_candidate_panel_result, load_weights, weights_lookup_from_df
+
+        from src.candidates.candidate_panel import (
+            load_candidate_panel_result,
+            load_weights,
+            weights_lookup_from_df,
+        )
         from src.residuals.causal_residuals import load_residual_params
         from src.simulator.config import PersistenceConfig
+        from src.simulator.simulation_persistence import _resolve_run_dir
         from src.simulator.simulator_factory import (
-            run_from_config,
+            _load_umd,
             create_simulator,
             generate_candidate_panels_by_group,
-            _load_umd,
+            run_from_config,
         )
-        from src.simulator.simulation_persistence import _resolve_run_dir
 
         # F2 C6c (F1): this test's whole point is verifying reconstruction
         # from persisted artifacts, independently reloaded from the live
@@ -84,13 +92,17 @@ class TestReconstructionFidelity(unittest.TestCase):
 
         prelim_sim_config = harness._build_sim_config(harness.GROUPS)
         panel_results = generate_candidate_panels_by_group(prelim_sim_config)
-        active_groups = sorted({
-            group_id for (group_id, _residual_key), v in panel_results.items()
-            if len(v["panel"]) > 0
-        })
+        active_groups = sorted(
+            {
+                group_id
+                for (group_id, _residual_key), v in panel_results.items()
+                if len(v["panel"]) > 0
+            }
+        )
 
         sim_config = (
-            prelim_sim_config if active_groups == harness.GROUPS
+            prelim_sim_config
+            if active_groups == harness.GROUPS
             else harness._build_sim_config(active_groups)
         )
         sim_config = dataclasses.replace(
@@ -104,10 +116,13 @@ class TestReconstructionFidelity(unittest.TestCase):
         assert len(cls.debug_sample_df) > 0, "debug sample captured no rows"
 
         trades_df = result.closed_trades_df()
-        cls.open_intervals: dict[str, list[tuple[pd.Timestamp, pd.Timestamp]]] = {}
-        for row in trades_df.itertuples(index=False):
+        cls.open_intervals = {}
+        for row in cast("Any", trades_df.itertuples(index=False)):
             cls.open_intervals.setdefault(row.candidate_id, []).append(
-                (pd.Timestamp(row.entry_date), pd.Timestamp(row.exit_date))
+                (
+                    pd.Timestamp(cast("Any", row.entry_date)),
+                    pd.Timestamp(cast("Any", row.exit_date)),
+                )
             )
 
         # Fresh signal generator, built from persisted artifacts independently
@@ -117,7 +132,7 @@ class TestReconstructionFidelity(unittest.TestCase):
         run_dir = _resolve_run_dir(sim_config.persistence, result.run_id)
         candidates_dir = run_dir / "candidates"
 
-        residual_key = sim_config.residual.key
+        residual_key = cast("Any", sim_config.residual).key
         weight_dfs = []
         cls.precomputed = {}
         panel_frames = []
@@ -131,7 +146,7 @@ class TestReconstructionFidelity(unittest.TestCase):
             )
 
         cls.weights_lookup = weights_lookup_from_df(pd.concat(weight_dfs, ignore_index=True))
-        residual_configs = {residual_key: sim_config.residual}
+        residual_configs = {residual_key: cast("Any", sim_config.residual)}
 
         umd = _load_umd(sim_config.data)
         cls.selected_panel = result.selected_panel
@@ -148,6 +163,7 @@ class TestReconstructionFidelity(unittest.TestCase):
     @classmethod
     def tearDownClass(cls):
         import shutil
+
         shutil.rmtree(cls._scratch_dir, ignore_errors=True)
 
     def _is_position_view(self, row) -> bool:
@@ -157,14 +173,16 @@ class TestReconstructionFidelity(unittest.TestCase):
         return False
 
     def test_sample_has_both_views(self):
-        n_position = sum(self._is_position_view(r) for r in self.debug_sample_df.itertuples(index=False))
+        n_position = sum(
+            self._is_position_view(r) for r in self.debug_sample_df.itertuples(index=False)
+        )
         n_candidate = len(self.debug_sample_df) - n_position
         self.assertGreater(n_position, 0, "no position-view rows in the sample")
         self.assertGreater(n_candidate, 0, "no candidate-view rows in the sample")
 
     def test_every_row_reconstructs_exactly(self):
         n_checked = 0
-        for row in self.debug_sample_df.itertuples(index=False):
+        for row in cast("Any", self.debug_sample_df.itertuples(index=False)):
             state = reconstruct_level_and_zscore(
                 signal_generator=self.signal_generator,
                 weights_lookup=self.weights_lookup,
@@ -183,7 +201,7 @@ class TestReconstructionFidelity(unittest.TestCase):
 
     def test_position_view_reconstructs_exactly_via_dedicated_function(self):
         checked = 0
-        for row in self.debug_sample_df.itertuples(index=False):
+        for row in cast("Any", self.debug_sample_df.itertuples(index=False)):
             if not self._is_position_view(row):
                 continue
             state = reconstruct_position_view(
@@ -218,8 +236,8 @@ class TestReconstructionFidelity(unittest.TestCase):
         one_row_dedupe = self.debug_sample_df.drop_duplicates(
             subset=["spread_id", "date", "asof_date", "candidate_id"]
         )
-        for (spread_id, date), group in one_row_dedupe.groupby(["spread_id", "date"]):
-            latest_row = group.loc[group["asof_date"].idxmax()]
+        for (spread_id, date), group in cast("Any", one_row_dedupe.groupby(["spread_id", "date"])):
+            latest_row = cast("Any", group.loc[group["asof_date"].idxmax()])
             state = reconstruct_candidate_view(
                 signal_generator=self.signal_generator,
                 weights_lookup=self.weights_lookup,
@@ -231,6 +249,7 @@ class TestReconstructionFidelity(unittest.TestCase):
                 timescale_label=latest_row["timescale_label"],
             )
             self.assertIsNotNone(state)
+            assert state is not None  # narrowing for mypy
             self.assertEqual(state.level, latest_row["level"])
             self.assertEqual(state.z_score, latest_row["z_score"])
             checked += 1
@@ -272,12 +291,18 @@ def _mutate_after(bundle: GroupReturnBundle, cutoff: pd.Timestamp) -> GroupRetur
     )
 
 
-def _make_generator(bundle: GroupReturnBundle, asof_date: pd.Timestamp, model) -> CandidateSignalGenerator:
+def _make_generator(
+    bundle: GroupReturnBundle, asof_date: pd.Timestamp, model
+) -> CandidateSignalGenerator:
     gen = CandidateSignalGenerator(
         z_score_configs={"": ZScoreConfig(lookback=5, ddof=1, method="rolling", min_periods=3)},
         diagnostics_config=MRDiagnosticsConfig(lookback=30, compute_frequency="daily"),
-        residual_configs={"": CausalResidualConfig(mode=ResidualMode.EQ_EXPANDING, subtract_risk_free=False, min_lb_eq_exp=5)},
-        umd=None,
+        residual_configs={
+            "": CausalResidualConfig(
+                mode=ResidualMode.EQ_EXPANDING, subtract_risk_free=False, min_lb_eq_exp=5
+            )
+        },
+        umd=None,  # type: ignore[arg-type]  # never touched; bundle is pre-populated below
     )
     gen._bundle_cache["g"] = bundle
     gen.precomputed_residual_params[("g", "")] = {asof_date: model}
@@ -294,10 +319,12 @@ class TestReconstructionNoLookaheadAndPcGuard(unittest.TestCase):
             member_returns=self.bundle.member_returns,
             proxy_returns=self.bundle.proxy_returns,
             benchmark_returns=self.bundle.benchmark_returns,
-            aligned_returns=self.bundle.aligned_returns.loc[:self.asof_date],
+            aligned_returns=self.bundle.aligned_returns.loc[: self.asof_date],
             risk_free_returns=self.bundle.risk_free_returns,
         )
-        cfg = CausalResidualConfig(mode=ResidualMode.EQ_EXPANDING, subtract_risk_free=False, min_lb_eq_exp=5)
+        cfg = CausalResidualConfig(
+            mode=ResidualMode.EQ_EXPANDING, subtract_risk_free=False, min_lb_eq_exp=5
+        )
         self.model = fit_causal_residual_model(bundle=fit_bundle, date=self.asof_date, cfg=cfg)
         self.weights_lookup = {("AAA|BBB", self.asof_date): {"AAA": 1.0, "BBB": -1.0}}
 
@@ -335,11 +362,13 @@ class TestReconstructionNoLookaheadAndPcGuard(unittest.TestCase):
             member_returns=self.bundle.member_returns,
             proxy_returns=self.bundle.proxy_returns,
             benchmark_returns=self.bundle.benchmark_returns,
-            aligned_returns=self.bundle.aligned_returns.loc[:self.asof_date],
+            aligned_returns=self.bundle.aligned_returns.loc[: self.asof_date],
             risk_free_returns=self.bundle.risk_free_returns,
         )
         pc_cfg = CausalResidualConfig(
-            mode=ResidualMode.EQ_EXPANDING, subtract_risk_free=False, min_lb_eq_exp=5,
+            mode=ResidualMode.EQ_EXPANDING,
+            subtract_risk_free=False,
+            min_lb_eq_exp=5,
             remove_residual_pcs=1,
         )
         pc_model = fit_causal_residual_model(bundle=fit_bundle, date=self.asof_date, cfg=pc_cfg)

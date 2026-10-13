@@ -2,22 +2,22 @@ from __future__ import annotations
 
 import dataclasses
 import os
-import psutil
-from dataclasses import dataclass, field, asdict
-from typing import Any
+from dataclasses import asdict, dataclass, field
+from typing import Any, cast
 
 import numpy as np
 import pandas as pd
+import psutil
 
 from src.data.universe_marketdata import UniverseMarketData
 from src.simulator.actions import CandidateAction, CloseCandidateAction, OpenCandidateAction
 from src.simulator.candidate_activation import CandidateActivation
 from src.simulator.candidate_filter import CandidateFilter
 from src.simulator.candidate_signals import CandidateSignalGenerator
-from src.simulator.config import PerformanceConfig, SimulatorConfig
+from src.simulator.config import DebugSampleConfig, PerformanceConfig, SimulatorConfig
+from src.simulator.entry_feature_engine import EntryFeatureEngine
 from src.simulator.execution import ExecutionEngine
 from src.simulator.position_translator import PositionTranslator
-from src.simulator.entry_feature_engine import EntryFeatureEngine
 from src.simulator.risk_manager import RiskManager
 from src.simulator.sizing_engine import SizingEngine
 from src.simulator.traders.protocol import Trader
@@ -204,7 +204,8 @@ class Simulator:
         run_dir = None
 
         if self.config.persistence.enabled:
-            from src.simulator.simulation_persistence import make_run_id, _resolve_run_dir
+            from src.simulator.simulation_persistence import _resolve_run_dir, make_run_id
+
             if run_id is None:
                 run_id = make_run_id(self.config)
             run_dir = _resolve_run_dir(self.config.persistence, run_id)
@@ -212,7 +213,9 @@ class Simulator:
             logger.configure(run_dir / "sim.log")
 
         logger.log(f"[sim] Received panel with {len(candidate_panel)} rows")
-        import time as _time; _t = _time.time()
+        import time as _time
+
+        _t = _time.time()
         selected = self.candidate_filter.run(candidate_panel)
         logger.log(f"[sim] Filtered to {len(selected)} rows in {_time.time() - _t:.1f}s")
 
@@ -242,12 +245,16 @@ class Simulator:
 
         logger.log("[run] Extracting price matrix...")
         import time as _time
+
         _t_pm = _time.time()
         price_matrix = self.umd.price_matrix(field=self.signal_generator.price_field)
-        logger.log(f"[run] Price matrix extracted in {_time.time() - _t_pm:.1f}s — shape {price_matrix.shape}")
+        logger.log(
+            f"[run] Price matrix extracted in {_time.time() - _t_pm:.1f}s "
+            f"— shape {price_matrix.shape}"
+        )
 
         logger.log("[run] Starting preflight validation...")
-        self._preflight_validate(selected, price_matrix, dates)
+        self._preflight_validate(selected, price_matrix, cast("list[pd.Timestamp]", dates))
         logger.log("[run] Preflight done.")
 
         live_positions_by_candidate_id: dict[str, LiveCandidatePosition] = {}
@@ -263,7 +270,8 @@ class Simulator:
 
         if self.config.run.progress:
             from tqdm import tqdm
-            date_iter = tqdm(dates, desc="Simulating", smoothing=0.1, unit="step")
+
+            date_iter: Any = tqdm(dates, desc="Simulating", smoothing=0.1, unit="step")
         else:
             date_iter = dates
 
@@ -275,7 +283,7 @@ class Simulator:
 
         for _i, date in enumerate(date_iter, 1):
             date = pd.Timestamp(date)
-            if self.config.run.progress and hasattr(date_iter, 'set_postfix'):
+            if self.config.run.progress and hasattr(date_iter, "set_postfix"):
                 date_iter.set_postfix({"date": str(date.date())}, refresh=False)
 
             if _i % 100 == 0:
@@ -287,7 +295,7 @@ class Simulator:
                     f"snapshots={len(live_positions_by_candidate_id)}"
                 )
 
-            current_prices = price_matrix.loc[date].dropna()
+            current_prices = cast("pd.Series", price_matrix.loc[date]).dropna()
 
             self._increment_days_open(live_positions_by_candidate_id=live_positions_by_candidate_id)
             self._mark_to_market_live_positions(
@@ -307,7 +315,9 @@ class Simulator:
                 selected_panel=selected,
                 date=date,
             )
-            new_arrivals = self.candidate_filter.build_candidate_refs(selected_today, self.weights_lookup)
+            new_arrivals = self.candidate_filter.build_candidate_refs(
+                selected_today, self.weights_lookup
+            )
 
             self.candidate_activation.process_new_arrivals(
                 selected_refs=new_arrivals,
@@ -325,9 +335,8 @@ class Simulator:
 
             diag_freq = self.config.diagnostics.compute_frequency
             has_new_arrivals = len(new_arrivals) > 0
-            skip_diagnostics = (
-                diag_freq == "off"
-                or (diag_freq == "weekly" and not has_new_arrivals)
+            skip_diagnostics = diag_freq == "off" or (
+                diag_freq == "weekly" and not has_new_arrivals
             )
 
             activation_frame = self.candidate_activation.build_activation_frame(
@@ -340,7 +349,8 @@ class Simulator:
                 for pos in live_positions_by_candidate_id.values()
             }
             needed_refs = [
-                ref for ref in tracked_refs
+                ref
+                for ref in tracked_refs
                 if ref.candidate_id in live_candidate_ids
                 or (ref.spread_id, ref.timescale_label) not in live_spread_keys
             ]
@@ -361,8 +371,7 @@ class Simulator:
                 # is open on its spread) needs its own, separate real
                 # computation to be captured at all.
                 sample_refs = [
-                    ref for ref in tracked_refs
-                    if ref.spread_id in self._debug_sample_spread_ids
+                    ref for ref in tracked_refs if ref.spread_id in self._debug_sample_spread_ids
                 ]
                 debug_analytics = self.signal_generator.build_candidate_analytics_states(
                     date=date,
@@ -467,8 +476,8 @@ class Simulator:
                 approved_sized = sized_opens
 
             # Execute approved opens
-            for action, pair_notional, feature_scores, size_multiplier in approved_sized:
-                sized_action = action.with_notional(pair_notional)
+            for open_action, pair_notional, feature_scores, size_multiplier in approved_sized:
+                sized_action = open_action.with_notional(pair_notional)
                 self._apply_action(
                     date=date,
                     action=sized_action,
@@ -498,14 +507,19 @@ class Simulator:
                 and run_dir is not None
                 and date == last_date_by_year[date.year]
             ):
-                from src.simulator.simulation_persistence import save_simulation_run, flush_yearly_logs
+                from src.simulator.simulation_persistence import (
+                    flush_yearly_logs,
+                    save_simulation_run,
+                )
 
                 if label_to_meta:
                     enriched = []
                     for trade in closed_trades:
                         meta = label_to_meta.get(trade.timescale_label)
                         if meta:
-                            trade = dataclasses.replace(trade, trigger_rhl=meta[0], trigger_zlb=meta[1])
+                            trade = dataclasses.replace(
+                                trade, trigger_rhl=meta[0], trigger_zlb=meta[1]
+                            )
                         enriched.append(trade)
                     closed_trades = enriched
                     n = len(enriched)
@@ -603,7 +617,8 @@ class Simulator:
             )
 
         if self.config.persistence.enabled:
-            from src.simulator.simulation_persistence import save_simulation_run, flush_yearly_logs
+            from src.simulator.simulation_persistence import flush_yearly_logs, save_simulation_run
+
             if run_dir is not None and action_log:
                 last_date = pd.Timestamp(dates[-1])
                 flush_yearly_logs(
@@ -698,7 +713,7 @@ class Simulator:
                 group_id=action.group_id,
                 spread_id=action.spread_id,
                 direction=action.direction,
-                pair_notional=action.pair_notional,
+                pair_notional=cast("float", action.pair_notional),
                 gross_value=gross_value,
                 entry_date=pd.Timestamp(date),
                 entry_asof_date=ref.asof_date,
@@ -711,7 +726,9 @@ class Simulator:
                 entry_mr_score=entry_analytics.mr_score,
                 entry_half_life=entry_analytics.half_life,
                 entry_adf_pvalue=entry_analytics.adf_pvalue,
-                entry_features=dict(analytics_by_id[action.candidate_id].features) if action.candidate_id in analytics_by_id else {},
+                entry_features=dict(analytics_by_id[action.candidate_id].features)
+                if action.candidate_id in analytics_by_id
+                else {},
                 entry_feature_scores=dict(entry_feature_scores) if entry_feature_scores else {},
                 entry_size_multiplier=entry_size_multiplier,
                 entry_z_components=action.z_components,
@@ -807,16 +824,20 @@ class Simulator:
                 units_by_ticker=pos.units_by_ticker,
                 current_prices=current_prices,
             )
-            dy_a = self.signal_generator.compute_analytics_from_weights(
-                date=date,
-                asof_date=pos.entry_asof_date,
-                group_id=pos.group_id,
-                candidate_id=pos.candidate_id,
-                spread_id=pos.spread_id,
-                weights_by_ticker=effective_weights,
-                residual_key=pos.residual_key,
-                timescale_label=pos.timescale_label,
-            ) if effective_weights else None
+            dy_a = (
+                self.signal_generator.compute_analytics_from_weights(
+                    date=date,
+                    asof_date=pos.entry_asof_date,
+                    group_id=pos.group_id,
+                    candidate_id=pos.candidate_id,
+                    spread_id=pos.spread_id,
+                    weights_by_ticker=effective_weights,
+                    residual_key=pos.residual_key,
+                    timescale_label=pos.timescale_label,
+                )
+                if effective_weights
+                else None
+            )
 
             drift_l2, drift_cos = self._compute_weight_drift(
                 entry_weights=pos.realized_weights_by_ticker,
@@ -923,12 +944,15 @@ class Simulator:
         dates: list[pd.Timestamp],
     ) -> None:
         import time as _time
+
         t0 = _time.time()
         logger.log("[preflight] Validating ticker coverage...")
 
         panel_tickers: set[str] = set()
         if "left_ticker" in selected_panel.columns and "right_ticker" in selected_panel.columns:
-            panel_tickers = set(selected_panel["left_ticker"].unique()) | set(selected_panel["right_ticker"].unique())
+            panel_tickers = set(selected_panel["left_ticker"].unique()) | set(
+                selected_panel["right_ticker"].unique()
+            )
         elif "members" in selected_panel.columns:
             for members_str in selected_panel["members"].dropna().unique():
                 if isinstance(members_str, str):
@@ -950,10 +974,10 @@ class Simulator:
             )
 
         tickers_sorted = sorted(panel_tickers)
-        price_slice = price_matrix.loc[dates[0]:dates[-1], tickers_sorted]
+        price_slice = price_matrix.loc[dates[0] : dates[-1], tickers_sorted]
         coverage = price_slice.notna().mean()
 
-        last_5 = price_matrix.loc[:dates[-1], tickers_sorted].tail(5)
+        last_5 = price_matrix.loc[: dates[-1], tickers_sorted].tail(5)
         missing_at_end = [t for t in tickers_sorted if last_5[t].isna().all()]
         if missing_at_end:
             raise ValueError(
@@ -969,7 +993,10 @@ class Simulator:
                 logger.log(f"  {ticker}: {frac:.1%} coverage")
 
         elapsed = _time.time() - t0
-        logger.log(f"[preflight] Validated {len(panel_tickers)} tickers across {len(dates)} dates in {elapsed:.1f}s — OK")
+        logger.log(
+            f"[preflight] Validated {len(panel_tickers)} tickers across {len(dates)} dates "
+            f"in {elapsed:.1f}s — OK"
+        )
 
     def _market_dates(self) -> pd.DatetimeIndex:
         px = self.umd.price_matrix(field=self.signal_generator.price_field)
@@ -988,7 +1015,9 @@ class Simulator:
         market_dates: pd.DatetimeIndex,
         selected_panel: pd.DataFrame,
     ) -> pd.DatetimeIndex:
-        cp_dates = pd.DatetimeIndex(pd.to_datetime(selected_panel["asof_date"]).unique()).sort_values()
+        cp_dates = pd.DatetimeIndex(
+            pd.to_datetime(selected_panel["asof_date"]).unique()
+        ).sort_values()
         if len(cp_dates) == 0:
             return pd.DatetimeIndex([])
 
@@ -996,13 +1025,15 @@ class Simulator:
         end = min(market_dates.max(), cp_dates.max())
 
         if self.config.run.start_date is not None:
-            start = max(start, self.config.run.start_date)
+            start = max(start, pd.Timestamp(self.config.run.start_date))
         if self.config.run.end_date is not None:
-            end = min(end, self.config.run.end_date)
+            end = min(end, pd.Timestamp(self.config.run.end_date))
 
         dates = market_dates[(market_dates >= start) & (market_dates <= end)]
         if len(dates) == 0:
-            raise ValueError("No simulation dates left after intersecting UMD, candidate panel, and run config.")
+            raise ValueError(
+                "No simulation dates left after intersecting UMD, candidate panel, and run config."
+            )
         return dates
 
     def _build_tracked_refs(
@@ -1010,17 +1041,14 @@ class Simulator:
         *,
         new_arrivals: list[CandidateRef],
     ) -> list[CandidateRef]:
-        by_id = {
-            ref.candidate_id: ref
-            for ref in self.candidate_activation.get_active_candidates()
-        }
+        by_id = {ref.candidate_id: ref for ref in self.candidate_activation.get_active_candidates()}
         for ref in new_arrivals:
             by_id[ref.candidate_id] = ref
         return list(by_id.values())
 
     def _draw_debug_sample(self, selected_panel: pd.DataFrame) -> frozenset[str]:
         """F2 C5: sample spread_ids for the debug sample, or use the explicit override."""
-        cfg = self.config.debug_sample
+        cfg = cast("DebugSampleConfig", self.config.debug_sample)
         if cfg.spread_ids is not None:
             return frozenset(cfg.spread_ids)
 
@@ -1058,7 +1086,9 @@ class Simulator:
 
             try:
                 residuals = self.signal_generator._get_asof_residuals(
-                    ref.group_id, ref.residual_key, ref.asof_date,
+                    ref.group_id,
+                    ref.residual_key,
+                    ref.asof_date,
                 )
             except ValueError:
                 continue
@@ -1066,30 +1096,32 @@ class Simulator:
                 continue
             resid_row = residuals.loc[date]
 
-            for member, weight in zip(ref.members, ref.weights):
+            for member, weight in zip(ref.members, ref.weights, strict=False):
                 if member not in resid_row.index:
                     continue
-                self._debug_sample_rows.append({
-                    "spread_id": ref.spread_id,
-                    "group_id": ref.group_id,
-                    "residual_key": ref.residual_key,
-                    "timescale_label": ref.timescale_label,
-                    "candidate_id": ref.candidate_id,
-                    "asof_date": pd.Timestamp(ref.asof_date),
-                    "date": pd.Timestamp(date),
-                    "ticker": member,
-                    "residual_return": float(resid_row[member]),
-                    "weight": float(weight),
-                    "level": state.level,
-                    "z_score": state.z_score,
-                })
+                self._debug_sample_rows.append(
+                    {
+                        "spread_id": ref.spread_id,
+                        "group_id": ref.group_id,
+                        "residual_key": ref.residual_key,
+                        "timescale_label": ref.timescale_label,
+                        "candidate_id": ref.candidate_id,
+                        "asof_date": pd.Timestamp(ref.asof_date),
+                        "date": pd.Timestamp(date),
+                        "ticker": member,
+                        "residual_return": float(cast("float", resid_row[member])),
+                        "weight": float(weight),
+                        "level": state.level,
+                        "z_score": state.z_score,
+                    }
+                )
 
     @staticmethod
     def _build_is_flat_map(
         *,
         live_positions_by_candidate_id: dict[str, LiveCandidatePosition],
     ) -> dict[str, bool]:
-        return {candidate_id: False for candidate_id in live_positions_by_candidate_id}
+        return dict.fromkeys(live_positions_by_candidate_id, False)
 
     @staticmethod
     def _increment_days_open(
@@ -1203,7 +1235,7 @@ class Simulator:
 
     @staticmethod
     def _fmt_duration(seconds: float) -> str:
-        s = max(0, int(round(seconds)))
+        s = max(0, round(seconds))
         d, s = divmod(s, 86400)
         h, s = divmod(s, 3600)
         m, s = divmod(s, 60)

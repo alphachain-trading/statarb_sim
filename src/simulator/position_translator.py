@@ -51,9 +51,7 @@ class PositionTranslator:
             raise ValueError(f"Non-positive prices encountered: {bad.to_dict()}")
 
         # direction * pair_notional * normalized_weight → signed dollar target per leg
-        signed_dollar_targets = (
-            action.direction * action.pair_notional * (weights / gross_norm)
-        )
+        signed_dollar_targets = action.direction * action.pair_notional * (weights / gross_norm)
         target_units = signed_dollar_targets / px.to_numpy(dtype=float)
 
         return [

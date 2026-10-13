@@ -4,10 +4,9 @@ import hashlib
 import json
 from dataclasses import asdict, dataclass, is_dataclass
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 import pandas as pd
-
 
 CandidateType = Literal["pair", "portfolio"]
 
@@ -107,7 +106,7 @@ def save_weights(rows: list[dict[str, Any]], path: str) -> None:
         dupes = df.loc[dupe_mask, key_cols].drop_duplicates()
         raise ValueError(f"weights has non-unique {key_cols} rows:\n{dupes}")
 
-    df = df[key_cols + ["weight"]].reset_index(drop=True)
+    df = df[[*key_cols, "weight"]].reset_index(drop=True)
     df.to_parquet(path)
 
 
@@ -124,14 +123,14 @@ def weights_lookup_from_df(df: pd.DataFrame) -> dict[tuple[str, pd.Timestamp], d
     """
     lookup: dict[tuple[str, pd.Timestamp], dict[str, float]] = {}
     for (spread_id, asof_date), g in df.groupby(["spread_id", "asof_date"], observed=True):
-        lookup[(str(spread_id), pd.Timestamp(asof_date))] = dict(
-            zip(g["ticker"].astype(str), g["weight"].astype(float))
+        lookup[(str(spread_id), pd.Timestamp(cast("Any", asof_date)))] = dict(
+            zip(g["ticker"].astype(str), g["weight"].astype(float), strict=True)
         )
     return lookup
 
 
 def _json_default(obj: Any) -> Any:
-    if is_dataclass(obj):
+    if is_dataclass(obj) and not isinstance(obj, type):
         return asdict(obj)
     if isinstance(obj, Path):
         return str(obj)
@@ -166,9 +165,9 @@ def finalize_candidate_panel(panel: pd.DataFrame) -> pd.DataFrame:
         if overlap:
             out = out.reset_index(level=overlap, drop=True)
         out = out.reset_index(drop=True)
-    elif out.index.name is not None and out.index.name in out.columns:
-        out = out.reset_index(drop=True)
-    elif out.index.name is not None:
+    elif (
+        out.index.name is not None and out.index.name in out.columns
+    ) or out.index.name is not None:
         out = out.reset_index(drop=True)
 
     required_cols = [

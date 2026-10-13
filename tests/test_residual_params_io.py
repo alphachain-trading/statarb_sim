@@ -10,16 +10,13 @@ through save/load must reproduce byte-identical numpy arrays, with and
 without optional PC removal, and must reject a malformed model that would
 silently collide two rows onto the same (fit_date, ticker, factor) key.
 """
-import sys
+
 import tempfile
 import unittest
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
-
-REPO_ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(REPO_ROOT))
 
 from src.residuals.causal_residuals import (
     FittedCausalResidualModel,
@@ -51,8 +48,10 @@ class TestResidualParamsRoundTrip(unittest.TestCase):
         rng = np.random.default_rng(0)
         members = ["AAA", "BBB", "CCC"]
         dates = pd.bdate_range("2020-01-01", periods=4)
-        fitted = {d: _make_model(members, rng, subtract_risk_free=(i % 2 == 0))
-                  for i, d in enumerate(dates)}
+        fitted = {
+            d: _make_model(members, rng, subtract_risk_free=(i % 2 == 0))
+            for i, d in enumerate(dates)
+        }
 
         save_residual_params(fitted, self.path)
         loaded = load_residual_params(self.path)
@@ -116,7 +115,8 @@ class TestResidualParamsRoundTrip(unittest.TestCase):
         reconstructed = apply_causal_residual_model(loaded, aligned)
 
         pd.testing.assert_frame_equal(
-            original[sorted(members)], reconstructed[sorted(members)],
+            original[sorted(members)],
+            reconstructed[sorted(members)],
             check_exact=True,
         )
 

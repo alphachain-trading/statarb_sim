@@ -10,17 +10,14 @@ counted on the pair's own retained rows after its own pairwise dropna
 (Track B commit 2) — not on the window's nominal length and not on a
 different pair's rows.
 """
-import sys
+
 import unittest
-from pathlib import Path
 from types import SimpleNamespace
+from typing import Any, ClassVar, cast
 from unittest.mock import patch
 
 import numpy as np
 import pandas as pd
-
-REPO_ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(REPO_ROOT))
 
 import src.candidates.pair_candidate_panel_creator as pcpc
 from src.data.returns import GroupReturnBundle
@@ -47,7 +44,7 @@ def _make_bundle(n: int) -> GroupReturnBundle:
 class TestMinObsIsMandatory(unittest.TestCase):
     def test_omitting_min_obs_raises(self):
         with self.assertRaises(TypeError):
-            pcpc.PairSpreadConfig(
+            pcpc.PairSpreadConfig(  # type: ignore[call-arg]  # min_obs deliberately omitted
                 hedge_ratio_methods=["ols"],
                 min_return_std=1e-8,
                 min_level_std=1e-8,
@@ -76,15 +73,15 @@ class TestPairSpreadConfigNumericFieldsAreMandatory(unittest.TestCase):
     min_obs — each must raise if omitted, not silently fall back.
     """
 
-    _ALL_REQUIRED = dict(
-        hedge_ratio_methods=["ols"],
-        min_obs=252,
-        min_return_std=1e-8,
-        min_level_std=1e-8,
-        min_kappa=1e-6,
-        max_half_life=126.0,
-        tiny_weight_threshold=1e-6,
-    )
+    _ALL_REQUIRED: ClassVar[dict[str, Any]] = {
+        "hedge_ratio_methods": ["ols"],
+        "min_obs": 252,
+        "min_return_std": 1e-8,
+        "min_level_std": 1e-8,
+        "min_kappa": 1e-6,
+        "max_half_life": 126.0,
+        "tiny_weight_threshold": 1e-6,
+    }
 
     def test_full_construction_succeeds(self):
         pcpc.PairSpreadConfig(**self._ALL_REQUIRED)
@@ -92,9 +89,8 @@ class TestPairSpreadConfigNumericFieldsAreMandatory(unittest.TestCase):
     def test_omitting_any_required_field_raises(self):
         for missing in self._ALL_REQUIRED:
             kwargs = {k: v for k, v in self._ALL_REQUIRED.items() if k != missing}
-            with self.subTest(missing=missing):
-                with self.assertRaises(TypeError):
-                    pcpc.PairSpreadConfig(**kwargs)
+            with self.subTest(missing=missing), self.assertRaises(TypeError):
+                pcpc.PairSpreadConfig(**kwargs)
 
 
 class TestMinObsGate(unittest.TestCase):
@@ -105,20 +101,24 @@ class TestMinObsGate(unittest.TestCase):
         def fake_apply(*, model, aligned_returns, rf_series):
             k = len(aligned_returns)
             rng = np.random.default_rng(2)
-            df = pd.DataFrame({
-                "AAA": rng.normal(scale=0.01, size=k),
-                "BBB": rng.normal(scale=0.01, size=k),
-            })
+            df = pd.DataFrame(
+                {
+                    "AAA": rng.normal(scale=0.01, size=k),
+                    "BBB": rng.normal(scale=0.01, size=k),
+                }
+            )
             # BBB is only populated for its first n_retained rows — as if it
             # joined the universe late, or has a long trailing gap. AAA is
             # fully populated throughout.
-            df.iloc[n_retained:, df.columns.get_loc("BBB")] = np.nan
+            df.iloc[n_retained:, cast("int", df.columns.get_loc("BBB"))] = np.nan
             df.index = aligned_returns.index
             return df
 
         fitted_model = SimpleNamespace(subtract_risk_free=False)
         residual_cfg = CausalResidualConfig(
-            mode=ResidualMode.EQ_ROLLING, subtract_risk_free=False, lb=n,
+            mode=ResidualMode.EQ_ROLLING,
+            subtract_risk_free=False,
+            lb=n,
         )
         pair_cfg = pcpc.PairSpreadConfig(
             hedge_ratio_methods=["ols"],
@@ -140,7 +140,7 @@ class TestMinObsGate(unittest.TestCase):
                 hedge_ratio_lb=n,
                 mr_diag_lb=n,
                 debug=False,
-                fitted_model=fitted_model,
+                fitted_model=fitted_model,  # type: ignore[arg-type]  # SimpleNamespace as test double
                 progress=False,
             )
         return {r["spread_id"]: r for r in rows}

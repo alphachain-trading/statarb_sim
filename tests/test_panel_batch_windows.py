@@ -12,20 +12,17 @@ Proves the two behavioural claims the refactor rests on:
 
 Skips cleanly if the materials market data is not present.
 """
-import sys
+
 import unittest
 from pathlib import Path
 from unittest import mock
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(REPO_ROOT))
-
-from src.settings import DATA_UNIVERSES
-from src.candidates.panel_batch import PanelBatchConfig, run_panel_batch
-from src.candidates.pair_candidate_panel_creator import PairSpreadConfig
-from src.residuals.causal_residuals import CausalResidualConfig, ResidualMode
-import src.residuals.causal_residuals as cr
 import src.candidates.pair_candidate_panel_creator as pcpc
+import src.residuals.causal_residuals as cr
+from src.candidates.pair_candidate_panel_creator import PairSpreadConfig
+from src.candidates.panel_batch import PanelBatchConfig, run_panel_batch
+from src.residuals.causal_residuals import CausalResidualConfig, ResidualMode
+from src.settings import DATA_UNIVERSES
 
 _MATERIALS_DATA = Path(DATA_UNIVERSES) / "materials_only_v1"
 # pair_cfg carries no default (Track B) — min_obs=2 is the loosest legal
@@ -54,7 +51,9 @@ class TestEqualWeightFitting(unittest.TestCase):
             return w
 
         residual_cfg = CausalResidualConfig(
-            mode=ResidualMode.EQ_ROLLING, subtract_risk_free=True, lb=21,
+            mode=ResidualMode.EQ_ROLLING,
+            subtract_risk_free=True,
+            lb=21,
         )
         cfg = PanelBatchConfig(
             residual_configs=[residual_cfg],
@@ -72,10 +71,14 @@ class TestEqualWeightFitting(unittest.TestCase):
 
         self.assertTrue(captured, "residual model was never fit")
         # Every fit must have received half_life=None -> a uniform weight vector.
-        self.assertTrue(all(hl is None for hl, _ in captured),
-                        f"non-None half_life reached the fit: {set(hl for hl, _ in captured)}")
-        self.assertTrue(all(uniform for _, uniform in captured),
-                        "weight vector reaching the WLS solve was not uniform")
+        self.assertTrue(
+            all(hl is None for hl, _ in captured),
+            f"non-None half_life reached the fit: { {hl for hl, _ in captured} }",
+        )
+        self.assertTrue(
+            all(uniform for _, uniform in captured),
+            "weight vector reaching the WLS solve was not uniform",
+        )
 
         # And the run actually produced candidates.
         (result,) = results.values()
@@ -96,7 +99,9 @@ class TestIndependentWindows(unittest.TestCase):
             return out
 
         residual_cfg = CausalResidualConfig(
-            mode=ResidualMode.EQ_EXPANDING, subtract_risk_free=True, min_lb_eq_exp=300,
+            mode=ResidualMode.EQ_EXPANDING,
+            subtract_risk_free=True,
+            min_lb_eq_exp=300,
         )
         cfg = PanelBatchConfig(
             residual_configs=[residual_cfg],

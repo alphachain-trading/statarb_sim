@@ -1,16 +1,15 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import pandas as pd
 
-from src.simulator.types import CandidateRef
-from src.simulator.config import ZScoreConfig
 from src.candidates.candidate_selector import (
     CandidateSelectionConfig,
     select_candidates,
 )
-
+from src.simulator.config import ZScoreConfig
+from src.simulator.types import CandidateRef
 
 REQUIRED_SELECTED_COLS = {
     "candidate_id",
@@ -25,7 +24,7 @@ class CandidateFilter:
     config: CandidateSelectionConfig
     # Map residual_key → list[ZScoreConfig]. Used to resolve timescale_label at ref construction.
     # For single-timescale runs, leave as empty dict.
-    z_score_configs_by_rkey: dict[str, list[ZScoreConfig]] = None
+    z_score_configs_by_rkey: dict[str, list[ZScoreConfig]] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         # slots=True dataclass: use field default via dataclass field instead
@@ -81,24 +80,8 @@ class CandidateFilter:
             if len(zcs) <= 1:
                 # Single-timescale or single zlb per rkey: one ref per row.
                 tsl = zcs[0].timescale_label if zcs else ""
-                refs.append(CandidateRef(
-                    candidate_id=row["candidate_id"],
-                    spread_id=spread_id,
-                    group_id=row["group_id"],
-                    asof_date=asof_date,
-                    members=members,
-                    weights=weights,
-                    subtype=row.get("subtype"),
-                    residual_key=rkey,
-                    timescale_label=tsl,
-                ))
-            else:
-                # Multiple zlbs share this residual_key (sweep mode).
-                # Fan out: one ref per ZScoreConfig. candidate_id and spread_id
-                # remain clean — position uniqueness is carried by timescale_label.
-                for zc in zcs:
-                    tsl = zc.timescale_label
-                    refs.append(CandidateRef(
+                refs.append(
+                    CandidateRef(
                         candidate_id=row["candidate_id"],
                         spread_id=spread_id,
                         group_id=row["group_id"],
@@ -108,7 +91,27 @@ class CandidateFilter:
                         subtype=row.get("subtype"),
                         residual_key=rkey,
                         timescale_label=tsl,
-                    ))
+                    )
+                )
+            else:
+                # Multiple zlbs share this residual_key (sweep mode).
+                # Fan out: one ref per ZScoreConfig. candidate_id and spread_id
+                # remain clean — position uniqueness is carried by timescale_label.
+                for zc in zcs:
+                    tsl = zc.timescale_label
+                    refs.append(
+                        CandidateRef(
+                            candidate_id=row["candidate_id"],
+                            spread_id=spread_id,
+                            group_id=row["group_id"],
+                            asof_date=asof_date,
+                            members=members,
+                            weights=weights,
+                            subtype=row.get("subtype"),
+                            residual_key=rkey,
+                            timescale_label=tsl,
+                        )
+                    )
         return refs
 
     def _normalize_selected_panel(self, selected: pd.DataFrame) -> pd.DataFrame:
@@ -132,4 +135,3 @@ class CandidateFilter:
             ["asof_date", "group_id", "candidate_id"],
             kind="stable",
         ).reset_index(drop=True)
-

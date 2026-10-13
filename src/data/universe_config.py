@@ -2,39 +2,43 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import yaml
 
 from src.types.common import GroupId
 
-
 # -----------------------------
 # Config
 # -----------------------------
 
+
 @dataclass(frozen=True)
 class UniverseConfig:
     raw: dict[str, Any]
+
     def to_string(self) -> str:
-        out = ''
-        out += 'UniverseConfig.universe_structure(cfg)\n'+UniverseConfig.universe_structure(self)+'\n'
-        out += f'universe_name={self.universe_name}'+'\n'
-        out += f'tickers={self.tickers}'+'\n'
-        out += f'groups={self.groups}'+'\n'
-        out += f'root_group={self.root_group}'+'\n'
-        out += f'all_symbols()={self.all_symbols()}'+'\n'
-        out += f'equity_symbols()={self.equity_symbols()}'+'\n'
+        out = ""
+        out += (
+            "UniverseConfig.universe_structure(cfg)\n"
+            + UniverseConfig.universe_structure(self)
+            + "\n"
+        )
+        out += f"universe_name={self.universe_name}" + "\n"
+        out += f"tickers={self.tickers}" + "\n"
+        out += f"groups={self.groups}" + "\n"
+        out += f"root_group={self.root_group}" + "\n"
+        out += f"all_symbols()={self.all_symbols()}" + "\n"
+        out += f"equity_symbols()={self.equity_symbols()}" + "\n"
         for g in self.groups:
-            out += f'group_members({g})={self.group_members(g)}'+'\n'
-            out += f'group_proxy({g})={self.group_proxy(g)}'+'\n'
-            out += f'group_benchmark({g})={self.group_benchmark(g)}'+'\n'
+            out += f"group_members({g})={self.group_members(g)}" + "\n"
+            out += f"group_proxy({g})={self.group_proxy(g)}" + "\n"
+            out += f"group_benchmark({g})={self.group_benchmark(g)}" + "\n"
         return out
-        
 
     @classmethod
-    def from_yaml(cls, path: str | Path) -> "UniverseConfig":
-        with path.open("r", encoding="utf-8") as f:
+    def from_yaml(cls, path: str | Path) -> UniverseConfig:
+        with Path(path).open("r", encoding="utf-8") as f:
             raw = yaml.safe_load(f)
         cfg = cls(raw=raw)
         cfg.validate()
@@ -72,23 +76,23 @@ class UniverseConfig:
 
     @property
     def universe_name(self) -> str:
-        return self.raw["meta"]["universe_name"]
+        return cast("str", self.raw["meta"]["universe_name"])
 
     @property
     def root_group(self) -> str:
-        return self.raw["hierarchy"]["root"]
+        return cast("str", self.raw["hierarchy"]["root"])
 
     @property
     def loader_defaults(self) -> dict[str, Any]:
-        return self.raw.get("loader_defaults", {})
+        return cast("dict[str, Any]", self.raw.get("loader_defaults", {}))
 
     @property
     def groups(self) -> dict[str, dict[str, Any]]:
-        return self.raw["groups"]
+        return cast("dict[str, dict[str, Any]]", self.raw["groups"])
 
     @property
     def tickers(self) -> dict[str, dict[str, Any]]:
-        return self.raw["tickers"]
+        return cast("dict[str, dict[str, Any]]", self.raw["tickers"])
 
     def all_symbols(self) -> list[str]:
         out = set(self.tickers.keys())
@@ -103,10 +107,7 @@ class UniverseConfig:
         return sorted(out)
 
     def equity_symbols(self) -> list[str]:
-        return sorted(
-            s for s, meta in self.tickers.items()
-            if meta.get("kind") == "equity"
-        )
+        return sorted(s for s, meta in self.tickers.items() if meta.get("kind") == "equity")
 
     def group_members(self, id_: GroupId) -> list[str]:
         return list(self.groups[id_].get("members", []))

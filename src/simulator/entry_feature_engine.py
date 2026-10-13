@@ -13,7 +13,7 @@ generator, computes configured features, and writes results into the
 CandidateAnalyticsState.features dict.
 
 The features dict is then available to SizingEngine for multiplier computation,
-and is snapshotted into LiveCandidatePosition.entry_features / 
+and is snapshotted into LiveCandidatePosition.entry_features /
 ClosedCandidateTrade.entry_features at trade entry.
 
 Direction correction: all primitive functions in spread_primitives.py return
@@ -23,11 +23,13 @@ is applied here, once, centrally, via spread_primitives.SIGNED_FEATURE_NAMES
 (spread_metrics_feature_matrix.py). Do not reintroduce per-feature sign
 params or per-call-site sign multiplication.
 """
+
 from __future__ import annotations
 
 import importlib
-from dataclasses import dataclass, field as dc_field
-from typing import Any
+from dataclasses import dataclass
+from dataclasses import field as dc_field
+from typing import Any, cast
 
 import numpy as np
 import pandas as pd
@@ -35,7 +37,6 @@ import pandas as pd
 from src.simulator.actions import OpenCandidateAction
 from src.simulator.config import EntryFeatureConfig, FeatureSpec
 from src.simulator.types import CandidateAnalyticsState, CandidateRef
-
 
 # Registry of available feature functions — all must live in spread_primitives.
 # Key: fn name as used in FeatureSpec.fn
@@ -62,13 +63,13 @@ _PRIMITIVES_MODULE = "src.analytics.spread_primitives"
 # cross-run comparison of the same ef.* column is only valid if the caller
 # separately checks each run's config.json.
 _FN_NAME_MAP: dict[str, str] = {
-    "x_area_asymmetry_ewm":  "compute_x_area_asymmetry_ewm",
-    "bw_gain_ann_norm":      "compute_bw_gain_ann_norm",
-    "mean_ewm%":             "compute_mean_ewm_pct",
-    "entry_delta_z_ewm3":    "compute_delta_z_ewm",
-    "entry_delta_z_ewm5":    "compute_delta_z_ewm",
-    "entry_delta_z_ewm10":   "compute_delta_z_ewm",
-    "entry_delta_z_ewm21":   "compute_delta_z_ewm",
+    "x_area_asymmetry_ewm": "compute_x_area_asymmetry_ewm",
+    "bw_gain_ann_norm": "compute_bw_gain_ann_norm",
+    "mean_ewm%": "compute_mean_ewm_pct",
+    "entry_delta_z_ewm3": "compute_delta_z_ewm",
+    "entry_delta_z_ewm5": "compute_delta_z_ewm",
+    "entry_delta_z_ewm10": "compute_delta_z_ewm",
+    "entry_delta_z_ewm21": "compute_delta_z_ewm",
 }
 
 
@@ -116,8 +117,9 @@ class EntryFeatureEngine:
     signal_generator : CandidateSignalGenerator
         Used to access the cached residual matrix via get_level_series().
     """
+
     config: EntryFeatureConfig
-    signal_generator: Any   # CandidateSignalGenerator — avoid circular import
+    signal_generator: Any  # CandidateSignalGenerator — avoid circular import
 
     _resolved_fns: dict[str, Any] = dc_field(default_factory=dict, init=False, repr=False)
 
@@ -192,7 +194,7 @@ class EntryFeatureEngine:
                 if spec.feature in SIGNED_FEATURE_NAMES:
                     if sign is None:
                         continue  # cannot direction-correct without z_score
-                    value = direction_correct(raw_value, sign)
+                    value = cast("float", direction_correct(raw_value, sign))
                 else:
                     value = raw_value
 
@@ -236,11 +238,12 @@ class EntryFeatureEngine:
             params["halflife"] = self._extract_residual_hl(state.residual_key)
 
         try:
-            return fn(level_arr, **params)
+            return cast("float | None", fn(level_arr, **params))
         except Exception as e:
             # Never crash the simulation on a feature computation error.
             # Log and return None — SizingEngine treats missing features as neutral.
             import warnings
+
             warnings.warn(
                 f"EntryFeatureEngine: feature {spec.feature!r} "
                 f"failed for candidate {state.candidate_id!r}: {e}",

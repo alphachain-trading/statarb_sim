@@ -11,17 +11,12 @@ Two independent halves:
 (b) a "perturb-the-future" test on _slice_fit_window: mutating returns strictly
     after the fit date must not change the sliced window, i.e. no lookahead.
 """
-import sys
+
 import unittest
-from pathlib import Path
+from typing import cast
 
 import numpy as np
 import pandas as pd
-
-REPO_ROOT = Path(__file__).resolve().parent.parent
-SCRIPTS_DIR = REPO_ROOT / "scripts"
-sys.path.insert(0, str(REPO_ROOT))
-sys.path.insert(0, str(SCRIPTS_DIR))
 
 from src.data.returns import GroupReturnBundle
 from src.residuals.causal_residuals import CausalResidualConfig, ResidualMode, _slice_fit_window
@@ -30,23 +25,33 @@ from src.residuals.causal_residuals import CausalResidualConfig, ResidualMode, _
 class TestEntryAsofDateInvariant(unittest.TestCase):
     """Half (a): entry_asof_date <= entry_date on a real, small end-to-end run."""
 
+    trades_df: pd.DataFrame | None = None
+
     @classmethod
     def setUpClass(cls):
         import b_baseline_harness as harness
-        from src.simulator.simulator_factory import generate_candidate_panels_by_group, run_from_config
+
+        from src.simulator.simulator_factory import (
+            generate_candidate_panels_by_group,
+            run_from_config,
+        )
 
         prelim_sim_config = harness._build_sim_config(harness.GROUPS)
         panel_results = generate_candidate_panels_by_group(prelim_sim_config)
-        active_groups = sorted({
-            group_id for (group_id, _residual_key), v in panel_results.items()
-            if len(v["panel"]) > 0
-        })
+        active_groups = sorted(
+            {
+                group_id
+                for (group_id, _residual_key), v in panel_results.items()
+                if len(v["panel"]) > 0
+            }
+        )
         if not active_groups:
             cls.trades_df = None
             return
 
         sim_config = (
-            prelim_sim_config if active_groups == harness.GROUPS
+            prelim_sim_config
+            if active_groups == harness.GROUPS
             else harness._build_sim_config(active_groups)
         )
         result = run_from_config(sim_config)
@@ -56,10 +61,10 @@ class TestEntryAsofDateInvariant(unittest.TestCase):
         """Sanity check on the fixture: a vacuously-true invariant over zero
         trades would not be evidence of anything."""
         self.assertIsNotNone(self.trades_df)
-        self.assertGreater(len(self.trades_df), 0)
+        self.assertGreater(len(cast("pd.DataFrame", self.trades_df)), 0)
 
     def test_entry_asof_date_le_entry_date(self):
-        df = self.trades_df
+        df = cast("pd.DataFrame", self.trades_df)
         self.assertIn("entry_asof_date", df.columns)
         self.assertIn("entry_date", df.columns)
         violations = df[df["entry_asof_date"] > df["entry_date"]]
@@ -78,7 +83,7 @@ class TestSliceFitWindowNoLookahead(unittest.TestCase):
         members = ["AAA", "BBB"]
         proxy = "PROXY"
         bench = "BENCH"
-        cols = members + [proxy, bench]
+        cols = [*members, proxy, bench]
         data = pd.DataFrame(
             rng.normal(scale=0.01, size=(len(dates), len(cols))),
             index=dates,

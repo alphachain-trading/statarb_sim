@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import logging
 from collections import OrderedDict
-from dataclasses import dataclass, field as dc_field
+from dataclasses import dataclass
+from dataclasses import field as dc_field
+from typing import cast
+
 import numpy as np
 import pandas as pd
 
 from src.analytics.spread_primitives import compute_spread_level
-from src.simulator.config import MRDiagnosticsConfig, ZScoreConfig
-from src.simulator.types import CandidateAnalyticsState, CandidateRef, ZScoreComponent
 from src.data.returns import GroupReturnBundle, build_group_return_bundle
 from src.data.universe_marketdata import UniverseMarketData
 from src.residuals.causal_residuals import (
@@ -16,6 +17,8 @@ from src.residuals.causal_residuals import (
     FittedCausalResidualModel,
     apply_causal_residual_model,
 )
+from src.simulator.config import MRDiagnosticsConfig, ZScoreConfig
+from src.simulator.types import CandidateAnalyticsState, CandidateRef, ZScoreComponent
 
 try:
     from statsmodels.tsa.stattools import adfuller
@@ -47,21 +50,21 @@ def _rolling_mean_std(
     Returns (mean, std) each of shape (T, N).  Rows with fewer than
     min_periods observations are NaN.
     """
-    T, N = x.shape
+    T, N = x.shape  # noqa: N806  # matrix notation as in the formula
     mean_out = np.full((T, N), np.nan)
     std_out = np.full((T, N), np.nan)
 
-    cum = np.cumsum(x, axis=0)        # (T, N)
-    cum2 = np.cumsum(x ** 2, axis=0)  # (T, N)
+    cum = np.cumsum(x, axis=0)  # (T, N)
+    cum2 = np.cumsum(x**2, axis=0)  # (T, N)
 
     # Prepend a zero row for the subtraction trick
-    cum_pad = np.vstack([np.zeros((1, N)), cum])    # (T+1, N)
+    cum_pad = np.vstack([np.zeros((1, N)), cum])  # (T+1, N)
     cum2_pad = np.vstack([np.zeros((1, N)), cum2])  # (T+1, N)
 
     for t in range(min_periods - 1, T):
         w = min(t + 1, window)
-        s = cum_pad[t + 1] - cum_pad[t + 1 - w]        # (N,)
-        s2 = cum2_pad[t + 1] - cum2_pad[t + 1 - w]     # (N,)
+        s = cum_pad[t + 1] - cum_pad[t + 1 - w]  # (N,)
+        s2 = cum2_pad[t + 1] - cum2_pad[t + 1 - w]  # (N,)
         m = s / w
         mean_out[t] = m
         if w > ddof:
@@ -85,12 +88,12 @@ def _rolling_mean_std_last(
     x: (T, N).  Returns (mean, std) each shape (N,).
     Rows where T < min_periods return NaN.
     """
-    T, N = x.shape
-    if T < min_periods:
+    T, N = x.shape  # noqa: N806  # matrix notation as in the formula
+    if min_periods > T:
         return np.full(N, np.nan), np.full(N, np.nan)
     w = min(T, window)
-    tail = x[-w:]               # (w, N)
-    m = tail.mean(axis=0)       # (N,)
+    tail = x[-w:]  # (w, N)
+    m = tail.mean(axis=0)  # (N,)
     s = tail.std(axis=0, ddof=ddof)  # (N,)
     return m, s
 
@@ -109,8 +112,8 @@ def _ewm_mean_std_last(
     for 10 groups per step.  Can be replaced with a pure numpy implementation
     if it becomes a bottleneck.
     """
-    T, N = x.shape
-    if T < min_periods:
+    T, N = x.shape  # noqa: N806  # matrix notation as in the formula
+    if min_periods > T:
         return np.full(N, np.nan), np.full(N, np.nan)
     df = pd.DataFrame(x)
     ewm = df.ewm(halflife=halflife, min_periods=min_periods)
@@ -129,13 +132,17 @@ class CandidateSignalGenerator:
         residual_configs = {"": CausalResidualConfig(...)}
 
     Multi-timescale:
-        z_score_configs = {"exp_hl63_mh126": ZScoreConfig(...), "exp_hl126_mh252": ZScoreConfig(...)}
+        z_score_configs = {
+            "exp_hl63_mh126": ZScoreConfig(...),
+            "exp_hl126_mh252": ZScoreConfig(...),
+        }
         residual_configs = {"exp_hl63_mh126": CausalResidualConfig(...), ...}
 
     Residuals are reconstructed once per (group_id, residual_key, asof_date) —
     the candidate's own frozen refit date, never "today" (F2 R1) — and shared
     across all z-score configs that use the same residual_key.
     """
+
     z_score_configs: dict[str, ZScoreConfig]
     diagnostics_config: MRDiagnosticsConfig
     residual_configs: dict[str, CausalResidualConfig]
@@ -148,12 +155,20 @@ class CandidateSignalGenerator:
     # Precomputed fitted residual model params.
     # Key: (group_id, residual_key) → {date: FittedCausalResidualModel}
     # When residual_key="" (single-timescale), legacy key (group_id, "") is used.
-    precomputed_residual_params: dict[tuple[str, str], dict[pd.Timestamp, FittedCausalResidualModel]] = dc_field(
-        default_factory=dict, init=True, repr=False,
+    precomputed_residual_params: dict[
+        tuple[str, str], dict[pd.Timestamp, FittedCausalResidualModel]
+    ] = dc_field(
+        default_factory=dict,
+        init=True,
+        repr=False,
     )
 
-    _bundle_cache: dict[str, GroupReturnBundle] = dc_field(default_factory=dict, init=False, repr=False)
-    _asof_residual_cache: "OrderedDict[tuple[str, str, pd.Timestamp], pd.DataFrame]" = dc_field(default_factory=OrderedDict, init=False, repr=False)
+    _bundle_cache: dict[str, GroupReturnBundle] = dc_field(
+        default_factory=dict, init=False, repr=False
+    )
+    _asof_residual_cache: OrderedDict[tuple[str, str, pd.Timestamp], pd.DataFrame] = dc_field(
+        default_factory=OrderedDict, init=False, repr=False
+    )
 
     def _get_z_score_config(self, timescale_label: str) -> ZScoreConfig:
         """Look up ZScoreConfig by timescale_label (unique per residual_key + zlb)."""
@@ -188,7 +203,7 @@ class CandidateSignalGenerator:
 
         rows = []
         for candidate_id, act_row in activation_frame.iterrows():
-            a = analytics_by_id[candidate_id]
+            a = analytics_by_id[cast("str", candidate_id)]
             rows.append(
                 {
                     "candidate_id": candidate_id,
@@ -219,7 +234,7 @@ class CandidateSignalGenerator:
         # Group refs by (group_id, residual_key) for batched processing.
         # All candidates sharing the same (group_id, residual_key) use the
         # same residual matrix and z-score config.
-        refs_by_group_ts: dict[tuple[str, str], list[CandidateRef]] = {}
+        refs_by_group_ts: dict[tuple[str, str, str], list[CandidateRef]] = {}
         for ref in candidate_refs:
             # Group by (group_id, residual_key, timescale_label).
             # In multi-zlb sweep mode, refs are pre-fanned-out by CandidateFilter
@@ -258,9 +273,7 @@ class CandidateSignalGenerator:
             spread_cross_comps: dict[str, tuple[ZScoreComponent, ...]] = {}
             for sid, siblings in spread_siblings.items():
                 sorted_sibs = sorted(siblings, key=lambda s: s.residual_key)
-                spread_cross_comps[sid] = tuple(
-                    s.z_components[0] for s in sorted_sibs
-                )
+                spread_cross_comps[sid] = tuple(s.z_components[0] for s in sorted_sibs)
 
             # Replace z_components on each state with the cross-timescale tuple
             for cid, state in out.items():
@@ -334,7 +347,7 @@ class CandidateSignalGenerator:
                 if not all(m in residuals.columns for m in ref.members):
                     invalid_refs.append(ref)
                     continue
-                weights_by_ticker = dict(zip(ref.members, ref.weights))
+                weights_by_ticker = dict(zip(ref.members, ref.weights, strict=False))
                 spread_return, level = compute_spread_level(residuals, weights_by_ticker)
                 spread_return_by_id[ref.candidate_id] = spread_return.loc[:date]
                 level_by_id[ref.candidate_id] = level.loc[:date]
@@ -353,12 +366,12 @@ class CandidateSignalGenerator:
         # no union/reindex needed (unlike the disk path, whose persisted
         # series can have independently-bounded ranges on disk).
         level_index = level_by_id[valid_refs[0].candidate_id].index
-        levels = np.column_stack([
-            level_by_id[ref.candidate_id].to_numpy(dtype=float) for ref in valid_refs
-        ])
-        spread_returns = np.column_stack([
-            spread_return_by_id[ref.candidate_id].to_numpy(dtype=float) for ref in valid_refs
-        ])
+        levels = np.column_stack(
+            [level_by_id[ref.candidate_id].to_numpy(dtype=float) for ref in valid_refs]
+        )
+        spread_returns = np.column_stack(
+            [spread_return_by_id[ref.candidate_id].to_numpy(dtype=float) for ref in valid_refs]
+        )
 
         return self._finalize_batch_states(
             valid_refs=valid_refs,
@@ -377,8 +390,8 @@ class CandidateSignalGenerator:
         *,
         valid_refs: list[CandidateRef],
         invalid_refs: list[CandidateRef],
-        levels: np.ndarray,          # (T, n_valid)
-        level_index: pd.Index,       # DatetimeIndex for the level rows
+        levels: np.ndarray,  # (T, n_valid)
+        level_index: pd.Index,  # DatetimeIndex for the level rows
         spread_returns: np.ndarray,  # (T, n_valid)
         residual_key: str,
         timescale_label: str,
@@ -389,8 +402,7 @@ class CandidateSignalGenerator:
         Shared downstream: rolling z-scores + MR diagnostics from a level matrix.
         """
         out: dict[str, CandidateAnalyticsState] = {
-            ref.candidate_id: self._not_ready_analytics(ref=ref, date=date)
-            for ref in invalid_refs
+            ref.candidate_id: self._not_ready_analytics(ref=ref, date=date) for ref in invalid_refs
         }
         if not valid_refs:
             return out
@@ -422,7 +434,7 @@ class CandidateSignalGenerator:
         all_ready = np.ones(n_cands, dtype=bool)
         components_list: list[list[ZScoreComponent]] = [[] for _ in range(n_cands)]
 
-        for k, (lb, w) in enumerate(zip(lookbacks, weights)):
+        for k, (lb, w) in enumerate(zip(lookbacks, weights, strict=True)):
             rm_last = rolling_last[k][0]  # (n_cands,)
             rs_last = rolling_last[k][1]  # (n_cands,)
 
@@ -437,7 +449,12 @@ class CandidateSignalGenerator:
                 else:
                     z_i = (level_vals[j] - m_val) / s_val
                     components_list[j].append(
-                        ZScoreComponent(lookback=lb, z_score=float(z_i), roll_mean=float(m_val), roll_std=float(s_val))
+                        ZScoreComponent(
+                            lookback=lb,
+                            z_score=float(z_i),
+                            roll_mean=float(m_val),
+                            roll_std=float(s_val),
+                        )
                     )
                     z_blended[j] += w * z_i
 
@@ -463,7 +480,11 @@ class CandidateSignalGenerator:
                 z_comps = tuple(components_list[j])
 
             # Build level series once — reused by diagnostics and momentum
-            ls = pd.Series(levels[:, j], index=level_index, name="level") if is_signal_ready else None
+            ls = (
+                pd.Series(levels[:, j], index=level_index, name="level")
+                if is_signal_ready
+                else None
+            )
 
             # MR diagnostics — expensive, skip when not needed
             if skip_diagnostics or not is_signal_ready:
@@ -472,9 +493,8 @@ class CandidateSignalGenerator:
                 sr = spread_returns[:, j]
                 adf_pvalue, mr_score, kappa, half_life = self._compute_mr_diagnostics(
                     spread_return=sr,
-                    level_series=ls,
+                    level_series=cast("pd.Series", ls),
                 )
-
 
             out[ref.candidate_id] = CandidateAnalyticsState(
                 candidate_id=ref.candidate_id,
@@ -617,7 +637,7 @@ class CandidateSignalGenerator:
         weighted_z_sum = 0.0
         all_ready = True
 
-        for lb, w in zip(lookbacks, weights):
+        for lb, w in zip(lookbacks, weights, strict=True):
             min_p = z_cfg.resolved_min_periods(lookback=lb)
             if method == "ewm":
                 ewm = level_series.ewm(halflife=lb, min_periods=min_p)
@@ -629,11 +649,17 @@ class CandidateSignalGenerator:
             m_val, s_val = rm.iloc[-1], rs.iloc[-1]
 
             if pd.isna(m_val) or pd.isna(s_val) or float(s_val) <= 0.0:
-                components.append(ZScoreComponent(lookback=lb, z_score=None, roll_mean=None, roll_std=None))
+                components.append(
+                    ZScoreComponent(lookback=lb, z_score=None, roll_mean=None, roll_std=None)
+                )
                 all_ready = False
             else:
                 z_i = float((level - float(m_val)) / float(s_val))
-                components.append(ZScoreComponent(lookback=lb, z_score=z_i, roll_mean=float(m_val), roll_std=float(s_val)))
+                components.append(
+                    ZScoreComponent(
+                        lookback=lb, z_score=z_i, roll_mean=float(m_val), roll_std=float(s_val)
+                    )
+                )
                 weighted_z_sum += w * z_i
 
         z_components = tuple(components)
@@ -674,16 +700,21 @@ class CandidateSignalGenerator:
         if len(dx) < 10:
             return None, None, None, None
 
-        X = np.column_stack([np.ones_like(x_lag), x_lag])
+        X = np.column_stack([np.ones_like(x_lag), x_lag])  # noqa: N806  # matrix notation as in the formula
         beta, *_ = np.linalg.lstsq(X, dx, rcond=None)
-        intercept, slope = beta
+        _intercept, slope = beta
 
         fitted = X @ beta
         resid = dx - fitted
         residual_std = float(np.std(resid, ddof=1)) if len(resid) > 1 else np.nan
         kappa = float(-slope)
 
-        if not np.isfinite(kappa) or not np.isfinite(residual_std) or residual_std <= 0.0 or kappa <= 0.0:
+        if (
+            not np.isfinite(kappa)
+            or not np.isfinite(residual_std)
+            or residual_std <= 0.0
+            or kappa <= 0.0
+        ):
             return self._safe_adf(x_raw), None, None, None
 
         half_life = float(np.log(2.0) / kappa)
@@ -703,7 +734,7 @@ class CandidateSignalGenerator:
 
     def get_level_series(
         self,
-        ref: "CandidateRef",
+        ref: CandidateRef,
         date: pd.Timestamp,
     ) -> pd.Series | None:
         """
@@ -726,9 +757,9 @@ class CandidateSignalGenerator:
         if missing:
             return None
 
-        weights_by_ticker = dict(zip(ref.members, ref.weights))
+        weights_by_ticker = dict(zip(ref.members, ref.weights, strict=False))
         _, level_series = compute_spread_level(residuals, weights_by_ticker)
-        return level_series.loc[:pd.Timestamp(date)]
+        return level_series.loc[: pd.Timestamp(date)]
 
     def _get_bundle(self, group_id: str) -> GroupReturnBundle:
         bundle = self._bundle_cache.get(group_id)
@@ -802,7 +833,8 @@ class CandidateSignalGenerator:
                 "recomputed if it is still referenced. F2_spec.md P4 measured a peak "
                 "of 164 concurrently-live keys on a real run, well under this bound, "
                 "so a real eviction here is unexpected and worth investigating.",
-                evicted_key, _ASOF_RESIDUAL_CACHE_MAX,
+                evicted_key,
+                _ASOF_RESIDUAL_CACHE_MAX,
             )
 
         return residuals

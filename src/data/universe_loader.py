@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from pathlib import Path
-
 import json
+from pathlib import Path
+from typing import Any, ClassVar, cast
+
 import pandas as pd
 import yfinance as yf
 
@@ -12,11 +13,9 @@ from src.settings import CONFIG_UNIVERSE, DATA_UNIVERSES
 
 
 class UniverseDataLoader:
-    PRICE_FIELDS = ["Open", "High", "Low", "Close", "Volume"]
+    PRICE_FIELDS: ClassVar[list[str]] = ["Open", "High", "Low", "Close", "Volume"]
 
-    def __init__(self, config: UniverseConfig,
-                 data_path: str | Path,
-                 progress=False):
+    def __init__(self, config: UniverseConfig, data_path: str | Path, progress=False):
         self.config = config
         self.progress = progress
         self.data_path = Path(data_path)
@@ -33,14 +32,18 @@ class UniverseDataLoader:
         self.membership_path = self.cache_dir / "membership.parquet"
         self.manifest_path = self.cache_dir / "manifest.json"
 
-    def load(self, force_download: bool = False, check_for_corruptions=True, start_after_nan: bool = True) -> UniverseMarketData:
+    def load(
+        self, force_download: bool = False, check_for_corruptions=True, start_after_nan: bool = True
+    ) -> UniverseMarketData:
         print(f"Loading universe {self.config.universe_name}...")
         if force_download or not self._cache_exists():
             print(f"  cache miss — downloading fresh data for {self.config.universe_name}...")
             umd = self._download_and_build()
             self._persist(umd)
         else:
-            print(f"  cache hit — loading {self.config.universe_name} from disk ({self.prices_path})")
+            print(
+                f"  cache hit — loading {self.config.universe_name} from disk ({self.prices_path})"
+            )
             umd = self._load_from_disk()
 
             # Synchronize with config
@@ -53,7 +56,9 @@ class UniverseDataLoader:
             dirty = False
 
             if to_remove:
-                print(f"Removing {len(to_remove)} tickers from cache that are no longer in config...")
+                print(
+                    f"Removing {len(to_remove)} tickers from cache that are no longer in config..."
+                )
                 # Filter prices MultiIndex columns
                 cols_to_keep = [c for c in umd.prices.columns if c[0] not in to_remove]
                 umd.prices = umd.prices.loc[:, cols_to_keep].copy()
@@ -173,24 +178,26 @@ class UniverseDataLoader:
         if not frames:
             raise RuntimeError("All ticker downloads failed.")
 
-        return pd.concat(frames, axis=1).sort_index(axis=1)
+        return cast("pd.DataFrame", pd.concat(frames, axis=1).sort_index(axis=1))
 
     def _download_prices_batch(self, symbols: list[str]) -> pd.DataFrame:
         d = self.config.loader_defaults
-        df = yf.download(
-            tickers=symbols,
-            start=d.get("start_date", None),
-            end=d.get("end_date", None),
-            interval=d.get("interval", "1d"),
-            auto_adjust=d.get("auto_adjust", True),
-            actions=False,
-            repair=d.get("repair", True),
-            keepna=d.get("keepna", False),
-            threads=d.get("threads", True),
-            progress=False,
-            group_by="column",
+        return cast(
+            "pd.DataFrame",
+            yf.download(
+                tickers=symbols,
+                start=d.get("start_date", None),
+                end=d.get("end_date", None),
+                interval=d.get("interval", "1d"),
+                auto_adjust=d.get("auto_adjust", True),
+                actions=False,
+                repair=d.get("repair", True),
+                keepna=d.get("keepna", False),
+                threads=d.get("threads", True),
+                progress=False,
+                group_by="column",
+            ),
         )
-        return df
 
     def _normalize_prices(self, df: pd.DataFrame) -> pd.DataFrame:
         if df.empty:
@@ -231,10 +238,10 @@ class UniverseDataLoader:
         df.index.name = "Date"
 
         df = df.sort_index().sort_index(axis=1)
-        df.columns = pd.MultiIndex.from_tuples(df.columns, names=["ticker", "field"])
-        df = df.astype("float64")
-
-        return df
+        df.columns = pd.MultiIndex.from_tuples(
+            cast("list[tuple[str, str]]", list(df.columns)), names=["ticker", "field"]
+        )
+        return df.astype("float64")
 
     def _build_ticker_info(self) -> pd.DataFrame:
         rows = []
@@ -242,8 +249,7 @@ class UniverseDataLoader:
             row = {"ticker": ticker}
             row.update(meta)
             rows.append(row)
-        df = pd.DataFrame(rows).set_index("ticker").sort_index()
-        return df
+        return pd.DataFrame(rows).set_index("ticker").sort_index()
 
     def _build_group_info(self) -> pd.DataFrame:
         rows = []
@@ -259,16 +265,14 @@ class UniverseDataLoader:
                     "risk_free": meta.get("risk_free"),
                 }
             )
-        df = pd.DataFrame(rows).set_index("group_id").sort_index()
-        return df
+        return pd.DataFrame(rows).set_index("group_id").sort_index()
 
     def _build_membership(self) -> pd.DataFrame:
         rows = []
         for group_id, meta in self.config.groups.items():
             for ticker in meta.get("members", []):
                 rows.append({"group_id": group_id, "ticker": ticker})
-        df = pd.DataFrame(rows).sort_values(["group_id", "ticker"]).reset_index(drop=True)
-        return df
+        return pd.DataFrame(rows).sort_values(["group_id", "ticker"]).reset_index(drop=True)
 
     def _persist(self, data: UniverseMarketData) -> None:
         print(f"_persist prices to {self.prices_path}...")
@@ -324,7 +328,7 @@ class UniverseDataLoader:
 
         # rebuild column MultiIndex names consistently
         df.columns = pd.MultiIndex.from_tuples(
-            [(str(a), str(b)) for a, b in df.columns],
+            [(str(a), str(b)) for a, b in cast("list[tuple[Any, Any]]", list(df.columns))],
             names=["ticker", "field"],
         )
 
@@ -343,17 +347,17 @@ class UniverseDataLoader:
 
         # For pool downloads, we ignore config date constraints to get full history
         # but keep other flags like repair/auto_adjust from config if it exists
-        if self.config and hasattr(self.config, 'loader_defaults'):
+        if self.config and hasattr(self.config, "loader_defaults"):
             d = self.config.loader_defaults
         else:
             d = {"auto_adjust": True, "repair": True}
 
         d = self.config.loader_defaults
-        summary = {
+        summary: dict[str, list[str]] = {
             "skipped": [],
             "success": [],
             "failed": [],
-            "corrupted": []
+            "corrupted": [],
         }
 
         for symbol in symbols:
@@ -412,7 +416,7 @@ class UniverseDataLoader:
                     print(" done and persisted.")
 
             except Exception as e:
-                summary["failed"].append(f"{symbol} (Error: {str(e)})")
+                summary["failed"].append(f"{symbol} (Error: {e!s})")
                 print(f"\nError processing {symbol}: {e}")
 
         # Generate the report
@@ -477,4 +481,6 @@ def ensure_universe_data(
             raise FileNotFoundError(f"missing universe config for sector '{sector}': {yaml_path}")
 
         config = UniverseConfig.from_yaml(yaml_path)
-        UniverseDataLoader(config, data_path=data_path, progress=progress).load(force_download=force_download)
+        UniverseDataLoader(config, data_path=data_path, progress=progress).load(
+            force_download=force_download
+        )

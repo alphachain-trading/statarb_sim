@@ -7,14 +7,10 @@ analysis would have to pick one or double-count. `_merge_umds` is where
 universe composition for a multi-group run happens (merging each group's
 `UniverseMarketData.membership`), so that is where the assert lives.
 """
-import sys
+
 import unittest
-from pathlib import Path
 
 import pandas as pd
-
-REPO_ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(REPO_ROOT))
 
 from src.data.universe_marketdata import UniverseMarketData
 from src.simulator.simulator_factory import _merge_umds
@@ -26,10 +22,12 @@ def _make_umd(group_id: str, tickers: list[str]) -> UniverseMarketData:
     prices = pd.DataFrame(1.0, index=dates, columns=cols)
     ticker_info = pd.DataFrame(index=pd.Index(tickers, name="ticker"))
     group_info = pd.DataFrame(index=pd.Index([group_id], name="group_id"))
-    membership = pd.DataFrame({
-        "group_id": [group_id] * len(tickers),
-        "ticker": tickers,
-    })
+    membership = pd.DataFrame(
+        {
+            "group_id": [group_id] * len(tickers),
+            "ticker": tickers,
+        }
+    )
     return UniverseMarketData(
         prices=prices,
         ticker_info=ticker_info,
