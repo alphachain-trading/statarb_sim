@@ -21,6 +21,7 @@ select = ["E", "W", "F", "I", "UP", "B", "SIM", "C4", "RET", "PTH", "N", "RUF"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = [".", "scripts"]
+markers = ["slow: end-to-end / golden-master tests that run the full pipeline (seconds each)"]
 
 [tool.mypy]
 python_version = "3.12"
@@ -33,3 +34,7 @@ warn_return_any = true
 # No stubs or py.typed available and no types-* package exists
 module = ["statsmodels.*", "yfinance"]
 ignore_missing_imports = true
+
+[tool.coverage.run]
+source = ["src"]
+branch = true
