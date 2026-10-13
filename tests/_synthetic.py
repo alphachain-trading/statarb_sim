@@ -181,3 +181,41 @@ def patched_universe(umd: UniverseMarketData) -> Iterator[None]:
         patch(f"{mod}.UniverseDataLoader", _FakeLoader),
     ):
         yield
+
+
+def make_state(candidate_id: str = "c1", **overrides: Any):
+    """A CandidateAnalyticsState with sensible defaults; override any field."""
+    from src.simulator.types import CandidateAnalyticsState
+
+    fields: dict[str, Any] = {
+        "candidate_id": candidate_id,
+        "group_id": "G1",
+        "spread_id": "A|B",
+        "date": pd.Timestamp("2024-01-02"),
+        "z_score": -2.0,
+        "level": 0.0,
+        "roll_mean": 0.0,
+        "roll_std": 1.0,
+        "adf_pvalue": None,
+        "mr_score": 1.0,
+        "kappa": 0.1,
+        "half_life": 10.0,
+        "is_signal_ready": True,
+    }
+    fields.update(overrides)
+    return CandidateAnalyticsState(**fields)
+
+
+def make_ref(candidate_id: str = "c1", **overrides: Any):
+    from src.simulator.types import CandidateRef
+
+    fields: dict[str, Any] = {
+        "candidate_id": candidate_id,
+        "spread_id": "A|B",
+        "group_id": "G1",
+        "asof_date": pd.Timestamp("2024-01-01"),
+        "members": ("A", "B"),
+        "weights": (1.0, -1.0),
+    }
+    fields.update(overrides)
+    return CandidateRef(**fields)
