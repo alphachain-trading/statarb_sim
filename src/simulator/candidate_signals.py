@@ -50,7 +50,7 @@ def _rolling_mean_std(
     Returns (mean, std) each of shape (T, N).  Rows with fewer than
     min_periods observations are NaN.
     """
-    T, N = x.shape  # noqa: N806  # Matrixnotation wie in der Formel
+    T, N = x.shape  # noqa: N806  # matrix notation as in the formula
     mean_out = np.full((T, N), np.nan)
     std_out = np.full((T, N), np.nan)
 
@@ -88,7 +88,7 @@ def _rolling_mean_std_last(
     x: (T, N).  Returns (mean, std) each shape (N,).
     Rows where T < min_periods return NaN.
     """
-    T, N = x.shape  # noqa: N806  # Matrixnotation wie in der Formel
+    T, N = x.shape  # noqa: N806  # matrix notation as in the formula
     if min_periods > T:
         return np.full(N, np.nan), np.full(N, np.nan)
     w = min(T, window)
@@ -112,7 +112,7 @@ def _ewm_mean_std_last(
     for 10 groups per step.  Can be replaced with a pure numpy implementation
     if it becomes a bottleneck.
     """
-    T, N = x.shape  # noqa: N806  # Matrixnotation wie in der Formel
+    T, N = x.shape  # noqa: N806  # matrix notation as in the formula
     if min_periods > T:
         return np.full(N, np.nan), np.full(N, np.nan)
     df = pd.DataFrame(x)
@@ -700,7 +700,7 @@ class CandidateSignalGenerator:
         if len(dx) < 10:
             return None, None, None, None
 
-        X = np.column_stack([np.ones_like(x_lag), x_lag])  # noqa: N806  # Matrixnotation wie in der Formel
+        X = np.column_stack([np.ones_like(x_lag), x_lag])  # noqa: N806  # matrix notation as in the formula
         beta, *_ = np.linalg.lstsq(X, dx, rcond=None)
         _intercept, slope = beta
 

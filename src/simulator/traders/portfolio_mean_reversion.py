@@ -18,11 +18,15 @@ column and only gates on `is_active` / `is_signal_ready`. It never sets
 residual_key or z_components on its actions, and it proposes direction only:
 position size comes from SizingEngine (`pair_notional`).
 
-Status: dormant, not used since October 2026 (kept for later revival). It is
-constructed in simulator_factory when a PortfolioMeanReversionConfig is given,
-but no baseline or sweep does. `default_abs_target_group_exposure` is a
-leftover of the old exposure-based sizing: it is still mandatory but no longer
-read; sizing is not done here any more.
+Status: dormant since May 2026 (kept for later revival). It is constructed in
+simulator_factory when a PortfolioMeanReversionConfig is given, but no baseline
+or sweep does.
+
+Sizing note: originally the strategy set the position size itself via
+`target_group_exposure` (magnitude). Since bb69f08 it only sets direction;
+size comes from SizingEngine / pair_notional. Revisit the sizing concept on
+revival. `default_abs_target_group_exposure` is kept as a placeholder for it:
+it is still mandatory but not read.
 """
 
 from __future__ import annotations

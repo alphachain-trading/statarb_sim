@@ -256,7 +256,7 @@ def compute_bw_gain_stats(
     dict with keys gain, gain_std, gain_norm, gain_ann, gain_ann_std,
     gain_ann_norm — all NaN if fewer than H backward observations exist.
     """
-    H = round(bw_window_mult * bw_hl)  # noqa: N806  # Matrixnotation wie in der Formel
+    H = round(bw_window_mult * bw_hl)  # noqa: N806  # matrix notation as in the formula
     day_idx = len(levels) - 1
 
     if day_idx < H:
@@ -325,7 +325,7 @@ def _gain_stats_series_core(
     fw-specific sign flip (for the 4 signed keys) applied by callers.
     """
     n = len(levels)
-    H = round(window_mult * hl)  # noqa: N806  # Matrixnotation wie in der Formel
+    H = round(window_mult * hl)  # noqa: N806  # matrix notation as in the formula
     alpha = 1.0 - np.exp(-1.0 / hl)
     h_arr = np.arange(1, H + 1)
     raw_weight = alpha * (1.0 - alpha) ** (h_arr - 1)

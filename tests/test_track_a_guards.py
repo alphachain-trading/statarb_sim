@@ -241,7 +241,7 @@ class TestNoTinyWeightGateInPairDiagnostics(unittest.TestCase):
     def test_fast_pair_diagnostics_rejects_weight_kwargs(self):
         """Old callers passing w_left/w_right/tiny_weight_threshold must fail, not be ignored."""
         with self.assertRaises(TypeError):
-            _fast_pair_diagnostics(  # type: ignore[call-arg]  # entfernte Kwargs absichtlich übergeben
+            _fast_pair_diagnostics(  # type: ignore[call-arg]  # removed kwargs deliberately passed
                 spread_return=np.zeros(60),
                 w_left=1.0,
                 w_right=1e-9,

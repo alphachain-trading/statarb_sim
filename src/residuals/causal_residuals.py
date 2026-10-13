@@ -399,7 +399,7 @@ def load_residual_params(path: str) -> dict[pd.Timestamp, FittedCausalResidualMo
         proxy_name = proxy_names[0]
         members = sorted(t for t in piv.index if t != proxy_name)
 
-        B_proxy = np.array(  # noqa: N806  # Matrixnotation wie in der Formel
+        B_proxy = np.array(  # noqa: N806  # matrix notation as in the formula
             [
                 [piv.loc[proxy_name, _RESIDUAL_PARAMS_FACTOR_CONST]],
                 [piv.loc[proxy_name, _RESIDUAL_PARAMS_FACTOR_BENCH]],
@@ -407,7 +407,7 @@ def load_residual_params(path: str) -> dict[pd.Timestamp, FittedCausalResidualMo
             dtype=float,
         )
 
-        B_stock = (  # noqa: N806  # Matrixnotation wie in der Formel
+        B_stock = (  # noqa: N806  # matrix notation as in the formula
             piv.loc[
                 members,
                 [
@@ -482,12 +482,12 @@ def _make_sqrt_w(n: int, half_life: int | None) -> np.ndarray:
 
 
 def _wls_multi(
-    Y: np.ndarray,  # noqa: N803  # Matrixnotation wie in der Formel
-    X: np.ndarray,  # noqa: N803  # Matrixnotation wie in der Formel
+    Y: np.ndarray,  # noqa: N803  # matrix notation as in the formula
+    X: np.ndarray,  # noqa: N803  # matrix notation as in the formula
     sqrt_w: np.ndarray,
 ) -> np.ndarray:
-    Xw = X * sqrt_w[:, None]  # noqa: N806  # Matrixnotation wie in der Formel
-    Yw = Y * sqrt_w[:, None]  # noqa: N806  # Matrixnotation wie in der Formel
+    Xw = X * sqrt_w[:, None]  # noqa: N806  # matrix notation as in the formula
+    Yw = Y * sqrt_w[:, None]  # noqa: N806  # matrix notation as in the formula
     return cast("np.ndarray", np.linalg.lstsq(Xw, Yw, rcond=None)[0])
 
 
@@ -527,13 +527,13 @@ def fit_causal_residual_model(
     y_proxy = aligned[proxy_name].to_numpy(dtype=float)
     x_bench = aligned[bench_name].to_numpy(dtype=float)
 
-    X_proxy = np.column_stack(  # noqa: N806  # Matrixnotation wie in der Formel
+    X_proxy = np.column_stack(  # noqa: N806  # matrix notation as in the formula
         [
             np.ones(n, dtype=float),
             x_bench,
         ]
     )
-    B_proxy = _wls_multi(  # noqa: N806  # Matrixnotation wie in der Formel
+    B_proxy = _wls_multi(  # noqa: N806  # matrix notation as in the formula
         Y=y_proxy[:, None],
         X=X_proxy,
         sqrt_w=sqrt_w,
@@ -542,16 +542,16 @@ def fit_causal_residual_model(
     proxy_fit = X_proxy @ B_proxy
     proxy_res = y_proxy - proxy_fit[:, 0]
 
-    X_common = np.column_stack(  # noqa: N806  # Matrixnotation wie in der Formel
+    X_common = np.column_stack(  # noqa: N806  # matrix notation as in the formula
         [
             np.ones(n, dtype=float),
             x_bench,
             proxy_res,
         ]
     )
-    Y = aligned[members].to_numpy(dtype=float)  # noqa: N806  # Matrixnotation wie in der Formel
+    Y = aligned[members].to_numpy(dtype=float)  # noqa: N806  # matrix notation as in the formula
 
-    B_stock = _wls_multi(  # noqa: N806  # Matrixnotation wie in der Formel
+    B_stock = _wls_multi(  # noqa: N806  # matrix notation as in the formula
         Y=Y,
         X=X_common,
         sqrt_w=sqrt_w,
@@ -566,7 +566,7 @@ def fit_causal_residual_model(
     pc_components = None
     if cfg.remove_residual_pcs > 0:
         # Compute residuals on the fit window to estimate PCs
-        Y_fit = X_common @ B_stock  # noqa: N806  # Matrixnotation wie in der Formel
+        Y_fit = X_common @ B_stock  # noqa: N806  # matrix notation as in the formula
         resid_fit = Y - Y_fit
 
         # Apply same exponential weighting for PC estimation
@@ -634,7 +634,7 @@ def apply_causal_residual_model(
     y_proxy = aligned[model.proxy_name].to_numpy(dtype=float)
     x_bench = aligned[model.bench_name].to_numpy(dtype=float)
 
-    X_proxy = np.column_stack(  # noqa: N806  # Matrixnotation wie in der Formel
+    X_proxy = np.column_stack(  # noqa: N806  # matrix notation as in the formula
         [
             np.ones(n, dtype=float),
             x_bench,
@@ -643,15 +643,15 @@ def apply_causal_residual_model(
     proxy_fit = X_proxy @ model.B_proxy
     proxy_res = y_proxy - proxy_fit[:, 0]
 
-    X_common = np.column_stack(  # noqa: N806  # Matrixnotation wie in der Formel
+    X_common = np.column_stack(  # noqa: N806  # matrix notation as in the formula
         [
             np.ones(n, dtype=float),
             x_bench,
             proxy_res,
         ]
     )
-    Y = aligned[model.members].to_numpy(dtype=float)  # noqa: N806  # Matrixnotation wie in der Formel
-    Y_fit = X_common @ model.B_stock  # noqa: N806  # Matrixnotation wie in der Formel
+    Y = aligned[model.members].to_numpy(dtype=float)  # noqa: N806  # matrix notation as in the formula
+    Y_fit = X_common @ model.B_stock  # noqa: N806  # matrix notation as in the formula
     residuals = Y - Y_fit
 
     # Remove leading PCs estimated during fit (out-of-sample projection)

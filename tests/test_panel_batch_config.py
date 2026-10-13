@@ -374,7 +374,7 @@ class TestPanelBatchConfigValidation(unittest.TestCase):
         default — a numeric default here would just be a second place for
         the same result-affecting number to silently live."""
         with self.assertRaises(TypeError):
-            PanelBatchConfig(  # type: ignore[call-arg]  # pair_cfg absichtlich weggelassen
+            PanelBatchConfig(  # type: ignore[call-arg]  # pair_cfg deliberately omitted
                 residual_configs=[_decay()], hedge_ratio_lb=252, mr_diag_lb=252
             )
 

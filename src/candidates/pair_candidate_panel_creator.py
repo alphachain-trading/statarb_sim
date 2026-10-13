@@ -161,7 +161,7 @@ def _pca_spread_weights(
     with a sign convention ensuring the right ticker's weight is negative
     (i.e. a long-short spread).
     """
-    X = residual_returns[[left, right]].to_numpy(dtype=float)  # noqa: N806  # Matrixnotation wie in der Formel
+    X = residual_returns[[left, right]].to_numpy(dtype=float)  # noqa: N806  # matrix notation as in the formula
 
     cov = np.cov(X, rowvar=False)
     _eigenvalues, eigenvectors = np.linalg.eigh(cov)
@@ -523,7 +523,7 @@ def _fast_pair_diagnostics(
     if len(dx) < 10:
         return invalid("dx_too_short")
 
-    X = np.column_stack([np.ones_like(x_lag), x_lag])  # noqa: N806  # Matrixnotation wie in der Formel
+    X = np.column_stack([np.ones_like(x_lag), x_lag])  # noqa: N806  # matrix notation as in the formula
     beta, *_ = np.linalg.lstsq(X, dx, rcond=None)
     intercept, slope = beta
 

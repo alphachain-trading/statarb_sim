@@ -20,7 +20,7 @@ from src.simulator.types import CandidateMarketSnapshot, LiveCandidatePosition
 class TestDefaultAbsTargetGroupExposureIsMandatory(unittest.TestCase):
     def test_omitting_it_raises(self):
         with self.assertRaises(TypeError):
-            PortfolioMeanReversionTrader(  # type: ignore[call-arg]  # Pflichtargument absichtlich weggelassen
+            PortfolioMeanReversionTrader(  # type: ignore[call-arg]  # required argument deliberately omitted
                 config=PortfolioMeanReversionConfig(entry_z=2.0, exit_z=0.0),
             )
 

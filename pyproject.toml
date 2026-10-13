@@ -30,6 +30,6 @@ warn_redundant_casts = true
 warn_return_any = true
 
 [[tool.mypy.overrides]]
-# Keine Stubs/py.typed vorhanden und kein types-*-Paket verfügbar
+# No stubs or py.typed available and no types-* package exists
 module = ["statsmodels.*", "yfinance"]
 ignore_missing_imports = true

@@ -44,7 +44,7 @@ def _make_bundle(n: int) -> GroupReturnBundle:
 class TestMinObsIsMandatory(unittest.TestCase):
     def test_omitting_min_obs_raises(self):
         with self.assertRaises(TypeError):
-            pcpc.PairSpreadConfig(  # type: ignore[call-arg]  # min_obs absichtlich weggelassen
+            pcpc.PairSpreadConfig(  # type: ignore[call-arg]  # min_obs deliberately omitted
                 hedge_ratio_methods=["ols"],
                 min_return_std=1e-8,
                 min_level_std=1e-8,
@@ -140,7 +140,7 @@ class TestMinObsGate(unittest.TestCase):
                 hedge_ratio_lb=n,
                 mr_diag_lb=n,
                 debug=False,
-                fitted_model=fitted_model,  # type: ignore[arg-type]  # SimpleNamespace als Test-Double
+                fitted_model=fitted_model,  # type: ignore[arg-type]  # SimpleNamespace as test double
                 progress=False,
             )
         return {r["spread_id"]: r for r in rows}
