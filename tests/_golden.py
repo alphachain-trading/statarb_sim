@@ -53,10 +53,16 @@ def _diff(expected: Any, actual: Any, path: str, out: list[str]) -> None:
         out.append(f"{path}: {actual!r} != golden {expected!r}")
 
 
+def _json_default(obj: Any) -> Any:
+    if hasattr(obj, "item"):  # numpy scalars
+        return obj.item()
+    return str(obj)
+
+
 def assert_matches_golden(name: str, actual: Any) -> None:
     """Fail with a readable diff if ``actual`` differs from tests/golden/<name>.json."""
     path = GOLDEN_DIR / f"{name}.json"
-    normalised = json.loads(json.dumps(actual, default=str, allow_nan=True))
+    normalised = json.loads(json.dumps(actual, default=_json_default, allow_nan=True))
     if os.environ.get("UPDATE_GOLDEN") == "1":
         GOLDEN_DIR.mkdir(exist_ok=True)
         path.write_text(json.dumps(normalised, indent=1, sort_keys=True) + "\n", encoding="utf-8")
