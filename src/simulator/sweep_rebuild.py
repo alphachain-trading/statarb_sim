@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
 import pandas as pd
 
@@ -139,11 +139,11 @@ def _load_json(path: Path) -> dict:
 
 def _extract_config_fields(config: dict) -> dict:
     """Extract sweep-relevant fields from config.json."""
-    out = {}
+    out: dict[str, Any] = {}
 
     # Trader config
     trader = config.get("trader", {})
-    out["entry_z"] = trader.get("entry_z") or trader.get("entry_z_threshold")
+    out["entry_z"] = _entry_z(trader)
     out["exit_z"] = trader.get("exit_z") or trader.get("exit_z_threshold")
     out["max_holding_days"] = trader.get("max_holding_days")
     out["exit_rule"] = _serialize_if_complex(trader.get("exit_rule"))
@@ -257,12 +257,38 @@ def _flatten_metrics(metrics: dict) -> dict:
     return out
 
 
+def _entry_z(trader: dict) -> float | None:
+    """Entry threshold from a trader config; 0.0 is a valid value (not 'missing')."""
+    entry_z = trader.get("entry_z")
+    if entry_z is None:
+        entry_z = trader.get("entry_z_threshold")
+    return cast("float | None", entry_z)
+
+
 def _build_alias_from_config(config: dict) -> str:
-    """Best-effort alias reconstruction from config.json."""
+    """
+    Best-effort display alias reconstructed from a run's config.json.
+
+    Display only: the rebuilt results are keyed by run_id, and sweep dedup uses
+    ``config_hash`` (see sweep_runner.dedup_key), never this string. It is NOT
+    guaranteed to equal ``SweepConfig.alias`` of the sweep that produced the run —
+    config.json does not hold the sweep-level fields, so the format differs:
+
+    - numbers are written as stored (``z1.5``, ``xz0.0``), not ``:.1f``-formatted
+      (``tick`` and ``gx`` are formatted the same way as in SweepConfig.alias);
+    - always ``mt<n>`` (``mt1`` for a single timescale) instead of ``lb<N>``;
+    - no ``mhd``, ``xr-``, ``voln``/``flat``, ``ef-`` or ``is-`` parts;
+    - adds ``kelly-`` and ``tsr-`` parts, which SweepConfig.alias does not have;
+    - excluded groups are listed by full name, sorted and comma-joined, instead of
+      ``group_abbrev``.
+
+    Missing keys are skipped; ``entry_z`` is omitted only when it is absent (a
+    stored ``0.0`` is kept).
+    """
     parts = []
 
     trader = config.get("trader", {})
-    entry_z = trader.get("entry_z") or trader.get("entry_z_threshold")
+    entry_z = _entry_z(trader)
     exit_z = trader.get("exit_z") or trader.get("exit_z_threshold") or 0.0
     if entry_z is not None:
         parts.append(f"z{entry_z}")
