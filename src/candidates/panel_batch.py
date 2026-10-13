@@ -215,7 +215,7 @@ class PanelBatchConfig:
         def _broadcast(val: int | list[int]) -> list[int]:
             return list(val) if isinstance(val, list) else [val] * n
 
-        return list(zip(_broadcast(self.hedge_ratio_lb), _broadcast(self.mr_diag_lb), strict=False))
+        return list(zip(_broadcast(self.hedge_ratio_lb), _broadcast(self.mr_diag_lb), strict=True))
 
 
 # ── batch runner ────────────────────────────────────────────────────────
@@ -267,7 +267,7 @@ def run_panel_batch(
         )
 
     residual_cfgs = cast("list[CausalResidualConfig]", cfg.residual_configs)
-    points = list(zip(residual_cfgs, cfg.resolved_windows(), strict=False))
+    points = list(zip(residual_cfgs, cfg.resolved_windows(), strict=True))
 
     group_labels = [cast("str", group_abbrev(gid)) for gid, _ in group_entries]
     print(f"Batch {batch_timestamp}")

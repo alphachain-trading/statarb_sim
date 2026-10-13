@@ -347,7 +347,7 @@ class CandidateSignalGenerator:
                 if not all(m in residuals.columns for m in ref.members):
                     invalid_refs.append(ref)
                     continue
-                weights_by_ticker = dict(zip(ref.members, ref.weights, strict=False))
+                weights_by_ticker = dict(zip(ref.members, ref.weights, strict=True))
                 spread_return, level = compute_spread_level(residuals, weights_by_ticker)
                 spread_return_by_id[ref.candidate_id] = spread_return.loc[:date]
                 level_by_id[ref.candidate_id] = level.loc[:date]
@@ -757,7 +757,7 @@ class CandidateSignalGenerator:
         if missing:
             return None
 
-        weights_by_ticker = dict(zip(ref.members, ref.weights, strict=False))
+        weights_by_ticker = dict(zip(ref.members, ref.weights, strict=True))
         _, level_series = compute_spread_level(residuals, weights_by_ticker)
         return level_series.loc[: pd.Timestamp(date)]
 

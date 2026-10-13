@@ -8,3 +8,5 @@ __pycache__/
 .ipynb_checkpoints/
 typescript
 *.egg-info/
+.coverage
+htmlcov/
