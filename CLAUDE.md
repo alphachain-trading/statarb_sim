@@ -22,6 +22,3 @@ Statistical-Arbitrage-Simulator (Pairs-Kandidaten → Residuen → Simulator).
 - Ausnahmen nur per `# noqa: <Code>  # Begründung` bzw. `# type: ignore[<code>]  # Begründung`; keine pauschalen Ignores in der Konfiguration.
 - Matrixnotation (`X`, `Y`, `B`, `T`, …) in `src/residuals`, `src/analytics`, `src/simulator/candidate_signals.py` ist mit `noqa: N803/N806` bewusst erlaubt.
 - ruff formatiert `*.md` nicht (`extend-exclude`), da Docs Code-Zitate enthalten.
-
-## Bekannter Stand
-- `mypy .` meldet 7 Fehler (Portfolio-Trader/`Trader`-Protocol, siehe `src/simulator/traders/portfolio_mean_reversion.py`, `src/simulator/simulator_factory.py:104`) — echte Inkonsistenz, noch nicht entschieden.
