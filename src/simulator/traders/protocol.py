@@ -24,5 +24,4 @@ class Trader(Protocol):
         snapshot: CandidateMarketSnapshot,
         live_positions_by_candidate_id: dict[str, LiveCandidatePosition],
         live_diagnostics_by_candidate_id: dict[str, CandidateAnalyticsState] | None = None,
-        target_group_capital_by_group: dict[str, float] | None = None,
     ) -> list[CandidateAction]: ...
