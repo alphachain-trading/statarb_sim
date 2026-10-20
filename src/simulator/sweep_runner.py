@@ -58,7 +58,7 @@ from src.simulator.config import (
 )
 from src.simulator.simulation_persistence import hash_config
 from src.simulator.simulator import SimulationResult
-from src.simulator.simulator_factory import run_from_config
+from src.simulator.simulator_factory import bind_market_snapshot, run_from_config
 from src.simulator.sweep_defaults import get_default_bundle, merge_defaults
 
 # ---------------------------------------------------------------------------
@@ -226,8 +226,15 @@ def _resolve_panel_subdir(sweep: SweepConfig, index: int | None = None) -> str:
     return panel
 
 
-def _build_sim_config(sweep: SweepConfig, *, index: int | None = None) -> SimulatorConfig:
-    """Convert SweepConfig → SimulatorConfig, resolving the candidate panel."""
+def _build_sim_config(
+    sweep: SweepConfig, *, index: int | None = None, snapshot_id: str | None = None
+) -> SimulatorConfig:
+    """
+    Convert SweepConfig → SimulatorConfig, resolving the candidate panel.
+
+    `snapshot_id` pins DataConfig.snapshot_id; the result is not bound until
+    it has been through bind_market_snapshot (see _bind_sweep_snapshot).
+    """
 
     panel = _resolve_panel_subdir(sweep, index)
 
@@ -258,6 +265,7 @@ def _build_sim_config(sweep: SweepConfig, *, index: int | None = None) -> Simula
         "data": DataConfig(
             candidate_panel_subdir=panel,
             excluded_groups=sweep.excluded_groups,
+            snapshot_id=snapshot_id,
             data_path=str(DATA_UNIVERSES),
         ),
         "z_score": z_score,
@@ -283,7 +291,9 @@ def _build_sim_config(sweep: SweepConfig, *, index: int | None = None) -> Simula
     return SimulatorConfig(**kwargs)
 
 
-def dedup_key(sweep: SweepConfig, *, index: int | None = None) -> str:
+def dedup_key(
+    sweep: SweepConfig, *, index: int | None = None, snapshot_id: str | None = None
+) -> str:
     """
     Identity of a sweep run, for skip_existing decisions.
 
@@ -291,8 +301,22 @@ def dedup_key(sweep: SweepConfig, *, index: int | None = None) -> str:
     the run is covered — including candidate_panel_subdir and nested fields
     like interval_scoring weights. SweepConfig.alias is a lossy display
     label (a subset of fields) and must not be used for dedup.
+
+    Pass the sweep's bound `snapshot_id` (_bind_sweep_snapshot) to get the
+    key run_sweep stores; a run against another snapshot is another run.
     """
-    return hash_config(_build_sim_config(sweep, index=index))
+    return hash_config(_build_sim_config(sweep, index=index, snapshot_id=snapshot_id))
+
+
+def _bind_sweep_snapshot(runs: list[SweepConfig]) -> str:
+    """
+    Bind a whole sweep to one market snapshot, once, before any hashing.
+
+    Every run in a sweep reads the same frozen capture; per-run binding
+    could straddle a newly minted snapshot.
+    """
+    bound = bind_market_snapshot(_build_sim_config(runs[0], index=0))
+    return cast("str", bound.data.snapshot_id)
 
 
 def _existing_keys(existing: pd.DataFrame) -> set[str]:
@@ -497,6 +521,8 @@ def run_sweep(
     # surface now, not hours into the sweep.
     panels = [_resolve_panel_subdir(sweep, i) for i, sweep in enumerate(runs)]
 
+    snapshot_id = _bind_sweep_snapshot(runs) if runs else None
+
     existing = load_sweep_results()
     results = existing.reset_index().to_dict("records") if not existing.empty else []
     existing_keys = _existing_keys(existing)
@@ -507,7 +533,9 @@ def run_sweep(
 
     for i, sweep in enumerate(runs):
         panel = panels[i]
-        sim_config = _build_sim_config(sweep, index=i)
+        sim_config = bind_market_snapshot(
+            _build_sim_config(sweep, index=i, snapshot_id=snapshot_id)
+        )
         key = hash_config(sim_config)
 
         if skip_existing and key in existing_keys:
@@ -584,13 +612,13 @@ def run_sweep(
 
 def _run_one_sweep(args: tuple) -> dict:
     """Worker function for run_sweep_parallel."""
-    sweep, i, n_total = args
+    sweep, i, n_total, snapshot_id = args
     import time as _t
     from dataclasses import fields
     from datetime import datetime
 
     from src.simulator.simulation_persistence import hash_config
-    from src.simulator.simulator_factory import run_from_config
+    from src.simulator.simulator_factory import bind_market_snapshot, run_from_config
     from src.simulator.sweep_runner import (
         _build_sim_config,
         _extract_run_id,
@@ -600,7 +628,7 @@ def _run_one_sweep(args: tuple) -> dict:
     print(f"[worker] START [{i + 1}/{n_total}] {sweep.alias}", flush=True)
     t0 = _t.perf_counter()
     panel = _resolve_panel_subdir(sweep, i)
-    sim_config = _build_sim_config(sweep, index=i)
+    sim_config = bind_market_snapshot(_build_sim_config(sweep, index=i, snapshot_id=snapshot_id))
     key = hash_config(sim_config)
     try:
         result = run_from_config(sim_config)
@@ -661,6 +689,11 @@ def run_sweep_parallel(
     for i, sweep in enumerate(runs):
         _resolve_panel_subdir(sweep, i)
 
+    if not runs:
+        return load_sweep_results()
+    # Bound in the parent, so workers never mint and all read one snapshot.
+    snapshot_id = _bind_sweep_snapshot(runs)
+
     existing = load_sweep_results()
     existing_rows = existing.reset_index().to_dict("records") if not existing.empty else []
     existing_keys = _existing_keys(existing)
@@ -668,7 +701,7 @@ def run_sweep_parallel(
     pending = [
         s
         for i, s in enumerate(runs)
-        if not (skip_existing and dedup_key(s, index=i) in existing_keys)
+        if not (skip_existing and dedup_key(s, index=i, snapshot_id=snapshot_id) in existing_keys)
     ]
     skipped = len(runs) - len(pending)
     print(
@@ -678,7 +711,7 @@ def run_sweep_parallel(
     if not pending:
         return existing
 
-    args = [(sweep, i, len(pending)) for i, sweep in enumerate(pending)]
+    args = [(sweep, i, len(pending), snapshot_id) for i, sweep in enumerate(pending)]
 
     mp.set_start_method("spawn", force=True)
     with mp.Pool(processes=n_workers) as pool:

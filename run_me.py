@@ -451,7 +451,11 @@ def stage_simulate(cfg: dict, force: bool) -> None:
     stage = "simulate"
     _start(stage)
 
-    sim_config = _build_sim_config(cfg)
+    from src.simulator.simulator_factory import bind_market_snapshot
+
+    # Bound before hashing, so config.json, config_hash and the run-dir
+    # lookup below all carry the snapshot this run reads.
+    sim_config = bind_market_snapshot(_build_sim_config(cfg))
 
     if len(_selected_groups(cfg)) <= 1:
         # Single-group only: multi-group panels are produced by the residuals
