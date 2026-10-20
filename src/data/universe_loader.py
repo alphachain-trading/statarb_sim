@@ -107,19 +107,7 @@ class UniverseDataLoader:
                 print("Persisting synchronized universe to disk...")
                 self._persist(umd)
         if start_after_nan:
-            # Remove head rows with any NaN in prices so start row has no NaNs at all
-            prices = umd.prices
-            # Create a boolean mask per row if any NaN present
-            mask = prices.isna().any(axis=1)
-            # Locate the first row where mask is False (i.e., no NaN in that row)
-            first_valid_index = mask.idxmin() if not mask.all() else None
-            if first_valid_index is not None:
-                umd = UniverseMarketData(
-                    prices=prices.loc[first_valid_index:],
-                    ticker_info=umd.ticker_info,
-                    group_info=umd.group_info,
-                    membership=umd.membership,
-                )
+            umd = trim_leading_nan_rows(umd)
         if check_for_corruptions:
             for w in umd.qc_warnings():
                 print(w)
@@ -474,6 +462,22 @@ class UniverseDataLoader:
 
         if self.progress:
             print(f"\nPool update complete. Summary report: {report_path.name}")
+
+
+def trim_leading_nan_rows(umd: UniverseMarketData) -> UniverseMarketData:
+    """Drop head rows with any NaN in prices, so the first row has no NaNs at all."""
+    prices = umd.prices
+    mask = prices.isna().any(axis=1)
+    # First row where mask is False (i.e., no NaN in that row)
+    first_valid_index = mask.idxmin() if not mask.all() else None
+    if first_valid_index is None:
+        return umd
+    return UniverseMarketData(
+        prices=prices.loc[first_valid_index:],
+        ticker_info=umd.ticker_info,
+        group_info=umd.group_info,
+        membership=umd.membership,
+    )
 
 
 def ensure_universe_data(
