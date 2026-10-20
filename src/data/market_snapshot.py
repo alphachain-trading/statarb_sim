@@ -92,7 +92,7 @@ import pandas as pd
 from tqdm import tqdm
 
 from src.data.universe_config import UniverseConfig
-from src.data.universe_loader import UniverseDataLoader
+from src.data.universe_loader import UniverseDataLoader, trim_leading_nan_rows
 from src.data.universe_marketdata import UniverseMarketData
 from src.settings import CONFIG_UNIVERSE, DATA_MARKET_SNAPSHOTS
 
@@ -508,6 +508,24 @@ def load_market_snapshot(
     and raises on any mismatch — never warns; a warning scrolls past in a
     sweep. `snapshot_id` must be a full id: never resolves a prefix.
     """
+    values = list(load_market_snapshot_groups(snapshot_id, snapshot_root=snapshot_root).values())
+    if len(values) == 1:
+        return values[0]
+    return _merge_group_market_data(values)
+
+
+def load_market_snapshot_groups(
+    snapshot_id: str,
+    *,
+    group_ids: list[str] | None = None,
+    snapshot_root: str | Path | None = None,
+) -> dict[str, UniverseMarketData]:
+    """
+    Load a snapshot's groups one by one, unmerged, keyed by group_id in
+    sorted order. `group_ids` restricts the load to those groups (None =
+    every group); an id the snapshot does not hold raises. Hash verification
+    as in load_market_snapshot, for every group loaded.
+    """
     if not SNAPSHOT_ID_RE.match(snapshot_id):
         raise ValueError(
             f"'{snapshot_id}' is not a full snapshot id (expected "
@@ -521,44 +539,146 @@ def load_market_snapshot(
         raise FileNotFoundError(f"no snapshot at {snapshot_dir}")
 
     manifest = _read_manifest(snapshot_dir)
-
-    per_group: dict[str, UniverseMarketData] = {}
-    for group_id, entry in manifest["groups"].items():
-        group_dir = snapshot_dir / entry["universe_name"]
-        prices_path = group_dir / "prices_daily.parquet"
-
-        actual_content_hash = _hash_file(prices_path)
-        if actual_content_hash != entry["content_hash"]:
-            raise SnapshotHashMismatchError(
-                f"content hash mismatch for group '{group_id}' in snapshot "
-                f"'{snapshot_id}': expected {entry['content_hash']}, got "
-                f"{actual_content_hash}. {prices_path} was modified after the "
-                "snapshot was written."
+    groups: dict = manifest["groups"]
+    if group_ids is None:
+        selected = sorted(groups)
+    else:
+        unknown = sorted(set(group_ids) - set(groups))
+        if unknown:
+            raise KeyError(
+                f"snapshot '{snapshot_id}' holds no group(s) {unknown}; available: {sorted(groups)}"
             )
+        selected = sorted(set(group_ids))
 
-        membership = pd.read_parquet(group_dir / "membership.parquet")
-        actual_ticker_set_hash = _hash_ticker_set(sorted(membership["ticker"].unique()))
-        if actual_ticker_set_hash != entry["ticker_set_hash"]:
-            raise SnapshotHashMismatchError(
-                f"ticker-set hash mismatch for group '{group_id}' in snapshot "
-                f"'{snapshot_id}': expected {entry['ticker_set_hash']}, got "
-                f"{actual_ticker_set_hash}. membership.parquet was modified after "
-                "the snapshot was written."
-            )
+    return {
+        group_id: _load_snapshot_group(snapshot_dir, snapshot_id, group_id, groups[group_id])
+        for group_id in selected
+    }
 
-        prices = _normalize_prices_df(pd.read_parquet(prices_path))
-        ticker_info = pd.read_parquet(group_dir / "ticker_info.parquet").sort_index()
-        group_info = pd.read_parquet(group_dir / "group_info.parquet").sort_index()
-        membership = membership.sort_values(["group_id", "ticker"]).reset_index(drop=True)
 
-        per_group[group_id] = UniverseMarketData(
-            prices=prices,
-            ticker_info=ticker_info,
-            group_info=group_info,
-            membership=membership,
+def _load_snapshot_group(
+    snapshot_dir: Path, snapshot_id: str, group_id: str, entry: dict
+) -> UniverseMarketData:
+    group_dir = snapshot_dir / entry["universe_name"]
+    prices_path = group_dir / "prices_daily.parquet"
+
+    actual_content_hash = _hash_file(prices_path)
+    if actual_content_hash != entry["content_hash"]:
+        raise SnapshotHashMismatchError(
+            f"content hash mismatch for group '{group_id}' in snapshot "
+            f"'{snapshot_id}': expected {entry['content_hash']}, got "
+            f"{actual_content_hash}. {prices_path} was modified after the "
+            "snapshot was written."
         )
 
-    values = list(per_group.values())
-    if len(values) == 1:
-        return values[0]
-    return _merge_group_market_data(values)
+    membership = pd.read_parquet(group_dir / "membership.parquet")
+    actual_ticker_set_hash = _hash_ticker_set(sorted(membership["ticker"].unique()))
+    if actual_ticker_set_hash != entry["ticker_set_hash"]:
+        raise SnapshotHashMismatchError(
+            f"ticker-set hash mismatch for group '{group_id}' in snapshot "
+            f"'{snapshot_id}': expected {entry['ticker_set_hash']}, got "
+            f"{actual_ticker_set_hash}. membership.parquet was modified after "
+            "the snapshot was written."
+        )
+
+    prices = _normalize_prices_df(pd.read_parquet(prices_path))
+    ticker_info = pd.read_parquet(group_dir / "ticker_info.parquet").sort_index()
+    group_info = pd.read_parquet(group_dir / "group_info.parquet").sort_index()
+    membership = membership.sort_values(["group_id", "ticker"]).reset_index(drop=True)
+
+    return UniverseMarketData(
+        prices=prices,
+        ticker_info=ticker_info,
+        group_info=group_info,
+        membership=membership,
+    )
+
+
+def load_snapshot_market_data(
+    snapshot_id: str,
+    group_ids: list[str],
+    *,
+    start_after_nan: bool,
+    check_for_corruptions: bool,
+    snapshot_root: str | Path | None = None,
+) -> UniverseMarketData:
+    """
+    Market data for `group_ids` out of one snapshot, as a run consumes it.
+
+    Mirrors what UniverseDataLoader.load did per group on the live cache —
+    `start_after_nan` trims each group on its own, `check_for_corruptions`
+    prints each group's QC warnings — and then merges the groups in sorted
+    group_id order, so the result never depends on the order the caller
+    lists groups in (issue #2).
+    """
+    per_group = load_market_snapshot_groups(
+        snapshot_id, group_ids=group_ids, snapshot_root=snapshot_root
+    )
+    prepared: list[UniverseMarketData] = []
+    for umd in per_group.values():
+        if start_after_nan:
+            umd = trim_leading_nan_rows(umd)
+        if check_for_corruptions:
+            for w in umd.qc_warnings():
+                print(w)
+        prepared.append(umd)
+    if len(prepared) == 1:
+        return prepared[0]
+    return _merge_group_market_data(prepared)
+
+
+def list_market_snapshots(
+    universe_version: str, *, snapshot_root: str | Path | None = None
+) -> list[str]:
+    """Existing snapshot ids for `universe_version`, newest first. Never mints."""
+    root = Path(snapshot_root) if snapshot_root else DATA_MARKET_SNAPSHOTS
+    return _list_snapshots(universe_version, root)
+
+
+def resolve_snapshot_id(
+    universe_version: str,
+    *,
+    force: bool = False,
+    universe_dir: str | Path | None = None,
+    snapshot_root: str | Path | None = None,
+    progress: bool = True,
+) -> str:
+    """
+    The snapshot a run without an explicit snapshot_id binds to: the newest
+    existing snapshot of `universe_version`, minted first if none exists or
+    if `force` is set. Both the mint and the resolved id are printed loudly —
+    a run that silently picks up new data is the failure mode this exists to
+    prevent.
+    """
+    existing = list_market_snapshots(universe_version, snapshot_root=snapshot_root)
+    if force or not existing:
+        reason = "force requested" if force else "no snapshot exists yet"
+        print(
+            f"[snapshot] !!! MINTING a new market snapshot for '{universe_version}' "
+            f"({reason}) — this downloads market data !!!"
+        )
+    ids = ensure_market_snapshot(
+        universe_version,
+        universe_dir=universe_dir,
+        snapshot_root=snapshot_root,
+        force=force,
+        progress=progress,
+    )
+    snapshot_id = ids[0]
+    print(f"[snapshot] >>> bound to market snapshot {snapshot_id} <<<")
+    return snapshot_id
+
+
+def check_snapshot_id(
+    snapshot_id: str, universe_version: str, *, snapshot_root: str | Path | None = None
+) -> None:
+    """Raise unless `snapshot_id` is a full id of `universe_version` that exists on disk."""
+    m = SNAPSHOT_ID_RE.match(snapshot_id)
+    if not m or not snapshot_id.startswith(f"{universe_version}_"):
+        raise ValueError(
+            f"snapshot_id {snapshot_id!r} is not a full snapshot id of universe "
+            f"{universe_version!r} (expected '{universe_version}_{{dl_ts}}')."
+        )
+    root = Path(snapshot_root) if snapshot_root else DATA_MARKET_SNAPSHOTS
+    if not (root / snapshot_id).is_dir():
+        raise FileNotFoundError(f"no snapshot at {root / snapshot_id}")
