@@ -1,5 +1,7 @@
 # Track F2 — Artifact layer: loop, series, fidelity
 
+> Formerly Track F2. Completed; no GitHub issue.
+
 **Changes results:** yes, in exactly one commit (C3 in `F2_spec.md`, Review
 amendments R1). Everything else must not move `B_baseline.txt`.
 
@@ -159,7 +161,7 @@ partition.
 
 ## Acceptance
 
-- `docs/refactor/B_baseline.txt` does not move a single row, checked after commit 1
+- `docs/baseline/B_baseline.txt` does not move a single row, checked after commit 1
   specifically.
 - Fidelity test passing at `check_exact=True` for spread level in both candidate and
   position views.

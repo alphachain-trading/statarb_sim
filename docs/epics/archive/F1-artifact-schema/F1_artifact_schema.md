@@ -1,9 +1,11 @@
 # Track F1 — Artifact layer: schema
 
+> Formerly Track F1. Completed; no GitHub issue.
+
 **Changes results:** no. Every commit here is a storage-format change or an additive
 field.
 
-**Depends on:** C, D, E (all merged).
+**Depends on:** C, D, E.
 
 First half of the dissolved Track F. F1 replaces the artifact surface; **F2** moves
 the loop into the simulator and builds the fidelity test. The seam is deliberate:
@@ -243,7 +245,7 @@ of rows. Add it when a run shows rejections.
 
 ## Acceptance
 
-- `docs/refactor/B_baseline.txt` does not move. The `## counts` section is the
+- `docs/baseline/B_baseline.txt` does not move. The `## counts` section is the
   binding check, run after every commit.
 - Commit 8b additionally requires the `performance_metrics.json` before/after diff.
 - Commit 4 additionally requires the `too_few_active_legs` count, and a separate

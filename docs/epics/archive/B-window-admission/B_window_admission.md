@@ -1,5 +1,7 @@
 # Track B — Window admission
 
+> Formerly Track B. Completed; no GitHub issue.
+
 **Changes results: yes.** This track cleans a tainted baseline. Everything
 downstream inherits whatever it produces, which is why it comes before the
 artifact layer rather than after.

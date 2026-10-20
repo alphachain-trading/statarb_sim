@@ -1454,7 +1454,7 @@ place that inherits the fix once Track I lands.
 ### R11. C6c descoped to Track J
 
 C6c ("delete the offline path", R4) is removed from F2 and becomes **Track J**
-(`docs/refactor/J_retire_offline_panel_path.md`). The offline path stays for
+(`docs/epics/31-retire-offline-panel-path/J_retire_offline_panel_path.md`). The offline path stays for
 now: `run_panel_batch`, `PanelBatchConfig`, `create_pair_candidate_panel`'s
 persistence, notebook 01, and notebook 03's panel-build step are all
 untouched by F2.

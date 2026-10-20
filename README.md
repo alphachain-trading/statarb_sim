@@ -1,8 +1,9 @@
 # statarb_sim
 
-> **Status:** Major refactoring in progress. Simulation results are not
-> validated until the baseline freeze — see
-> [milestone "Baseline freeze"](https://github.com/alphachain-trading/statarb_sim/milestone/1).
+> **Work in progress.** Simulation results are not validated until the
+> [milestone "Baseline freeze"](https://github.com/alphachain-trading/statarb_sim/milestone/1)
+> is complete. Epics were formerly called tracks (A–J); see
+> [docs/epics/](docs/epics/README.md) and [CONTRIBUTING.md](CONTRIBUTING.md).
 
 A systematic statistical arbitrage (pairs, sparse+dense portfolio spreads) trading research platform for S&P 500 equities. Built as a rigorous research tool, not a black-box strategy — the codebase is designed for transparency, reproducibility, and extension.
 
@@ -59,17 +60,9 @@ Each stage is idempotent — re-running skips completed work unless `--force` is
 
 ## Status
 
-| Component                          | Status |
-|------------------------------------|---|
-| Data pipeline                      | ✅ complete |
-| Residualization                    | ✅ complete |
-| Pair candidate panel               | ✅ complete |
-| Simulator                          | ✅ complete |
-| Research tools (z-spectrum, bw/fw) | 🔄 migration in progress |
-| Teaching notebooks                 | 🔄 planned |
-| Multi-timescale sweep runner       | 🔄 planned |
-| Methodology, validated results     | 🔄 planned |
-
+Status is tracked on GitHub only: see the
+[milestone "Baseline freeze"](https://github.com/alphachain-trading/statarb_sim/milestone/1)
+and its epics. Epics were formerly called tracks (A–J).
 
 ## License
 

@@ -1,6 +1,6 @@
 # Track D spec — Config hygiene
 
-Delta against `docs/refactor/D_config_hygiene.md`. Read-only session: no code
+Delta against `docs/epics/archive/D-config-hygiene/D_config_hygiene.md`. Read-only session: no code
 changed, no branch created. This file is the only commit.
 
 ## Verify first — the four claims

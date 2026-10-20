@@ -1,5 +1,7 @@
 # Track G — Decay-expanding hedge ratio mode
 
+> Epic: https://github.com/alphachain-trading/statarb_sim/issues/32 · Formerly Track G.
+
 **Changes results: yes.**
 
 **Depends on:** B (per-pair `min_obs` and date-distance weighting are prerequisites,

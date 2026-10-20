@@ -1,5 +1,7 @@
 # Track I — Data preparation flags
 
+> Epic: https://github.com/alphachain-trading/statarb_sim/issues/30 · Formerly Track I.
+
 **Changes results:** yes, but not through the flags. The flag half is inert:
 `check_for_corruptions` only prints (`I_spec.md`'s H1 amendment), and the
 `start_after_nan` grain is erased downstream by `build_group_return_bundle`'s

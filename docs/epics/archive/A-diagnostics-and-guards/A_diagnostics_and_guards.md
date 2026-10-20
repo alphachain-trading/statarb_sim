@@ -1,5 +1,7 @@
 # Track A — Diagnostics defects and guards
 
+> Formerly Track A. Completed; no GitHub issue.
+
 **Changes results:** no. Every item here changes what is reported or stored, or
 raises on a config that is never currently set. No number moves.
 

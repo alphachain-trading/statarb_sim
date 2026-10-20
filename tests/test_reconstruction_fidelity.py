@@ -41,7 +41,7 @@ from src.simulator.reconstruction import (
     reconstruct_position_view,
 )
 
-# Two spread_ids confirmed (via docs/refactor/B_baseline.txt) to actually trade
+# Two spread_ids confirmed (via docs/baseline/B_baseline.txt) to actually trade
 # on the Track B harness's committed config — guarantees non-empty position-view
 # coverage, rather than hoping a random sample happens to include a trade.
 SAMPLE_SPREAD_IDS = ("APA|VLO", "APD|IP")

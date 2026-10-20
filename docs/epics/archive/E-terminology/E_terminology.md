@@ -1,5 +1,7 @@
 # Track E — Terminology
 
+> Formerly Track E. Completed; no GitHub issue.
+
 **Changes results:** no. Mechanical, wide, and conflict-generating.
 
 **Depends on:** D, so renames land on a config surface that has stopped moving.

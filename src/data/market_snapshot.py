@@ -29,7 +29,7 @@ list and treated `universe_version` as a bare name with mint_universe_version
 copying a directory to version it. That directory-copy design is dropped:
 the universe directory under config/universes/ *is* the versioned record,
 so there is nothing left for the snapshot layer to copy. See
-docs/refactor/C_market_snapshot.md for the full model.
+docs/epics/archive/C-market-snapshot/C_market_snapshot.md for the full model.
 
 A snapshot freezes one download of one universe. Two snapshots of the same
 universe may differ in realized end date and in price values (corporate

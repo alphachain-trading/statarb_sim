@@ -6,7 +6,7 @@ A fixed, small-universe config run end-to-end through the shipped
 generate_candidate_panels_by_group -> run_from_config -> compute_performance
 path (F2 C6b: live in-simulator candidate generation, not the offline
 run_panel_batch this harness used before), writing trades and summary metrics
-to a committed text file (docs/refactor/B_baseline.txt).
+to a committed text file (docs/baseline/B_baseline.txt).
 
 Reused, not reimplemented: generate_candidate_panels_by_group with max_steps
 is the same small-universe pattern the offline path used
@@ -96,7 +96,7 @@ MIN_OBS = 252
 # evidence about min_obs itself.
 PANEL_START_DATE = "2006-09-08"
 
-OUT_PATH = PROJECT_ROOT / "docs" / "refactor" / "B_baseline.txt"
+OUT_PATH = PROJECT_ROOT / "docs" / "baseline" / "B_baseline.txt"
 PANEL_DIR = Path(CANDIDATE_PANELS_ROOT) / PANEL_SUBDIR
 
 TRADE_COLS = [
