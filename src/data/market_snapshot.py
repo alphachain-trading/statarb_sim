@@ -430,27 +430,47 @@ def _list_snapshots(universe_version: str, snapshot_root: Path) -> list[str]:
     return [snapshot_id for _dl_ts, snapshot_id in found]
 
 
-def _merge_group_market_data(per_group: list[UniverseMarketData]) -> UniverseMarketData:
+def _check_one_group_per_ticker(per_group: dict[str, UniverseMarketData]) -> None:
+    """Raise if a ticker is a member of more than one group (Track E, #61)."""
+    membership = pd.concat([u.membership for u in per_group.values()], axis=0).drop_duplicates()
+    groups_per_ticker = membership.groupby("ticker")["group_id"].nunique()
+    multi_group_tickers = groups_per_ticker[groups_per_ticker > 1]
+    if not multi_group_tickers.empty:
+        examples = {
+            ticker: sorted(membership.loc[membership["ticker"] == ticker, "group_id"].unique())
+            for ticker in multi_group_tickers.index[:5]
+        }
+        raise ValueError(
+            f"{len(multi_group_tickers)} ticker(s) belong to more than one group: {examples}. "
+            "A ticker must belong to exactly one group: residual fits are group-scoped, so a "
+            "ticker in two groups would get two different residual series, and cross-group "
+            "analysis would have to pick one or double-count."
+        )
+
+
+def _merge_group_market_data(per_group: dict[str, UniverseMarketData]) -> UniverseMarketData:
     """
-    Concatenate single-group UniverseMarketData into one. No cross-group
-    ticker-overlap policy here — a snapshot may deliberately hold overlapping
-    groups; whether that is permitted for a given run is a simulator-layer
-    decision (see src.simulator.simulator_factory._merge_umds), not a
-    snapshot-loading one.
+    Concatenate single-group UniverseMarketData into one, in sorted group_id
+    order. Raises if a ticker is a member of several groups (#61). A ticker
+    several groups hold (e.g. a shared benchmark) keeps the first group's copy.
     """
-    merged_prices = per_group[0].prices.copy()
-    for u in per_group[1:]:
+    per_group = {g: per_group[g] for g in sorted(per_group)}
+    _check_one_group_per_ticker(per_group)
+    groups = list(per_group.values())
+
+    merged_prices = groups[0].prices.copy()
+    for u in groups[1:]:
         new_cols = [c for c in u.prices.columns if c not in merged_prices.columns]
         if new_cols:
             merged_prices = merged_prices.join(u.prices[new_cols], how="outer")
 
-    merged_ticker_info = pd.concat([u.ticker_info for u in per_group], axis=0)
+    merged_ticker_info = pd.concat([u.ticker_info for u in groups], axis=0)
     merged_ticker_info = merged_ticker_info[~merged_ticker_info.index.duplicated(keep="first")]
 
-    merged_group_info = pd.concat([u.group_info for u in per_group], axis=0)
+    merged_group_info = pd.concat([u.group_info for u in groups], axis=0)
     merged_group_info = merged_group_info[~merged_group_info.index.duplicated(keep="first")]
 
-    merged_membership = pd.concat([u.membership for u in per_group], axis=0, ignore_index=True)
+    merged_membership = pd.concat([u.membership for u in groups], axis=0, ignore_index=True)
     merged_membership = merged_membership.drop_duplicates()
 
     return UniverseMarketData(
@@ -507,10 +527,10 @@ def load_market_snapshot(
     and raises on any mismatch — never warns; a warning scrolls past in a
     sweep. `snapshot_id` must be a full id: never resolves a prefix.
     """
-    values = list(load_market_snapshot_groups(snapshot_id, snapshot_root=snapshot_root).values())
-    if len(values) == 1:
-        return values[0]
-    return _merge_group_market_data(values)
+    per_group = load_market_snapshot_groups(snapshot_id, snapshot_root=snapshot_root)
+    if len(per_group) == 1:
+        return next(iter(per_group.values()))
+    return _merge_group_market_data(per_group)
 
 
 def load_market_snapshot_groups(
@@ -613,16 +633,16 @@ def load_snapshot_market_data(
     per_group = load_market_snapshot_groups(
         snapshot_id, group_ids=group_ids, snapshot_root=snapshot_root
     )
-    prepared: list[UniverseMarketData] = []
-    for umd in per_group.values():
+    prepared: dict[str, UniverseMarketData] = {}
+    for group_id, umd in per_group.items():
         if start_after_nan:
             umd = trim_leading_nan_rows(umd)
         if check_for_corruptions:
             for w in umd.qc_warnings():
                 print(w)
-        prepared.append(umd)
+        prepared[group_id] = umd
     if len(prepared) == 1:
-        return prepared[0]
+        return next(iter(prepared.values()))
     return _merge_group_market_data(prepared)
 
 

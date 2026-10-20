@@ -4,7 +4,9 @@ Loaders bound to market snapshots (issue #2), always pinned explicitly (#12).
 `_load_umd` used to load each group from UniverseDataLoader's live cache and
 merge with first-group-wins on shared tickers (e.g. a benchmark like SPY),
 so results depended on DataConfig.groups order. Bound to one frozen
-snapshot, the result must not depend on that order.
+snapshot, the result must not depend on that order. The merge guard (#61:
+a ticker is a member of one group only) is tested through
+load_snapshot_market_data, the real entry point, against minted snapshots.
 
 No network: downloads are mocked at UniverseDataLoader._download_prices and
 the universe/snapshot roots point at a temp dir.
@@ -21,7 +23,11 @@ from unittest.mock import patch
 import pandas as pd
 import yaml
 
-from src.data.market_snapshot import ensure_market_snapshot, list_market_snapshots
+from src.data.market_snapshot import (
+    ensure_market_snapshot,
+    list_market_snapshots,
+    load_snapshot_market_data,
+)
 from src.data.universe_loader import UniverseDataLoader
 from src.simulator.config import DataConfig, GroupDataSource, SimulatorConfig
 from src.simulator.simulator_factory import _load_umd, bind_market_snapshot
@@ -135,6 +141,33 @@ class TestLoadUmdBoundToSnapshot(_SnapshotFixture):
         self.assertEqual(len(umd.prices), 6)
         self.assertTrue(umd.prices[("BBB", "Close")].notna().all())
         self.assertEqual(int(umd.prices[("AAA", "Close")].isna().sum()), 2)
+
+
+class TestSnapshotMergeGuards(_SnapshotFixture):
+    """The merge guards, through load_snapshot_market_data (#61)."""
+
+    def _remint(self) -> str:
+        _calls["n"] = 0
+        return ensure_market_snapshot(UNIVERSE, force=True, progress=False)[0]
+
+    def _load(self, snapshot_id: str, group_ids: list[str]):
+        return load_snapshot_market_data(
+            snapshot_id, group_ids, start_after_nan=True, check_for_corruptions=False
+        )
+
+    def test_ticker_member_of_two_groups_raises(self):
+        _write_group(self.universe_root / UNIVERSE, "g3", ["AAA", "DDD"])  # AAA also in g1
+        # A fresh snapshot root: the changed universe may not extend the fixture's.
+        self.stack.enter_context(
+            patch("src.data.market_snapshot.DATA_MARKET_SNAPSHOTS", self.tmp / "snapshots_g3")
+        )
+        snapshot_id = self._remint()
+        with self.assertRaisesRegex(ValueError, r"more than one group: \{'AAA'"):
+            self._load(snapshot_id, ["g1", "g3"])
+
+    def test_disjoint_members_with_shared_benchmark_load(self):
+        umd = self._load(self.snapshot_id, ["g1", "g2"])
+        self.assertEqual(sorted(umd.membership["ticker"]), ["AAA", "BBB", "CCC", "LATE"])
 
 
 class TestBindMarketSnapshot(_SnapshotFixture):
