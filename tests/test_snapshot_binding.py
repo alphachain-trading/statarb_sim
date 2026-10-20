@@ -1,5 +1,5 @@
 """
-Loaders bound to market snapshots (issue #2).
+Loaders bound to market snapshots (issue #2), always pinned explicitly (#12).
 
 `_load_umd` used to load each group from UniverseDataLoader's live cache and
 merge with first-group-wins on shared tickers (e.g. a benchmark like SPY),
@@ -24,7 +24,7 @@ import yaml
 from src.data.market_snapshot import ensure_market_snapshot, list_market_snapshots
 from src.data.universe_loader import UniverseDataLoader
 from src.simulator.config import DataConfig, GroupDataSource, SimulatorConfig
-from src.simulator.simulator_factory import _load_umd, bind_market_snapshot, run_from_config
+from src.simulator.simulator_factory import _load_umd, bind_market_snapshot
 from tests._synthetic import build_sim_config
 
 UNIVERSE = "bind_v1"
@@ -140,52 +140,59 @@ class TestLoadUmdBoundToSnapshot(_SnapshotFixture):
 class TestBindMarketSnapshot(_SnapshotFixture):
     """bind_market_snapshot, against the same temp universe and snapshot root."""
 
-    def _unbound(self, **data_overrides) -> SimulatorConfig:
+    def _pinned(self, **data_overrides) -> SimulatorConfig:
         cfg: SimulatorConfig = build_sim_config(["g1"])
-        data = replace(self._data_cfg(["g1"]), snapshot_id=None, **data_overrides)
-        return replace(cfg, data=data)
+        return replace(cfg, data=replace(self._data_cfg(["g1"]), **data_overrides))
 
     def _snapshots(self) -> list[str]:
         return list_market_snapshots(UNIVERSE, snapshot_root=self.snapshot_root)
 
-    def test_binds_to_newest_existing_snapshot_without_minting(self):
-        with patch("src.data.market_snapshot._mint_snapshot") as mint:
-            bound = bind_market_snapshot(self._unbound())
-        mint.assert_not_called()
-        self.assertEqual(bound.data.snapshot_id, self.snapshot_id)
-
-    def test_mints_when_no_snapshot_exists(self):
-        empty_root = self.tmp / "empty_snapshots"
-        with patch("src.data.market_snapshot.DATA_MARKET_SNAPSHOTS", empty_root):
-            bound = bind_market_snapshot(self._unbound())
-            minted = list_market_snapshots(UNIVERSE)
-        self.assertEqual([bound.data.snapshot_id], minted)
-
-    def test_force_download_mints_a_fresh_snapshot(self):
-        bound = bind_market_snapshot(self._unbound(force_download=True))
-        self.assertNotEqual(bound.data.snapshot_id, self.snapshot_id)
-        self.assertEqual(self._snapshots()[0], bound.data.snapshot_id)
-
     def test_pinned_snapshot_is_returned_unchanged(self):
-        pinned = replace(self._unbound(), data=self._data_cfg(["g1"]))
+        pinned = self._pinned()
         self.assertIs(bind_market_snapshot(pinned), pinned)
+
+    def test_missing_pinned_snapshot_raises_without_minting(self):
+        missing = f"{UNIVERSE}_20000101T000000000000"
+        with (
+            patch("src.data.market_snapshot._mint_snapshot") as mint,
+            self.assertRaises(FileNotFoundError),
+        ):
+            bind_market_snapshot(self._pinned(snapshot_id=missing))
+        mint.assert_not_called()
+        self.assertEqual(self._snapshots(), [self.snapshot_id])
 
     def test_pinned_snapshot_of_another_universe_raises(self):
         other = self.snapshot_id.replace(UNIVERSE, "other_v1", 1)
-        cfg = replace(self._unbound(), data=replace(self._data_cfg(["g1"]), snapshot_id=other))
         with self.assertRaises(ValueError):
-            bind_market_snapshot(cfg)
+            bind_market_snapshot(self._pinned(snapshot_id=other))
+
+    def test_data_force_download_raises_without_minting(self):
+        with (
+            patch("src.data.market_snapshot._mint_snapshot") as mint,
+            self.assertRaisesRegex(ValueError, "never mints"),
+        ):
+            bind_market_snapshot(self._pinned(force_download=True))
+        mint.assert_not_called()
+        self.assertEqual(self._snapshots(), [self.snapshot_id])
 
     def test_candidate_generation_force_download_raises(self):
-        cfg = self._unbound()
+        cfg = self._pinned()
         assert cfg.candidate_generation is not None
         cg = replace(cfg.candidate_generation, force_download=True)
         with self.assertRaises(ValueError):
             bind_market_snapshot(replace(cfg, candidate_generation=cg))
 
-    def test_run_from_config_refuses_an_unbound_config(self):
-        with self.assertRaisesRegex(ValueError, "call bind_market_snapshot first"):
-            run_from_config(self._unbound())
+
+class TestDataConfigRequiresDataSelection(unittest.TestCase):
+    """No implicit universe and no implicit snapshot (#12)."""
+
+    def test_omitting_universe_name_raises(self):
+        with self.assertRaisesRegex(TypeError, "universe_name"):
+            DataConfig(snapshot_id="bind_v1_20260101T000000000000")  # type: ignore[call-arg]  # the omission under test
+
+    def test_omitting_snapshot_id_raises(self):
+        with self.assertRaisesRegex(TypeError, "snapshot_id"):
+            DataConfig(universe_name=UNIVERSE)  # type: ignore[call-arg]  # the omission under test
 
 
 if __name__ == "__main__":

@@ -12,7 +12,7 @@ Usage from Jupyter:
         SweepConfig(z_method="ewm", z_lookback=21, candidate_panel_subdir="V2.pair"),
         SweepConfig(z_method="ewm", z_lookback=42, candidate_panel_subdir="V2.pair"),
     ]
-    run_sweep(RUNS)
+    run_sweep(RUNS, universe_name="sp500_v1", snapshot_id="sp500_v1_20261020T144504625557")
 
     # Multi-timescale
     from src.simulator.config import ZScoreConfig
@@ -23,7 +23,7 @@ Usage from Jupyter:
             ZScoreConfig(lookback=42, ddof=1, method="ewm", residual_key="exp_hl252_mh504"),
         ], candidate_panel_subdir="V3.pair"),
     ]
-    run_sweep(RUNS)
+    run_sweep(RUNS, universe_name="sp500_v1", snapshot_id="sp500_v1_20261020T144504625557")
 
     df = load_sweep_results()
     view_signal(df)
@@ -227,13 +227,13 @@ def _resolve_panel_subdir(sweep: SweepConfig, index: int | None = None) -> str:
 
 
 def _build_sim_config(
-    sweep: SweepConfig, *, index: int | None = None, snapshot_id: str | None = None
+    sweep: SweepConfig, *, index: int | None = None, universe_name: str, snapshot_id: str
 ) -> SimulatorConfig:
     """
     Convert SweepConfig → SimulatorConfig, resolving the candidate panel.
 
-    `snapshot_id` pins DataConfig.snapshot_id; the result is not bound until
-    it has been through bind_market_snapshot (see _bind_sweep_snapshot).
+    `universe_name` and `snapshot_id` are per sweep, not per SweepConfig:
+    every run in a sweep reads the same pinned snapshot (#12).
     """
 
     panel = _resolve_panel_subdir(sweep, index)
@@ -265,6 +265,7 @@ def _build_sim_config(
         "data": DataConfig(
             candidate_panel_subdir=panel,
             excluded_groups=sweep.excluded_groups,
+            universe_name=universe_name,
             snapshot_id=snapshot_id,
             data_path=str(DATA_UNIVERSES),
         ),
@@ -292,7 +293,7 @@ def _build_sim_config(
 
 
 def dedup_key(
-    sweep: SweepConfig, *, index: int | None = None, snapshot_id: str | None = None
+    sweep: SweepConfig, *, index: int | None = None, universe_name: str, snapshot_id: str
 ) -> str:
     """
     Identity of a sweep run, for skip_existing decisions.
@@ -302,21 +303,12 @@ def dedup_key(
     like interval_scoring weights. SweepConfig.alias is a lossy display
     label (a subset of fields) and must not be used for dedup.
 
-    Pass the sweep's bound `snapshot_id` (_bind_sweep_snapshot) to get the
-    key run_sweep stores; a run against another snapshot is another run.
+    Pass the sweep's `universe_name`/`snapshot_id` to get the key run_sweep
+    stores; a run against another snapshot is another run.
     """
-    return hash_config(_build_sim_config(sweep, index=index, snapshot_id=snapshot_id))
-
-
-def _bind_sweep_snapshot(runs: list[SweepConfig]) -> str:
-    """
-    Bind a whole sweep to one market snapshot, once, before any hashing.
-
-    Every run in a sweep reads the same frozen capture; per-run binding
-    could straddle a newly minted snapshot.
-    """
-    bound = bind_market_snapshot(_build_sim_config(runs[0], index=0))
-    return cast("str", bound.data.snapshot_id)
+    return hash_config(
+        _build_sim_config(sweep, index=index, universe_name=universe_name, snapshot_id=snapshot_id)
+    )
 
 
 def _existing_keys(existing: pd.DataFrame) -> set[str]:
@@ -515,13 +507,13 @@ def view_summary(df: pd.DataFrame) -> pd.DataFrame:
 def run_sweep(
     runs: list[SweepConfig],
     *,
+    universe_name: str,
+    snapshot_id: str,
     skip_existing: bool = True,
 ) -> tuple[pd.DataFrame, list[SimulationResult]]:
     # Validate the whole batch before running anything — a bad RUNS[7] should
     # surface now, not hours into the sweep.
     panels = [_resolve_panel_subdir(sweep, i) for i, sweep in enumerate(runs)]
-
-    snapshot_id = _bind_sweep_snapshot(runs) if runs else None
 
     existing = load_sweep_results()
     results = existing.reset_index().to_dict("records") if not existing.empty else []
@@ -534,7 +526,7 @@ def run_sweep(
     for i, sweep in enumerate(runs):
         panel = panels[i]
         sim_config = bind_market_snapshot(
-            _build_sim_config(sweep, index=i, snapshot_id=snapshot_id)
+            _build_sim_config(sweep, index=i, universe_name=universe_name, snapshot_id=snapshot_id)
         )
         key = hash_config(sim_config)
 
@@ -612,7 +604,7 @@ def run_sweep(
 
 def _run_one_sweep(args: tuple) -> dict:
     """Worker function for run_sweep_parallel."""
-    sweep, i, n_total, snapshot_id = args
+    sweep, i, n_total, universe_name, snapshot_id = args
     import time as _t
     from dataclasses import fields
     from datetime import datetime
@@ -628,7 +620,9 @@ def _run_one_sweep(args: tuple) -> dict:
     print(f"[worker] START [{i + 1}/{n_total}] {sweep.alias}", flush=True)
     t0 = _t.perf_counter()
     panel = _resolve_panel_subdir(sweep, i)
-    sim_config = bind_market_snapshot(_build_sim_config(sweep, index=i, snapshot_id=snapshot_id))
+    sim_config = bind_market_snapshot(
+        _build_sim_config(sweep, index=i, universe_name=universe_name, snapshot_id=snapshot_id)
+    )
     key = hash_config(sim_config)
     try:
         result = run_from_config(sim_config)
@@ -679,6 +673,8 @@ def _run_one_sweep(args: tuple) -> dict:
 def run_sweep_parallel(
     runs: list[SweepConfig],
     *,
+    universe_name: str,
+    snapshot_id: str,
     n_workers: int = 8,
     skip_existing: bool = True,
 ) -> pd.DataFrame:
@@ -691,8 +687,10 @@ def run_sweep_parallel(
 
     if not runs:
         return load_sweep_results()
-    # Bound in the parent, so workers never mint and all read one snapshot.
-    snapshot_id = _bind_sweep_snapshot(runs)
+    # Verified in the parent, so a missing snapshot fails before any worker starts.
+    bind_market_snapshot(
+        _build_sim_config(runs[0], index=0, universe_name=universe_name, snapshot_id=snapshot_id)
+    )
 
     existing = load_sweep_results()
     existing_rows = existing.reset_index().to_dict("records") if not existing.empty else []
@@ -701,7 +699,11 @@ def run_sweep_parallel(
     pending = [
         s
         for i, s in enumerate(runs)
-        if not (skip_existing and dedup_key(s, index=i, snapshot_id=snapshot_id) in existing_keys)
+        if not (
+            skip_existing
+            and dedup_key(s, index=i, universe_name=universe_name, snapshot_id=snapshot_id)
+            in existing_keys
+        )
     ]
     skipped = len(runs) - len(pending)
     print(
@@ -711,7 +713,7 @@ def run_sweep_parallel(
     if not pending:
         return existing
 
-    args = [(sweep, i, len(pending), snapshot_id) for i, sweep in enumerate(pending)]
+    args = [(sweep, i, len(pending), universe_name, snapshot_id) for i, sweep in enumerate(pending)]
 
     mp.set_start_method("spawn", force=True)
     with mp.Pool(processes=n_workers) as pool:

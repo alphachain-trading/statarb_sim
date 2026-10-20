@@ -192,18 +192,17 @@ class DataConfig:
     selected_groups: list[str] | None = None
     excluded_groups: list[str] | None = None
     candidate_panel_subdir: str = ""
-    universe_name: str = "sp500_v1"  # config/universes/{universe_name}/{group_id}.yaml
+    # Required, no default: a string that selects data is never implicit (#12).
+    universe_name: str = field(kw_only=True)  # config/universes/{universe_name}/{group_id}.yaml
     # Which frozen market-data snapshot (src/data/market_snapshot.py) this
-    # run reads, e.g. "sp500_v1_20260713T140501123456". None = not bound
-    # yet: bind_market_snapshot (simulator_factory) resolves it to the
-    # newest snapshot of universe_name (minting one if none exists, or if
-    # force_download is set) before the config is hashed, so config.json
-    # and config_hash carry the id. run_from_config raises on None.
-    snapshot_id: str | None = None
+    # run reads, e.g. "sp500_v1_20260713T140501123456". Required, never
+    # resolved to "latest" and never minted implicitly (#12):
+    # bind_market_snapshot only verifies it exists for universe_name.
+    snapshot_id: str = field(kw_only=True)
     data_path: str = "data"
     price_field: str = "Close"
     return_method: str = "log"
-    force_download: bool = False
+    force_download: bool = False  # True raises in bind_market_snapshot (#12); removal: #55
     check_for_corruptions: bool = True
     start_after_nan: bool = True
 
@@ -833,10 +832,10 @@ class CandidateGenerationConfig:
     defaults) so C6b stays neutral against that baseline -- it does not fix
     the mismatch. Unifying the two is Track I's job, not F2's.
 
-    Both loads read the run's one bound snapshot (issue #2), so
+    Both loads read the run's one pinned snapshot (issues #2, #12), so
     force_download=True here raises in bind_market_snapshot: it would
-    capture a second block of market data within one run. Use
-    DataConfig.force_download to mint a fresh snapshot at binding.
+    capture a second block of market data within one run. Snapshots are
+    minted only explicitly (run_me.py's download stage).
     """
 
     pair_cfg: PairSpreadConfig

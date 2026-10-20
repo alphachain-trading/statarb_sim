@@ -6,6 +6,7 @@
 # the project root) and model/strategy parameters are configured here.
 
 # --- what to trade -----------------------------------------------------------
+universe_name: sp500_v1                                 # config/universes/{universe_name}/{group_id}.yaml
 selected_groups: [materials, financials, utilities, consumer_discretionary, consumer_staples, energy, health_care, industrials, information_technology, real_estate]
 residual_key: exp_hl504_mh1008_rf
 
@@ -15,6 +16,7 @@ panels:
 
 # --- data --------------------------------------------------------------------
 data:
+  snapshot_id: sp500_v1_20261020T144504625557       # required; minted only via `run_me.py --stage download --force`
   price_field: Close
   return_method: log
 

@@ -76,7 +76,12 @@ from src.simulator.sweep_runner import SweepConfig, dedup_key
 # SimulatorConfig.candidate_generation: CandidateGenerationConfig | None =
 # None (additive, always None in standard_v1 -- live candidate generation
 # is opt-in; the offline load path stays the default).
-_PRE_REGISTRY_HASH = "312a5f07996e50fe34b0938ac323d0b4"
+#
+# Updated again (312a5f07... -> 9daf55d0...) when #12 made
+# DataConfig.snapshot_id required: the sweep now states a snapshot id. The
+# representation is unchanged (the same config with snapshot_id=None still
+# hashes to 312a5f07...).
+_PRE_REGISTRY_HASH = "9daf55d0ca6505e045cc9b9945fe52c3"
 
 
 class TestSweepDefaults(unittest.TestCase):
@@ -149,7 +154,10 @@ class TestSweepDefaults(unittest.TestCase):
         sweep = SweepConfig(
             entry_z=2.0, z_lookback=21, z_method="ewm", candidate_panel_subdir="V2.pair"
         )
-        self.assertEqual(dedup_key(sweep), _PRE_REGISTRY_HASH)
+        key = dedup_key(
+            sweep, universe_name="sp500_v1", snapshot_id="sp500_v1_20260101T000000000000"
+        )
+        self.assertEqual(key, _PRE_REGISTRY_HASH)
 
     def test_overlap_guard_raises_naming_the_key(self):
         """A field set in both buckets must raise, not silently pick a winner."""
