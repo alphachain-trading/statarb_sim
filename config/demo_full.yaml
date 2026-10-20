@@ -15,6 +15,7 @@ panels:
 
 # --- data --------------------------------------------------------------------
 data:
+  snapshot_id: sp500_v1_20261020T144504625557       # required; minted only via `run_me.py --stage download --force`
   price_field: Close
   return_method: log
 

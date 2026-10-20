@@ -94,6 +94,29 @@ def _selected_groups(cfg: dict) -> list[str]:
     return list(cfg["selected_groups"])
 
 
+MINT_COMMAND = "python run_me.py --stage download --force"
+
+
+def _snapshot_id(cfg: dict) -> str:
+    """The pinned market snapshot, from the yaml's required `data.snapshot_id` (#12)."""
+    return cast("str", cfg["data"]["snapshot_id"])
+
+
+def _require_snapshot(cfg: dict, stage: str) -> None:
+    """Exit unless the configured snapshot exists on disk. Never mints (#12)."""
+    from src.data.market_snapshot import check_snapshot_id
+
+    snapshot_id = _snapshot_id(cfg)
+    try:
+        check_snapshot_id(snapshot_id, _universe_name(cfg))
+    except (ValueError, FileNotFoundError) as e:
+        sys.exit(
+            f"[{stage}] configured market snapshot {snapshot_id!r} is not usable: {e}\n"
+            f"[{stage}] Restore it from backup (#54) or mint explicitly with "
+            f"`{MINT_COMMAND}`, then update data.snapshot_id in {CONFIG_PATH}."
+        )
+
+
 def _universe_name(cfg: dict) -> str:
     """The universe directory name, from demo_materials.yaml's `universe_name`."""
     return cast("str", cfg["universe_name"])
@@ -115,7 +138,7 @@ def _universe_yaml_path(cfg: dict, group_id: str) -> Path:
 
 
 def stage_download(cfg: dict, force: bool) -> None:
-    from src.data.market_snapshot import list_market_snapshots, resolve_snapshot_id
+    from src.data.market_snapshot import resolve_snapshot_id
 
     stage = "download"
     universe_name = _universe_name(cfg)
@@ -125,16 +148,22 @@ def stage_download(cfg: dict, force: bool) -> None:
         if not yaml_path.exists():
             sys.exit(f"[download] missing universe config for group '{group_id}': {yaml_path}")
 
-    # Skip-check: market data is a frozen snapshot of the whole universe
-    # (src/data/market_snapshot.py); any existing snapshot gates the
-    # downstream stages, which bind to the newest one.
-    existing = list_market_snapshots(universe_name)
-    if existing and not force:
-        _skip(stage, f"market snapshot exists for '{universe_name}': {existing[0]}")
+    # Market data is a frozen snapshot of the whole universe
+    # (src/data/market_snapshot.py), pinned in data.snapshot_id (#12).
+    # Without --force this stage only checks the pinned snapshot exists;
+    # --force is the one explicit way to mint, and never edits the yaml.
+    if not force:
+        _require_snapshot(cfg, stage)
+        _skip(stage, f"configured market snapshot exists: {_snapshot_id(cfg)}")
         return
 
     _start(stage)
-    resolve_snapshot_id(universe_name, force=force)
+    snapshot_id = resolve_snapshot_id(universe_name, force=True)
+    print(
+        f"[download] minted market snapshot {snapshot_id}. Set data.snapshot_id: "
+        f"{snapshot_id} in {CONFIG_PATH} to use it; later stages read the "
+        f"configured snapshot ({_snapshot_id(cfg)})."
+    )
 
     # Fresh market data invalidates the downstream candidate panel; delete it
     # so the residuals stage rebuilds it from the newly minted snapshot. Only
@@ -367,6 +396,7 @@ def _build_sim_config(cfg: dict):
             candidate_panel_subdir=cfg["panels"]["subdir"],
             selected_groups=_selected_groups(cfg),
             universe_name=_universe_name(cfg),
+            snapshot_id=_snapshot_id(cfg),
             data_path=str(DATA_UNIVERSES),
             price_field=data_cfg.get("price_field", "Close"),
             return_method=data_cfg.get("return_method", "log"),
@@ -442,8 +472,7 @@ def stage_simulate(cfg: dict, force: bool) -> None:
 
     from src.simulator.simulator_factory import bind_market_snapshot
 
-    # Bound before hashing, so config.json, config_hash and the run-dir
-    # lookup below all carry the snapshot this run reads.
+    _require_snapshot(cfg, stage)
     sim_config = bind_market_snapshot(_build_sim_config(cfg))
 
     if len(_selected_groups(cfg)) <= 1:
