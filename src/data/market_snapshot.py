@@ -60,14 +60,13 @@ Immutability: build under a temp dir beside the snapshot root, atomic
 `os.rename` into position, then chmod the whole tree read-only. The write
 path refuses to target an existing snapshot directory.
 
-The snapshot build must never take `UniverseDataLoader.load`'s cache-hit
-resync branch (universe_loader.py, `load()`, the `to_remove`/`to_add`
-in-place rebuild) — that branch mutates a cache in place with no record of
-the event, exactly the failure mode a snapshot exists to prevent. Structural
-guarantee: each group downloads into a freshly created temp directory, so
-`_cache_exists()` is always False and `load()` always takes the fresh-
-download branch. `force_download=True` is passed as well, so the branch
-taken does not even depend on that being true. `_download_group` also
+The snapshot build must never read a pre-existing `UniverseDataLoader`
+cache. (`load()`'s former cache-hit resync branch, which rebuilt a cache in
+place when its ticker set drifted, was removed in issue #2; a mismatching
+cache now raises.) Structural guarantee: each group downloads into a
+freshly created temp directory, so `_cache_exists()` is always False and
+`load()` always takes the fresh-download branch. `force_download=True` is
+passed as well, so the branch taken does not even depend on that being true. `_download_group` also
 asserts the cache does not exist first and raises loudly if it ever would —
 belt and suspenders around a case that should be unreachable.
 
