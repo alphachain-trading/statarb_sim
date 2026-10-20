@@ -29,5 +29,5 @@ Statistical arbitrage simulator (pairs candidates → residuals → simulator).
 ## Claude-specific rules
 - Before working on an issue: read `gh issue view <n> --comments`. GitHub state wins over docs.
 - Findings outside the task: `gh issue create` with label `triage` and a priority suggestion (`p1`–`p3`, milestone if applicable); do not fix them.
-- Record decisions made with me as an issue comment immediately (`gh issue comment`).
+- Record such decisions made with me immediately via `gh issue comment` (see CONTRIBUTING.md).
 - Create PRs with `gh pr create`; run `gh pr merge` only after my explicit approval.
