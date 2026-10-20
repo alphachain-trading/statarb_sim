@@ -119,7 +119,7 @@ selection and series persistence already tolerate absent rows.
 - The decay-expanding hedge mode itself. That is G.
 - Any change to the residual fit's own window handling. Note that the residual fit's
   `_make_sqrt_w` computes weights from row position — the same defect class, a
-  different stage. Recorded in `found.md`, not fixed here.
+  different stage. Tracked as a GitHub issue, not fixed here.
 - A NaN-fraction threshold as an alternative to pairwise. Pairwise is the decision;
   a threshold is a different computation and would need its own case.
 

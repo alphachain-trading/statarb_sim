@@ -94,5 +94,5 @@ not exist yet. Describe the current limitation only.
 - A test per guard, asserting the raise and the message content.
 - A test asserting `n_legs` and the gate that reads it cannot disagree.
 - The third guard is run against every config in `DEFAULT_CONFIGS` and every
-  notebook config. **If it fires on a config actually in use, record that in
-  `found.md`** — it means H is urgent rather than deferred.
+  notebook config. **If it fires on a config actually in use, open a GitHub
+  issue (label `triage`)** — it means H is urgent rather than deferred.

@@ -65,10 +65,9 @@ I must not run in parallel with J: Track I's flag unification touches all three 
 - Finish by reporting the diff. Do not merge.
 
 Exception: documentation is not track work. A read-only spec session commits
-`{track}_spec.md` to `main` directly and creates no branch. Amendments to briefs,
-`found.md` and this README made outside a track are committed to `main` directly
-when the user instructs it. `found.md` entries written during a track stay on that
-track's branch.
+`{track}_spec.md` to `main` directly and creates no branch. Amendments to briefs
+and this README made outside a track are committed to `main` directly when the user
+instructs it. Findings are GitHub issues, not files; they need no branch.
 
 This is not a formality. Tracks I, G, and H change trading results, and a
 result-changing track merged without a reviewed diff is how a tainted baseline gets
@@ -82,7 +81,9 @@ gate entirely. It is recorded here so it does not recur.
 
 - **Spec before code.** No implementation without an agreed written spec.
 - **Scope is exactly what the spec lists.** Anything wrong found outside scope goes
-  in `docs/refactor/found.md` and is not fixed. A fix that the track has already
+  into a GitHub issue (`gh issue create`, label `triage`, priority/milestone proposal
+  in the text; see `found.md` for the pointer) and is not fixed. A commit that
+  resolves one says `Fixes #<n>`. A fix that the track has already
   decided in principle — the same defect one config layer up — is *in* scope; a
   different decision is not.
 - **Where documents disagree, the spec wins.** Specs carry amendments that override
@@ -141,7 +142,7 @@ get re-measured against clean panels. That is separate work, not a track.
 ## Porting to hierarchical-arb
 
 Fixes land in `statarb_sim` first and are ported back as separate atomic commits per
-fix. Port notes accumulate in `found.md`.
+fix. Port notes are GitHub issues (label `triage`).
 
 Known so far: `config_hash` changed twice — Track A's `candidate_max_age_days`
 deletion and Track E's `sector` → `group_id` field renames, since `hash_config`

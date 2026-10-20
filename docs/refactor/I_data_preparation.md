@@ -85,7 +85,7 @@ untrimmed data and consumers trim at read time, the flags may collapse to one
 location instead of five — dissolving the question rather than legislating an
 answer. Establish whether that holds before doing item 4 by decree.
 
-Anything else found stays in `found.md`.
+Anything else found becomes a GitHub issue (label `triage`).
 
 This is behaviour analysis first, unification second. Do not unify before
 understanding what each flag does.

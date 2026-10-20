@@ -22,3 +22,7 @@ Statistical-Arbitrage-Simulator (Pairs-Kandidaten → Residuen → Simulator).
 - Ausnahmen nur per `# noqa: <Code>  # Begründung` bzw. `# type: ignore[<code>]  # Begründung`; keine pauschalen Ignores in der Konfiguration.
 - Matrixnotation (`X`, `Y`, `B`, `T`, …) in `src/residuals`, `src/analytics`, `src/simulator/candidate_signals.py` ist mit `noqa: N803/N806` bewusst erlaubt.
 - ruff formatiert `*.md` nicht (`extend-exclude`), da Docs Code-Zitate enthalten.
+
+## Befunde
+- Befunde außerhalb des Auftrags nicht beheben, sondern per `gh issue create` mit Label `triage` anlegen; Vorschlag für Priorität (`p1`–`p3`) und ggf. Milestone (z. B. `Baseline freeze`) mit Begründung im Text.
+- Commits, die ein Issue beheben, enthalten `Fixes #<n>`.
