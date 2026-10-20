@@ -31,14 +31,17 @@ issue → branch → commits → PR → merge.
 
 - One branch per logical change, usually one issue; closely related small issues may
   share one. Branch name: `<type>/<issue#>-<slug>` (e.g. `fix/3-residual-date-weights`).
+  Trivial docs/chore changes may go without an issue (branch `<type>/<slug>`).
 - Commits reference issues with `refs #n`, or `Fixes #n` when they resolve one.
   Formatting changes are never mixed with logic changes.
 - Labels: `triage` (found outside the current task, awaiting prioritisation),
   `p1`–`p3` (priority), `epic`. Discarded issues are closed as "not planned".
 - Findings outside the task are not fixed: open an issue with label `triage` and a
   priority suggestion.
-- Decisions about an issue (priority, approach, discard, intended behavior) are
-  recorded as a comment on that issue: decision plus reasoning in 1–3 sentences.
+- Substantive decisions about an issue (approach, intended behavior, scope, discard,
+  priority rationale) are recorded as a comment on that issue: decision plus
+  reasoning in 1–3 sentences. Pure bookkeeping (labels, milestones, task lists) gets
+  no comment; the GitHub timeline already records it.
 - Everything in the repo (code, comments, docs, commits, issues) is in English.
 
 ## Quality
