@@ -14,17 +14,22 @@ Skips cleanly if the materials market data is not present.
 """
 
 import unittest
-from pathlib import Path
 from unittest import mock
 
 import src.candidates.pair_candidate_panel_creator as pcpc
 import src.residuals.causal_residuals as cr
 from src.candidates.pair_candidate_panel_creator import PairSpreadConfig
 from src.candidates.panel_batch import PanelBatchConfig, run_panel_batch
+from src.data.market_snapshot import list_market_snapshots
 from src.residuals.causal_residuals import CausalResidualConfig, ResidualMode
-from src.settings import DATA_UNIVERSES
 
-_MATERIALS_DATA = Path(DATA_UNIVERSES) / "materials_only_v1"
+# run_panel_batch reads the newest sp500_v1 market snapshot; tests never mint
+# one over the network, so they skip without it.
+_HAS_SNAPSHOT = bool(list_market_snapshots("sp500_v1"))
+_NO_SNAPSHOT_REASON = (
+    "no sp500_v1 market snapshot under data/market/snapshots; tests never mint "
+    "over the network. Mint one with ensure_market_snapshot('sp500_v1')."
+)
 # pair_cfg carries no default (Track B) — min_obs=2 is the loosest legal
 # value, chosen because these tests are about window slicing/weighting, not
 # about min_obs, and must not reject candidates their assertions rely on.
@@ -39,7 +44,7 @@ _PAIR_CFG = PairSpreadConfig(
 )
 
 
-@unittest.skipUnless(_MATERIALS_DATA.exists(), "materials market data not present")
+@unittest.skipUnless(_HAS_SNAPSHOT, _NO_SNAPSHOT_REASON)
 class TestEqualWeightFitting(unittest.TestCase):
     def test_eq_rolling_uses_uniform_weights_in_the_fit(self):
         captured: list[tuple] = []
@@ -86,7 +91,7 @@ class TestEqualWeightFitting(unittest.TestCase):
         self.assertIsNone(result.metadata["residual_cfg"]["hl"])
 
 
-@unittest.skipUnless(_MATERIALS_DATA.exists(), "materials market data not present")
+@unittest.skipUnless(_HAS_SNAPSHOT, _NO_SNAPSHOT_REASON)
 class TestIndependentWindows(unittest.TestCase):
     def test_hedge_and_diag_windows_are_sliced_independently(self):
         hedge_lb, diag_lb = 30, 60
