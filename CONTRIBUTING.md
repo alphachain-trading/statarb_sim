@@ -26,6 +26,8 @@ issue → branch → commits → PR → merge.
 2. Branch from `main`, commit in small self-contained steps, open a PR.
 3. **Merging is a human decision.** Claude creates the PR and merges only after
    explicit approval.
+4. After merge: `git pull` on `main`, `git fetch --prune`, delete the local branch.
+   GitHub deletes the remote branch on merge.
 
 ## Conventions
 
