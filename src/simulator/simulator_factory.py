@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 from typing import Any, cast
 
@@ -11,20 +12,23 @@ from src.candidates.candidate_panel import (
     load_weights,
     weights_lookup_from_df,
 )
-from src.data.universe_loader import UniverseConfig, UniverseDataLoader
+from src.data.market_snapshot import (
+    check_snapshot_id,
+    load_snapshot_market_data,
+    resolve_snapshot_id,
+)
 from src.data.universe_marketdata import UniverseMarketData
 from src.residuals.causal_residuals import (
     CausalResidualConfig,
     FittedCausalResidualModel,
     load_residual_params,
 )
-from src.settings import CANDIDATE_PANELS_ROOT, CONFIG_UNIVERSE
+from src.settings import CANDIDATE_PANELS_ROOT
 from src.simulator.candidate_activation import CandidateActivation
 from src.simulator.candidate_filter import CandidateFilter
 from src.simulator.candidate_signals import CandidateSignalGenerator
 from src.simulator.config import (
     DataConfig,
-    GroupDataSource,
     PairSpreadTraderConfig,
     PortfolioMeanReversionConfig,
     SimulatorConfig,
@@ -148,6 +152,8 @@ def run_from_config(config: SimulatorConfig) -> SimulationResult:
     """
     import time as _time
 
+    snapshot_id = _require_bound_snapshot(config)
+    print(f"[run] Market snapshot: {snapshot_id}")
     print("[run] Loading universe market data...")
     t0 = _time.time()
     umd = _load_umd(config.data)
@@ -245,13 +251,14 @@ def generate_candidate_panels_by_group(
     panel (valid + invalid rows) per group, not just what
     SimulationResult.selected_panel keeps after CandidateFilter.
 
-    Loads its own UniverseMarketData per group, under
-    config.candidate_generation's own force_download/check_for_corruptions/
-    start_after_nan flags — NOT the umd run_from_config loads under
-    config.data's flags for simulation. The offline pipeline this replaces
-    used two separately-flagged UMD loads (PanelBatchConfig for scoring,
-    DataConfig for simulation; found.md's "four combinations" entry), and
-    every committed B_baseline.txt bakes in that split. Reusing
+    Loads its own UniverseMarketData per group out of the bound snapshot
+    (config.data.snapshot_id), under config.candidate_generation's own
+    check_for_corruptions/start_after_nan flags — NOT the umd
+    run_from_config loads under config.data's flags for simulation. The
+    offline pipeline this replaces used two separately-flagged UMD loads
+    (PanelBatchConfig for scoring, DataConfig for simulation; found.md's
+    "four combinations" entry), and every committed B_baseline.txt bakes in
+    that split. Reusing
     run_from_config's single merged umd for both would silently unify the
     two and move every trade's pair_notional by rounding-level amounts —
     caught empirically while building this function. CandidateGenerationConfig's
@@ -275,19 +282,16 @@ def generate_candidate_panels_by_group(
     from src.data.returns import build_group_return_bundle
     from src.simulator.candidate_generation import generate_candidates
 
+    snapshot_id = _require_bound_snapshot(config)
+
     residual_cfg = config.residual
     out: dict[tuple[str, str], dict[str, Any]] = {}
     for group_id in config.data.selected_groups:
-        yaml_path = Path(CONFIG_UNIVERSE) / config.data.universe_name / f"{group_id}.yaml"
-        loader = UniverseDataLoader(
-            UniverseConfig.from_yaml(yaml_path),
-            data_path=config.data.data_path,
-            progress=False,
-        )
-        umd = loader.load(
-            force_download=cg.force_download,
-            check_for_corruptions=cg.check_for_corruptions,
+        umd = load_snapshot_market_data(
+            snapshot_id,
+            [group_id],
             start_after_nan=cg.start_after_nan,
+            check_for_corruptions=cg.check_for_corruptions,
         )
         bundle = build_group_return_bundle(
             umd=umd,
@@ -430,45 +434,80 @@ def persist_live_candidate_artifacts(
 # ---------------------------------------------------------------------------
 
 
+def bind_market_snapshot(config: SimulatorConfig) -> SimulatorConfig:
+    """
+    Bind `config` to one frozen market snapshot (issue #2).
+
+    Entry points (run_me, sweep_runner, the baseline harness) call this
+    before hashing the config, so config.json and config_hash carry the
+    snapshot the run reads. run_from_config never binds on its own; it
+    raises on an unbound config instead.
+
+    snapshot_id already set: verified to exist for data.universe_name and
+    returned unchanged. snapshot_id None: the newest snapshot of
+    data.universe_name, minted first if none exists or if
+    data.force_download is set (both logged loudly by resolve_snapshot_id).
+    """
+    cg = config.candidate_generation
+    if cg is not None and cg.force_download:
+        raise ValueError(
+            "candidate_generation.force_download=True is not supported: it would "
+            "capture a second, different block of market data within one run. "
+            "Set data.force_download=True to mint a fresh snapshot at binding."
+        )
+
+    data_cfg = config.data
+    if data_cfg.snapshot_id is not None:
+        check_snapshot_id(data_cfg.snapshot_id, data_cfg.universe_name)
+        print(f"[snapshot] >>> using pinned market snapshot {data_cfg.snapshot_id} <<<")
+        return config
+
+    snapshot_id = resolve_snapshot_id(data_cfg.universe_name, force=data_cfg.force_download)
+    return replace(config, data=replace(data_cfg, snapshot_id=snapshot_id))
+
+
+def _require_bound_snapshot(config: SimulatorConfig) -> str:
+    if config.data.snapshot_id is None:
+        raise ValueError(
+            "config not bound to a snapshot; call bind_market_snapshot first "
+            "(src.simulator.simulator_factory.bind_market_snapshot)."
+        )
+    return config.data.snapshot_id
+
+
 def _load_umd(data_cfg: DataConfig) -> UniverseMarketData:
     """
-    Load and merge UniverseMarketData from all group sources.
+    Load the run's groups out of the bound market snapshot, merged.
 
-    Deduplicates by universe_config_name — same universe loaded once even
-    if multiple timescales reference it.
+    Group ids are the yaml stems of the resolved group sources, deduplicated
+    (several timescales may reference one group). Every group must live in
+    data_cfg.universe_name — the universe the snapshot was minted from. The
+    merge order is sorted group_id, never the configured order.
     """
-    groups = data_cfg.resolved_groups()
-
-    seen_universes: dict[str, UniverseMarketData | None] = {}
-    unique_groups: list[GroupDataSource] = []
-    for src in groups:
-        if src.universe_config_name not in seen_universes:
-            unique_groups.append(src)
-            seen_universes[src.universe_config_name] = None
-
-    print(f"[factory] Loading {len(unique_groups)} universe(s)...")
-
-    umds: list[UniverseMarketData] = []
-    for src in unique_groups:
-        universe_path = Path(CONFIG_UNIVERSE) / src.universe_config_name
-        if not universe_path.exists():
-            raise FileNotFoundError(f"Universe config not found: {universe_path}")
-
-        loader = UniverseDataLoader(
-            config=UniverseConfig.from_yaml(universe_path),
-            data_path=data_cfg.data_path,
+    if data_cfg.snapshot_id is None:
+        raise ValueError(
+            "config not bound to a snapshot; call bind_market_snapshot first "
+            "(src.simulator.simulator_factory.bind_market_snapshot)."
         )
-        umd = loader.load(
-            force_download=data_cfg.force_download,
-            check_for_corruptions=data_cfg.check_for_corruptions,
-            start_after_nan=data_cfg.start_after_nan,
-        )
-        umds.append(umd)
 
-    if len(umds) == 1:
-        return umds[0]
+    group_ids: set[str] = set()
+    for src in data_cfg.resolved_groups():
+        rel = Path(src.universe_config_name)
+        if rel.parent.as_posix() != data_cfg.universe_name:
+            raise ValueError(
+                f"group source {src.universe_config_name!r} is not in universe "
+                f"{data_cfg.universe_name!r}; a run reads all its groups from one "
+                f"snapshot of data.universe_name."
+            )
+        group_ids.add(rel.stem)
 
-    return _merge_umds(umds, validate_overlap=True)
+    print(f"[factory] Loading {len(group_ids)} group(s) from snapshot {data_cfg.snapshot_id}...")
+    return load_snapshot_market_data(
+        data_cfg.snapshot_id,
+        sorted(group_ids),
+        start_after_nan=data_cfg.start_after_nan,
+        check_for_corruptions=data_cfg.check_for_corruptions,
+    )
 
 
 def _merge_umds(
@@ -683,8 +722,7 @@ def _assert_fit_input_tickers_available(
     Deliberately narrower than Track C's snapshot content-hash: this only
     checks "is every required ticker present," not "does its price content
     match what the panel was built from" -- that is what the snapshot hash
-    covers, per a run that is actually bound to one (not yet wired, see
-    DataConfig.snapshot_id).
+    covers, for the snapshot this run is bound to (DataConfig.snapshot_id).
     """
     available = set(umd.tickers())
     for rkey, metadata in metadata_by_key.items():

@@ -18,6 +18,8 @@ import pandas as pd
 
 from src.data.universe_marketdata import UniverseMarketData
 
+SYNTHETIC_SNAPSHOT_ID = "synthetic_20260101T000000000000"
+
 FIELDS = ("Open", "High", "Low", "Close", "Volume")
 N_DAYS = 900
 START = "2018-01-01"
@@ -126,6 +128,9 @@ def build_sim_config(groups: list[str], *, max_steps: int = 30, entry_z: float =
             ],
             selected_groups=groups,
             universe_name="synthetic",
+            # Bound up front, as bind_market_snapshot would; patched_universe
+            # serves the market data, so no snapshot exists on disk for it.
+            snapshot_id=SYNTHETIC_SNAPSHOT_ID,
             data_path="unused",
         ),
         "residual": residual,
@@ -167,18 +172,10 @@ def build_sim_config(groups: list[str], *, max_steps: int = 30, entry_z: float =
 def patched_universe(umd: UniverseMarketData) -> Iterator[None]:
     """Route every simulator_factory universe load to the in-memory ``umd``."""
 
-    class _FakeLoader:
-        def __init__(self, *args: Any, **kwargs: Any) -> None:
-            pass
-
-        def load(self, **kwargs: Any) -> UniverseMarketData:
-            return umd
-
     mod = "src.simulator.simulator_factory"
     with (
         patch(f"{mod}._load_umd", return_value=umd),
-        patch(f"{mod}.UniverseConfig.from_yaml", return_value=object()),
-        patch(f"{mod}.UniverseDataLoader", _FakeLoader),
+        patch(f"{mod}.load_snapshot_market_data", return_value=umd),
     ):
         yield
 

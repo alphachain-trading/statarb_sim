@@ -73,10 +73,14 @@ class TestReconstructionFidelity(unittest.TestCase):
         from src.simulator.simulation_persistence import _resolve_run_dir
         from src.simulator.simulator_factory import (
             _load_umd,
+            bind_market_snapshot,
             create_simulator,
             generate_candidate_panels_by_group,
             run_from_config,
         )
+        from tests._real_data import require_market_snapshot
+
+        require_market_snapshot(harness.UNIVERSE_NAME)
 
         # F2 C6c (F1): this test's whole point is verifying reconstruction
         # from persisted artifacts, independently reloaded from the live
@@ -90,7 +94,7 @@ class TestReconstructionFidelity(unittest.TestCase):
         # directly -- no run_panel_batch, no CANDIDATE_PANELS_ROOT.
         cls._scratch_dir = tempfile.mkdtemp(prefix="f2_reconstruction_fidelity_")
 
-        prelim_sim_config = harness._build_sim_config(harness.GROUPS)
+        prelim_sim_config = bind_market_snapshot(harness._build_sim_config(harness.GROUPS))
         panel_results = generate_candidate_panels_by_group(prelim_sim_config)
         active_groups = sorted(
             {
@@ -103,7 +107,7 @@ class TestReconstructionFidelity(unittest.TestCase):
         sim_config = (
             prelim_sim_config
             if active_groups == harness.GROUPS
-            else harness._build_sim_config(active_groups)
+            else harness._build_sim_config(active_groups, prelim_sim_config.data.snapshot_id)
         )
         sim_config = dataclasses.replace(
             sim_config,

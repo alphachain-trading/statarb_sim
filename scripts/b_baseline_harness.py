@@ -70,7 +70,11 @@ from src.simulator.config import (
     ZScoreConfig,
 )
 from src.simulator.performance.performance_report import _METRICS_ORDER, _fmt_value
-from src.simulator.simulator_factory import generate_candidate_panels_by_group, run_from_config
+from src.simulator.simulator_factory import (
+    bind_market_snapshot,
+    generate_candidate_panels_by_group,
+    run_from_config,
+)
 from src.simulator.sweep_defaults import get_default_bundle, merge_defaults
 
 UNIVERSE_NAME = "sp500_v1"  # config/universes/{UNIVERSE_NAME}/{group_id}.yaml
@@ -170,7 +174,9 @@ def _pair_cfg() -> PairSpreadConfig:
     )
 
 
-def _build_sim_config(selected_groups: list[str]) -> SimulatorConfig:
+def _build_sim_config(
+    selected_groups: list[str], snapshot_id: str | None = None
+) -> SimulatorConfig:
     sweep_derived = {
         "data": DataConfig(
             # groups set explicitly (not just selected_groups) so
@@ -189,6 +195,7 @@ def _build_sim_config(selected_groups: list[str]) -> SimulatorConfig:
             ],
             selected_groups=selected_groups,
             universe_name=UNIVERSE_NAME,
+            snapshot_id=snapshot_id,
             data_path=str(DATA_UNIVERSES),
         ),
         "residual": _residual_cfg(),
@@ -246,7 +253,10 @@ def main() -> None:
     # active_groups must still be known before building the sim_config that
     # goes to run_from_config, so generate once against GROUPS, then narrow.
     t0 = time.perf_counter()
-    prelim_sim_config = _build_sim_config(GROUPS)
+    # Bound once: the narrowed sim_config below pins the same snapshot, so
+    # candidate generation and simulation read one frozen capture (issue #2).
+    prelim_sim_config = bind_market_snapshot(_build_sim_config(GROUPS))
+    snapshot_id = prelim_sim_config.data.snapshot_id
     panel_results = generate_candidate_panels_by_group(prelim_sim_config)
     panel_build_time = time.perf_counter() - t0
 
@@ -263,7 +273,9 @@ def main() -> None:
         # rejecting every pair on every date) — excluded here so
         # run_from_config's own live generation never tries it again.
         sim_config = (
-            prelim_sim_config if active_groups == GROUPS else _build_sim_config(active_groups)
+            prelim_sim_config
+            if active_groups == GROUPS
+            else bind_market_snapshot(_build_sim_config(active_groups, snapshot_id))
         )
 
         t0 = time.perf_counter()
@@ -280,6 +292,7 @@ def main() -> None:
         f"hedge_ratio_lb={HEDGE_RATIO_LB} mr_diag_lb={MR_DIAG_LB} "
         f"min_obs={MIN_OBS} residual={_residual_cfg().key}"
     )
+    lines.append(f"# snapshot={snapshot_id}")
     lines.append(f"# active_groups={active_groups}")
     lines.append(f"# panel build time: {panel_build_time:.2f}s")
     lines.append(
