@@ -24,8 +24,8 @@ it.
 
 `resolve_asof_datetimes` can return a date that is not actually in
 `bundle.aligned_returns.index` (found while building this test —
-`docs/refactor/found.md`, "make_ranking_dates returns resample bin labels, not
-the actual last-data date"): a resample-and-take-last bin label can be a market
+issue #4, "make_ranking_dates can return a resample bin label that is not a
+data date"): a resample-and-take-last bin label can be a market
 holiday that literally has no row. The offline walk never notices, because it
 only builds candidate rows on dates that are *also* in its daily fit grid
 (also from `make_ranking_dates`, and empty for a holiday) — this generator has

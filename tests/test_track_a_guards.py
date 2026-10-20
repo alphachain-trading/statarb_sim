@@ -3,7 +3,7 @@ Tests for the three Track A guards and the n_legs/gate consistency fix.
 
 Each guard converts a currently-silent wrong result into a loud failure on a
 configuration not exercised by any config in DEFAULT_CONFIGS or any howto
-notebook today (see docs/refactor/A_spec.md section 11).
+notebook today (see docs/epics/archive/A-diagnostics-and-guards/A_spec.md section 11).
 """
 
 import unittest
@@ -214,7 +214,7 @@ class TestNoTinyWeightGateInPairDiagnostics(unittest.TestCase):
     caller, and _fast_pair_diagnostics no longer takes w_left/w_right/
     tiny_weight_threshold or computes n_legs at all. Measured before
     implementing: the too_few_active_legs gate fired 0/5187 times across the
-    Track B/F1 baseline harness run (docs/refactor/found.md), confirming the
+    Track B/F1 baseline harness run, confirming the
     removal is result-neutral there.
 
     This class documents that _fast_pair_diagnostics no longer gates on leg
