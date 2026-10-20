@@ -14,9 +14,16 @@ lives on the SweepConfig and is required, so an unset panel raises loud
 """
 
 import unittest
+from typing import Any
 
 from src.simulator.config import FeatureIntervalSpec, IntervalScoringConfig, ZScoreConfig
 from src.simulator.sweep_runner import SweepConfig, _resolve_panel_subdir, dedup_key
+
+# The sweep-level data selection every dedup_key call states (#12).
+SNAP: dict[str, Any] = {
+    "universe_name": "sp500_v1",
+    "snapshot_id": "sp500_v1_20260101T000000000000",
+}
 
 
 def _scoring(weight: float) -> IntervalScoringConfig:
@@ -48,8 +55,8 @@ class TestSweepDedupKey(unittest.TestCase):
         self.assertNotIn("V2.pair", v2.alias)
         self.assertNotIn("V3.pair", v3.alias)
         self.assertNotEqual(
-            dedup_key(v2),
-            dedup_key(v3),
+            dedup_key(v2, **SNAP),
+            dedup_key(v3, **SNAP),
             "panel subdir must change the dedup key",
         )
 
@@ -59,8 +66,8 @@ class TestSweepDedupKey(unittest.TestCase):
         b = SweepConfig(entry_z=1.8, interval_scoring=_scoring(1.75), candidate_panel_subdir="V4")
         self.assertEqual(a.alias, b.alias, "precondition: alias omits interval weights")
         self.assertNotEqual(
-            dedup_key(a),
-            dedup_key(b),
+            dedup_key(a, **SNAP),
+            dedup_key(b, **SNAP),
             "interval_scoring weights must change the dedup key",
         )
 
@@ -68,7 +75,7 @@ class TestSweepDedupKey(unittest.TestCase):
         """Stability: identical configs must key the same, or skip never skips."""
         a = SweepConfig(entry_z=2.0, z_lookback=21, z_method="ewm", candidate_panel_subdir="V4")
         b = SweepConfig(entry_z=2.0, z_lookback=21, z_method="ewm", candidate_panel_subdir="V4")
-        self.assertEqual(dedup_key(a), dedup_key(b))
+        self.assertEqual(dedup_key(a, **SNAP), dedup_key(b, **SNAP))
 
     def test_multi_timescale_overrides_change_dedup_key(self):
         """Nested ZScoreConfig lists must reach the key too."""
@@ -84,7 +91,7 @@ class TestSweepDedupKey(unittest.TestCase):
                 ZScoreConfig(lookback=42, ddof=1, method="ewm", residual_key="exp_hl126_mh252"),
             ],
         )
-        self.assertNotEqual(dedup_key(a), dedup_key(b))
+        self.assertNotEqual(dedup_key(a, **SNAP), dedup_key(b, **SNAP))
 
     def test_unset_panel_raises(self):
         """Panel is required on the SweepConfig — unset must fail loud."""
@@ -102,7 +109,7 @@ class TestSweepDedupKey(unittest.TestCase):
         a = SweepConfig(entry_z=2.0, candidate_panel_subdir="V4")
         b = SweepConfig(entry_z=2.0, candidate_panel_subdir="V3.pair")
         self.assertEqual(_resolve_panel_subdir(a, 0), "V4")
-        self.assertNotEqual(dedup_key(a), dedup_key(b))
+        self.assertNotEqual(dedup_key(a, **SNAP), dedup_key(b, **SNAP))
 
     def test_error_names_offending_config(self):
         """A long RUNS list needs the failure locatable — index + alias."""

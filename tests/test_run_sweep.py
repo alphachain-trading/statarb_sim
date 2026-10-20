@@ -8,7 +8,6 @@ import tempfile
 import unittest
 from collections.abc import Iterator
 from contextlib import contextmanager
-from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -26,12 +25,13 @@ from src.simulator.sweep_runner import (
 )
 
 FAKE_SNAPSHOT_ID = "sp500_v1_20260101T000000000000"
+# The sweep-level data selection every run_sweep/dedup_key call states (#12).
+SNAP: dict[str, Any] = {"universe_name": "sp500_v1", "snapshot_id": FAKE_SNAPSHOT_ID}
 
 
 def _fake_bind(config: SimulatorConfig) -> SimulatorConfig:
-    """bind_market_snapshot without a snapshot on disk: pins FAKE_SNAPSHOT_ID."""
-    snapshot_id = config.data.snapshot_id or FAKE_SNAPSHOT_ID
-    return replace(config, data=replace(config.data, snapshot_id=snapshot_id))
+    """bind_market_snapshot without a snapshot on disk: skips the existence check."""
+    return config
 
 
 def _sweep(**kw: Any) -> SweepConfig:
@@ -82,7 +82,7 @@ class TestSweepAlias(unittest.TestCase):
     def test_alias_is_lossy_but_dedup_key_is_not(self):
         a, b = _sweep(candidate_panel_subdir="P1"), _sweep(candidate_panel_subdir="P2")
         self.assertEqual(a.alias, b.alias)
-        self.assertNotEqual(dedup_key(a), dedup_key(b))
+        self.assertNotEqual(dedup_key(a, **SNAP), dedup_key(b, **SNAP))
 
 
 @contextmanager
@@ -108,14 +108,14 @@ class TestRunSweep(unittest.TestCase):
     def test_single_run_builds_row_and_persists_results(self):
         sweep = _sweep()
         with _patched_runs([_fake_result("run_a", 1.5)]) as (runner, root):
-            df, results = run_sweep([sweep])
+            df, results = run_sweep([sweep], **SNAP)
             self.assertEqual(runner.call_count, 1)
             self.assertEqual(len(results), 1)
             self.assertEqual(list(df.index), ["run_a"])
             row = df.loc["run_a"]
             self.assertEqual(row["sharpe_net"], 1.5)
             self.assertEqual(row["alias"], sweep.alias)
-            self.assertEqual(row["config_hash"], dedup_key(sweep, snapshot_id=FAKE_SNAPSHOT_ID))
+            self.assertEqual(row["config_hash"], dedup_key(sweep, **SNAP))
             self.assertEqual(row["candidate_panel_subdir"], "P1")
             self.assertEqual(row["entry_z"], 2.0)
             self.assertTrue((root / "sweep_results.pkl").exists())
@@ -124,31 +124,31 @@ class TestRunSweep(unittest.TestCase):
     def test_second_invocation_skips_runs_already_in_results(self):
         sweep = _sweep()
         with _patched_runs([_fake_result("run_a")]) as (runner, _root):
-            run_sweep([sweep])
-            df, results = run_sweep([sweep])
+            run_sweep([sweep], **SNAP)
+            df, results = run_sweep([sweep], **SNAP)
             self.assertEqual(runner.call_count, 1)  # not run again
             self.assertEqual(results, [])
             self.assertEqual(len(df), 1)
 
     def test_only_new_configs_run_on_a_later_invocation(self):
         with _patched_runs([_fake_result("run_a"), _fake_result("run_b")]) as (runner, _):
-            run_sweep([_sweep()])
-            df, _ = run_sweep([_sweep(), _sweep(entry_z=2.5)])
+            run_sweep([_sweep()], **SNAP)
+            df, _ = run_sweep([_sweep(), _sweep(entry_z=2.5)], **SNAP)
             self.assertEqual(runner.call_count, 2)
             self.assertEqual(sorted(df.index), ["run_a", "run_b"])
             self.assertEqual(sorted(df["entry_z"]), [2.0, 2.5])
 
     def test_skip_existing_false_reruns(self):
         with _patched_runs([_fake_result("run_a"), _fake_result("run_b")]) as (runner, _):
-            run_sweep([_sweep()])
-            df, _ = run_sweep([_sweep()], skip_existing=False)
+            run_sweep([_sweep()], **SNAP)
+            df, _ = run_sweep([_sweep()], skip_existing=False, **SNAP)
             self.assertEqual(runner.call_count, 2)
             self.assertEqual(sorted(df.index), ["run_a", "run_b"])
 
     def test_failure_becomes_an_error_row_and_the_sweep_continues(self):
         effects = [RuntimeError("boom"), _fake_result("run_ok", 2.0)]
         with _patched_runs(effects) as (runner, _):
-            df, results = run_sweep([_sweep(entry_z=1.0), _sweep(entry_z=3.0)])
+            df, results = run_sweep([_sweep(entry_z=1.0), _sweep(entry_z=3.0)], **SNAP)
             self.assertEqual(runner.call_count, 2)
             self.assertEqual(len(results), 1)
             failed = df[df.index.str.startswith("FAILED_")]
@@ -163,20 +163,20 @@ class TestRunSweep(unittest.TestCase):
         # retries a run that failed.
         sweep = _sweep()
         with _patched_runs([RuntimeError("boom"), _fake_result("run_ok")]) as (runner, _):
-            run_sweep([sweep])
-            run_sweep([sweep])
+            run_sweep([sweep], **SNAP)
+            run_sweep([sweep], **SNAP)
             self.assertEqual(runner.call_count, 2)
 
     def test_batch_is_validated_before_anything_runs(self):
         with _patched_runs([_fake_result("never")]) as (runner, _):
             with self.assertRaises(ValueError):
-                run_sweep([_sweep(), _sweep(candidate_panel_subdir="")])
+                run_sweep([_sweep(), _sweep(candidate_panel_subdir="")], **SNAP)
             runner.assert_not_called()
 
     def test_multi_timescale_overrides_are_stored_as_a_string(self):
         zs = [ZScoreConfig(21, ddof=1, method="ewm", residual_key="exp_hl63_mh126")]
         with _patched_runs([_fake_result("run_a")]) as (_, _root):
-            df, _ = run_sweep([_sweep(z_score_overrides=zs)])
+            df, _ = run_sweep([_sweep(z_score_overrides=zs)], **SNAP)
             self.assertEqual(df.loc["run_a", "z_score_overrides"], str(["exp_hl63_mh126:zhl21"]))
 
 
@@ -190,7 +190,7 @@ class TestExistingKeys(unittest.TestCase):
         self.assertEqual(_existing_keys(pd.DataFrame()), set())
 
     def test_hash_alias_regression_guard(self):
-        self.assertTrue(re.fullmatch(r"[0-9a-f]{32}", dedup_key(_sweep())))
+        self.assertTrue(re.fullmatch(r"[0-9a-f]{32}", dedup_key(_sweep(), **SNAP)))
 
 
 if __name__ == "__main__":
