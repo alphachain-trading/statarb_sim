@@ -80,7 +80,7 @@ class TestReconstructionFidelity(unittest.TestCase):
         )
         from tests._real_data import require_market_snapshot
 
-        require_market_snapshot(harness.UNIVERSE_NAME)
+        require_market_snapshot(harness.SNAPSHOT_ID)
 
         # F2 C6c (F1): this test's whole point is verifying reconstruction
         # from persisted artifacts, independently reloaded from the live
@@ -107,7 +107,7 @@ class TestReconstructionFidelity(unittest.TestCase):
         sim_config = (
             prelim_sim_config
             if active_groups == harness.GROUPS
-            else harness._build_sim_config(active_groups, prelim_sim_config.data.snapshot_id)
+            else harness._build_sim_config(active_groups)
         )
         sim_config = dataclasses.replace(
             sim_config,

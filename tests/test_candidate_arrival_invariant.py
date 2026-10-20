@@ -38,7 +38,7 @@ class TestEntryAsofDateInvariant(unittest.TestCase):
         )
         from tests._real_data import require_market_snapshot
 
-        require_market_snapshot(harness.UNIVERSE_NAME)
+        require_market_snapshot(harness.SNAPSHOT_ID)
         prelim_sim_config = bind_market_snapshot(harness._build_sim_config(harness.GROUPS))
         panel_results = generate_candidate_panels_by_group(prelim_sim_config)
         active_groups = sorted(
@@ -55,7 +55,7 @@ class TestEntryAsofDateInvariant(unittest.TestCase):
         sim_config = (
             prelim_sim_config
             if active_groups == harness.GROUPS
-            else harness._build_sim_config(active_groups, prelim_sim_config.data.snapshot_id)
+            else harness._build_sim_config(active_groups)
         )
         result = run_from_config(sim_config)
         cls.trades_df = result.closed_trades_df()
