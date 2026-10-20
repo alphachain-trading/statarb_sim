@@ -57,69 +57,23 @@ class UniverseDataLoader:
             )
             umd = self._load_from_disk()
 
-            # Synchronize with config
+            # A cache whose ticker set no longer matches the yaml is stale. It
+            # used to be resynced in place (drop/download the difference and
+            # re-persist), silently mutating data under any run reading it.
+            # Runs read frozen snapshots now (src/data/market_snapshot.py);
+            # this cache never changes underneath a caller (issue #2).
             target_symbols = set(self.config.all_symbols())
             loaded_symbols = set(umd.tickers())
-
-            to_remove = loaded_symbols - target_symbols
-            to_add = target_symbols - loaded_symbols
-
-            dirty = False
-
-            if to_remove:
-                print(
-                    f"Removing {len(to_remove)} tickers from cache that are no longer in config..."
+            if target_symbols != loaded_symbols:
+                raise RuntimeError(
+                    f"cache at {self.cache_dir} does not match {self.config.universe_name}'s "
+                    f"ticker list (missing: {sorted(target_symbols - loaded_symbols)}, "
+                    f"extra: {sorted(loaded_symbols - target_symbols)}). In-place resync "
+                    "was removed; reload with force_download=True, or mint a market "
+                    "snapshot (ensure_market_snapshot) instead."
                 )
-                # Filter prices MultiIndex columns
-                cols_to_keep = [c for c in umd.prices.columns if c[0] not in to_remove]
-                umd.prices = umd.prices.loc[:, cols_to_keep].copy()
-                dirty = True
-
-            if to_add:
-                print(f"Downloading {len(to_add)} new tickers found in config: {to_add}")
-                try:
-                    new_prices_raw = self._download_prices(list(to_add))
-                except RuntimeError:
-                    # Every to_add ticker failed to download (e.g. delisted symbols
-                    # with no data). Warn and proceed with the cached universe rather
-                    # than crashing the load — the fresh-build path already tolerates
-                    # per-ticker failures the same way. Absent tickers reappear as
-                    # to_add on the next load, but never abort it.
-                    print(
-                        f"Warning: none of the {len(to_add)} new ticker(s) "
-                        f"{sorted(to_add)} returned data; keeping cached universe."
-                    )
-                else:
-                    new_prices = self._normalize_prices(new_prices_raw)
-
-                    # Merge new prices with existing prices, aligning on index (Date).
-                    # On a partial failure _download_prices returns only the tickers
-                    # that succeeded; the rest simply stay absent (no crash).
-                    umd.prices = pd.concat([umd.prices, new_prices], axis=1).sort_index(axis=1)
-                    dirty = True
-
-            if dirty:
-                # Rebuild metadata to match new price set and config
-                umd.ticker_info = self._build_ticker_info()
-                umd.group_info = self._build_group_info()
-                umd.membership = self._build_membership()
-
-                print("Persisting synchronized universe to disk...")
-                self._persist(umd)
         if start_after_nan:
-            # Remove head rows with any NaN in prices so start row has no NaNs at all
-            prices = umd.prices
-            # Create a boolean mask per row if any NaN present
-            mask = prices.isna().any(axis=1)
-            # Locate the first row where mask is False (i.e., no NaN in that row)
-            first_valid_index = mask.idxmin() if not mask.all() else None
-            if first_valid_index is not None:
-                umd = UniverseMarketData(
-                    prices=prices.loc[first_valid_index:],
-                    ticker_info=umd.ticker_info,
-                    group_info=umd.group_info,
-                    membership=umd.membership,
-                )
+            umd = trim_leading_nan_rows(umd)
         if check_for_corruptions:
             for w in umd.qc_warnings():
                 print(w)
@@ -474,6 +428,22 @@ class UniverseDataLoader:
 
         if self.progress:
             print(f"\nPool update complete. Summary report: {report_path.name}")
+
+
+def trim_leading_nan_rows(umd: UniverseMarketData) -> UniverseMarketData:
+    """Drop head rows with any NaN in prices, so the first row has no NaNs at all."""
+    prices = umd.prices
+    mask = prices.isna().any(axis=1)
+    # First row where mask is False (i.e., no NaN in that row)
+    first_valid_index = mask.idxmin() if not mask.all() else None
+    if first_valid_index is None:
+        return umd
+    return UniverseMarketData(
+        prices=prices.loc[first_valid_index:],
+        ticker_info=umd.ticker_info,
+        group_info=umd.group_info,
+        membership=umd.membership,
+    )
 
 
 def ensure_universe_data(

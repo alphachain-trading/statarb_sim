@@ -54,9 +54,8 @@ from src.candidates.pair_candidate_panel_creator import (
     PairSpreadConfig,
     create_pair_candidate_panel,
 )
+from src.data.market_snapshot import load_snapshot_market_data, resolve_snapshot_id
 from src.data.returns import build_group_return_bundle
-from src.data.universe_config import UniverseConfig
-from src.data.universe_loader import UniverseDataLoader
 from src.residuals.causal_residuals import CausalResidualConfig
 from src.settings import CONFIG_UNIVERSE, DATA_UNIVERSES
 from src.simulator.config import group_abbrev
@@ -276,25 +275,27 @@ def run_panel_batch(
     total_jobs = len(group_entries) * len(points)
     print(f"Total jobs: {total_jobs}")
 
+    # One frozen capture for the whole batch (issue #2): the newest snapshot
+    # of this universe, minted first if none exists or force_download is set.
+    universe_dir = cfg.resolved_universe_dir()
+    snapshot_id = resolve_snapshot_id(
+        universe_dir.name, force=cfg.force_download, universe_dir=universe_dir.parent
+    )
+
     results: dict[tuple[str, str], CandidatePanelResult] = {}
 
     group_bar = tqdm(group_entries, desc="Groups", unit="group")
 
-    for group_id, yaml_path in group_bar:
+    for group_id, _yaml_path in group_bar:
         abbrev = cast("str", group_abbrev(group_id))
         group_bar.set_postfix_str(abbrev)
 
         # Load UMD once per group
-        ucfg = UniverseConfig.from_yaml(yaml_path)
-        loader = UniverseDataLoader(
-            ucfg,
-            data_path=cfg.resolved_data_path(),
-            progress=False,
-        )
-        umd = loader.load(
-            force_download=cfg.force_download,
-            check_for_corruptions=cfg.check_for_corruptions,
+        umd = load_snapshot_market_data(
+            snapshot_id,
+            [group_id],
             start_after_nan=cfg.start_after_nan,
+            check_for_corruptions=cfg.check_for_corruptions,
         )
 
         bundle = build_group_return_bundle(

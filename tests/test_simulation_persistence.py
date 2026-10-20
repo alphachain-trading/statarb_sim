@@ -60,7 +60,10 @@ class TestHashConfig(unittest.TestCase):
         # (which would silently re-run or wrongly skip every sweep) is noticed.
         # Adding or renaming a config field changes it on purpose: update the value
         # then, knowing that previously stored config_hash keys no longer match.
-        self.assertEqual(hash_config(self.base), "f8e5fa2a939d54598c3f5157a3362dec")
+        # Updated (f8e5fa2a... -> 1adff499...) when issue #2 bound the synthetic
+        # fixture to SYNTHETIC_SNAPSHOT_ID; the representation is unchanged
+        # (the same fixture with snapshot_id=None still hashes to f8e5fa2a...).
+        self.assertEqual(hash_config(self.base), "1adff4991f9fac87c79ea85d1f59c19e")
 
 
 class TestRunId(unittest.TestCase):

@@ -8,6 +8,7 @@ import tempfile
 import unittest
 from collections.abc import Iterator
 from contextlib import contextmanager
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -15,7 +16,7 @@ from unittest import mock
 
 import pandas as pd
 
-from src.simulator.config import ZScoreConfig
+from src.simulator.config import SimulatorConfig, ZScoreConfig
 from src.simulator.sweep_runner import (
     SweepConfig,
     _existing_keys,
@@ -23,6 +24,14 @@ from src.simulator.sweep_runner import (
     load_sweep_results,
     run_sweep,
 )
+
+FAKE_SNAPSHOT_ID = "sp500_v1_20260101T000000000000"
+
+
+def _fake_bind(config: SimulatorConfig) -> SimulatorConfig:
+    """bind_market_snapshot without a snapshot on disk: pins FAKE_SNAPSHOT_ID."""
+    snapshot_id = config.data.snapshot_id or FAKE_SNAPSHOT_ID
+    return replace(config, data=replace(config.data, snapshot_id=snapshot_id))
 
 
 def _sweep(**kw: Any) -> SweepConfig:
@@ -81,6 +90,7 @@ def _patched_runs(side_effect: Any) -> Iterator[tuple[mock.MagicMock, Path]]:
     """Redirect every runs-root lookup to a temp dir and stub the simulation itself."""
     with (
         tempfile.TemporaryDirectory() as tmp,
+        mock.patch("src.simulator.sweep_runner.bind_market_snapshot", side_effect=_fake_bind),
         mock.patch("src.simulator.sweep_runner.SIMULATION_RUNS_ROOT", tmp),
         mock.patch("src.simulator.sweep_rebuild.SIMULATION_RUNS_ROOT", tmp),
         mock.patch("src.simulator.sweep_runner.run_from_config", side_effect=side_effect) as runner,
@@ -105,7 +115,7 @@ class TestRunSweep(unittest.TestCase):
             row = df.loc["run_a"]
             self.assertEqual(row["sharpe_net"], 1.5)
             self.assertEqual(row["alias"], sweep.alias)
-            self.assertEqual(row["config_hash"], dedup_key(sweep))
+            self.assertEqual(row["config_hash"], dedup_key(sweep, snapshot_id=FAKE_SNAPSHOT_ID))
             self.assertEqual(row["candidate_panel_subdir"], "P1")
             self.assertEqual(row["entry_z"], 2.0)
             self.assertTrue((root / "sweep_results.pkl").exists())

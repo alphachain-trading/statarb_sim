@@ -115,49 +115,38 @@ def _universe_yaml_path(cfg: dict, group_id: str) -> Path:
 
 
 def stage_download(cfg: dict, force: bool) -> None:
-    from src.data.universe_config import UniverseConfig
-    from src.data.universe_loader import UniverseDataLoader
+    from src.data.market_snapshot import list_market_snapshots, resolve_snapshot_id
 
     stage = "download"
-    started = False
+    universe_name = _universe_name(cfg)
 
     for group_id in _selected_groups(cfg):
         yaml_path = _universe_yaml_path(cfg, group_id)
         if not yaml_path.exists():
             sys.exit(f"[download] missing universe config for group '{group_id}': {yaml_path}")
 
-        config = UniverseConfig.from_yaml(yaml_path)
+    # Skip-check: market data is a frozen snapshot of the whole universe
+    # (src/data/market_snapshot.py); any existing snapshot gates the
+    # downstream stages, which bind to the newest one.
+    existing = list_market_snapshots(universe_name)
+    if existing and not force:
+        _skip(stage, f"market snapshot exists for '{universe_name}': {existing[0]}")
+        return
 
-        # Skip-check: the loader's cache is keyed by universe_name; the daily
-        # price parquet is the artifact that gates the downstream stages.
-        prices_path = DATA_UNIVERSES / config.universe_name / "prices_daily.parquet"
-        if prices_path.exists() and not force:
-            _skip(stage, f"universe prices exist for '{group_id}': {prices_path}")
-            continue
+    _start(stage)
+    resolve_snapshot_id(universe_name, force=force)
 
-        if not started:
-            _start(stage)
-            started = True
+    # Fresh market data invalidates the downstream candidate panel; delete it
+    # so the residuals stage rebuilds it from the newly minted snapshot. Only
+    # applies to single-group configs, which pin one panel via `stem`;
+    # multi-group configs (no stem) are discovery-based, so skip silently.
+    if cfg["panels"].get("stem"):
+        panel_file = _panel_file(cfg)
+        if panel_file.exists():
+            print(f"[download] removing stale candidate panel to force rebuild: {panel_file}")
+            panel_file.unlink()
 
-        print(
-            f"[download] group '{group_id}': loading universe {config.universe_name} "
-            f"(force_download={force})"
-        )
-        loader = UniverseDataLoader(config, data_path=DATA_UNIVERSES, progress=True)
-        loader.load(force_download=force)
-
-        # Fresh market data invalidates the downstream candidate panel; delete it
-        # so the residuals stage rebuilds it from the newly downloaded data. Only
-        # applies to single-group configs, which pin one panel via `stem`;
-        # multi-group configs (no stem) are discovery-based, so skip silently.
-        if cfg["panels"].get("stem"):
-            panel_file = _panel_file(cfg)
-            if panel_file.exists():
-                print(f"[download] removing stale candidate panel to force rebuild: {panel_file}")
-                panel_file.unlink()
-
-    if started:
-        _done(stage)
+    _done(stage)
 
 
 # ---------------------------------------------------------------------------
@@ -451,7 +440,11 @@ def stage_simulate(cfg: dict, force: bool) -> None:
     stage = "simulate"
     _start(stage)
 
-    sim_config = _build_sim_config(cfg)
+    from src.simulator.simulator_factory import bind_market_snapshot
+
+    # Bound before hashing, so config.json, config_hash and the run-dir
+    # lookup below all carry the snapshot this run reads.
+    sim_config = bind_market_snapshot(_build_sim_config(cfg))
 
     if len(_selected_groups(cfg)) <= 1:
         # Single-group only: multi-group panels are produced by the residuals

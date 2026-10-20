@@ -194,15 +194,11 @@ class DataConfig:
     candidate_panel_subdir: str = ""
     universe_name: str = "sp500_v1"  # config/universes/{universe_name}/{group_id}.yaml
     # Which frozen market-data snapshot (src/data/market_snapshot.py) this
-    # run binds to, e.g. "sp500_v1_20260713T140501". None = the run loaded
-    # market data through UniverseDataLoader's live cache, not a snapshot —
-    # true for every run today. stage_download / _load_umd are not yet
-    # wired to ensure_market_snapshot/load_market_snapshot (found.md:
-    # "UniverseDataLoader.load's in-place cache-hit resync remains live for
-    # its three existing callers" — that wiring is deferred, not this
-    # commit's job). This field exists so config.json can record a
-    # snapshot_id once that wiring lands, without another config_hash-
-    # shifting field addition at that point.
+    # run reads, e.g. "sp500_v1_20260713T140501123456". None = not bound
+    # yet: bind_market_snapshot (simulator_factory) resolves it to the
+    # newest snapshot of universe_name (minting one if none exists, or if
+    # force_download is set) before the config is hashed, so config.json
+    # and config_hash carry the id. run_from_config raises on None.
     snapshot_id: str | None = None
     data_path: str = "data"
     price_field: str = "Close"
@@ -836,6 +832,11 @@ class CandidateGenerationConfig:
     candidates under its own explicit UMD load (matching PanelBatchConfig's
     defaults) so C6b stays neutral against that baseline -- it does not fix
     the mismatch. Unifying the two is Track I's job, not F2's.
+
+    Both loads read the run's one bound snapshot (issue #2), so
+    force_download=True here raises in bind_market_snapshot: it would
+    capture a second block of market data within one run. Use
+    DataConfig.force_download to mint a fresh snapshot at binding.
     """
 
     pair_cfg: PairSpreadConfig
