@@ -56,6 +56,8 @@ ruff check . && ruff format --check . && mypy . && python -m pytest -q
 
 `pre-commit` (ruff) runs on commit. Tests are never weakened or skipped to get green.
 
+Test guards and invariants through the real entry point, not through internal helpers.
+
 Fixes that change backtest results (those in the milestone *Baseline freeze*) always
 go in a separate PR, each with its own regression-harness diff
 (`git diff docs/baseline/B_baseline.txt`; the `## counts` section is binding).
