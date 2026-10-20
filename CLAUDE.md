@@ -1,28 +1,33 @@
 # statarb_sim
 
-Statistical-Arbitrage-Simulator (Pairs-Kandidaten → Residuen → Simulator).
+Statistical arbitrage simulator (pairs candidates → residuals → simulator).
 
 ## Setup
-- venv aktivieren: `source .venv/bin/activate` (Python 3.14, Projekt-Minimum 3.12)
-- Dev-Tools: `pip install -r requirements-dev.txt`
-- Einmalig: `pre-commit install` — **pre-commit mit ruff aktiv** (ruff-check `--fix`, ruff-format)
+- Activate the venv: `source .venv/bin/activate` (Python 3.14, project minimum 3.12)
+- Dev tools: `pip install -r requirements-dev.txt`
+- Once: `pre-commit install` — **pre-commit with ruff is active** (ruff-check `--fix`, ruff-format)
 
-## Befehle (aus dem Projekt-Root)
+## Commands (from the project root)
 - Lint: `ruff check .`
 - Format: `ruff format .`
 - Typecheck: `mypy .`
-- Tests: `python -m pytest -q` (~100 s; einzelne Datei: `python -m pytest -q tests/<datei>.py`)
+- Tests: `python -m pytest -q` (~100 s; single file: `python -m pytest -q tests/<file>.py`)
 
-## Struktur
-- `src/`: `data/` (Universe, Snapshots, QC), `residuals/`, `candidates/`, `analytics/`, `simulator/` (inkl. `traders/`, `performance/`), `types/`, `utils/`
-- `tests/`: unittest-Stil unter pytest; `pythonpath = [".", "scripts"]` steht in `pyproject.toml` (keine `sys.path`-Hacks)
-- `scripts/`, `run_me.py`: Einstiegspunkte; `config/`, `fixtures/`, `docs/`: Konfig, Testdaten, Specs
+## Structure
+- `src/`: `data/` (universe, snapshots, QC), `residuals/`, `candidates/`, `analytics/`, `simulator/` (incl. `traders/`, `performance/`), `types/`, `utils/`
+- `tests/`: unittest style under pytest; `pythonpath = [".", "scripts"]` is set in `pyproject.toml` (no `sys.path` hacks)
+- `scripts/`, `run_me.py`: entry points; `config/`, `fixtures/`, `docs/`: configuration, test data, specs
 
-## Konventionen
-- Ausnahmen nur per `# noqa: <Code>  # Begründung` bzw. `# type: ignore[<code>]  # Begründung`; keine pauschalen Ignores in der Konfiguration.
-- Matrixnotation (`X`, `Y`, `B`, `T`, …) in `src/residuals`, `src/analytics`, `src/simulator/candidate_signals.py` ist mit `noqa: N803/N806` bewusst erlaubt.
-- ruff formatiert `*.md` nicht (`extend-exclude`), da Docs Code-Zitate enthalten.
+## Conventions
+- Exceptions only via `# noqa: <code>  # reason` or `# type: ignore[<code>]  # reason`; no blanket ignores in the configuration.
+- Matrix notation (`X`, `Y`, `B`, `T`, …) in `src/residuals`, `src/analytics`, `src/simulator/candidate_signals.py` is deliberately allowed with `noqa: N803/N806`.
+- ruff does not format `*.md` (`extend-exclude`), since docs contain code quotes.
 
-## Befunde
-- Befunde außerhalb des Auftrags nicht beheben, sondern per `gh issue create` mit Label `triage` anlegen; Vorschlag für Priorität (`p1`–`p3`) und ggf. Milestone (z. B. `Baseline freeze`) mit Begründung im Text.
-- Commits, die ein Issue beheben, enthalten `Fixes #<n>`.
+## Findings
+- Do not fix findings outside the task; create them with `gh issue create` and the label `triage`, with a proposal for priority (`p1`–`p3`) and, if applicable, milestone (e.g. `Baseline freeze`) and the reasoning in the text.
+- Commits that resolve an issue contain `Fixes #<n>`.
+
+## Decisions
+- When you make a decision with me about an issue (priority, approach, discard,
+  intended behavior), record it immediately in the issue via `gh issue comment`:
+  decision + reasoning in 1–3 sentences.

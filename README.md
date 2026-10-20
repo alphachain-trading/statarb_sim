@@ -1,5 +1,9 @@
 # statarb_sim
 
+> **Status:** Major refactoring in progress. Simulation results are not
+> validated until the baseline freeze — see
+> [milestone "Baseline freeze"](https://github.com/alphachain-trading/statarb_sim/milestone/1).
+
 A systematic statistical arbitrage (pairs, sparse+dense portfolio spreads) trading research platform for S&P 500 equities. Built as a rigorous research tool, not a black-box strategy — the codebase is designed for transparency, reproducibility, and extension.
 
 ## What this is
