@@ -1,5 +1,7 @@
     # Track D — Config hygiene
 
+> Formerly Track D. Completed; no GitHub issue.
+
 **Changes results:** no. If the baseline moves, the track is wrong.
 
 **Depends on:** nothing. Do it before E, so renames land on a config surface that

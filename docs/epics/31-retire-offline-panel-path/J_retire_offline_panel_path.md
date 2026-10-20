@@ -1,5 +1,7 @@
 # Track J — Retire the offline panel path
 
+> Epic: https://github.com/alphachain-trading/statarb_sim/issues/31 · Formerly Track J.
+
 **Changes results:** possibly. `tests/test_candidate_generation_equivalence.py`
 verifies the live generator (`src/simulator/candidate_generation.py`) against
 `create_pair_candidate_panel`'s offline walk exactly, but only on the harness's
@@ -155,6 +157,6 @@ being ready for G's six-run sweep, not about this shared function.
 - `run_panel_batch`, `PanelBatchConfig`, and `create_pair_candidate_panel`'s
   persistence/walk deleted. `_build_pair_candidate_rows_for_date` and the
   other primitives `generate_candidates` shares survive.
-- `docs/refactor/B_baseline.txt` before and after, with any diff explained —
+- `docs/baseline/B_baseline.txt` before and after, with any diff explained —
   this track is not assumed neutral (see "Changes results" above).
 - Full suite green.

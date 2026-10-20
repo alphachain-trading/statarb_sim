@@ -395,7 +395,7 @@ introduces, so there's no way to measure it directly; sizing depends on a config
 (sampled pair count) the brief doesn't specify a default for. Bounding from measured
 data instead:
 
-- **Baseline harness** (`docs/refactor/B_baseline.txt`: 2 groups, `max_steps=40`
+- **Baseline harness** (`docs/baseline/B_baseline.txt`: 2 groups, `max_steps=40`
   W-FRI outer dates ≈ 40 weeks ≈ 193 trading days per group): 1698 + 2869 = 4567
   valid candidates total. If the debug sample's pair-count knob picks, say, 10-50
   pairs (order of magnitude implied by "a pair count" being a lightweight config, not

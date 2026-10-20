@@ -1,5 +1,7 @@
 # Track C — Market data snapshot layer
 
+> Formerly Track C. Completed; no GitHub issue.
+
 **Changes results:** no. New module plus a loader change. Nothing reads it until F.
 
 **Depends on:** nothing.

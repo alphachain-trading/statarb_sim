@@ -1,6 +1,8 @@
 # Track H — Occupancy policy
 
-**Status: deferred.** Design happens when the branch opens. This brief exists so the
+> Epic: https://github.com/alphachain-trading/statarb_sim/issues/33 · Formerly Track H.
+
+Design happens when the branch opens. This brief exists so the
 branch can be reopened without rereading the design thread.
 
 **Changes results: yes** — trade counts rise as previously-blocked entries open.

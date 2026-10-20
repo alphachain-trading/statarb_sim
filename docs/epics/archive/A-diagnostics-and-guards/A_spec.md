@@ -1,6 +1,6 @@
 # Track A — spec (delta against the brief)
 
-Read-only verification pass over `docs/refactor/A_diagnostics_and_guards.md`. No code
+Read-only verification pass over `docs/epics/archive/A-diagnostics-and-guards/A_diagnostics_and_guards.md`. No code
 changed. `statarb_sim_refactor_handover.md` was not consulted.
 
 Amended after review. Amendments are marked **[amended]** and supersede the

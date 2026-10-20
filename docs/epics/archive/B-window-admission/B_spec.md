@@ -1,6 +1,6 @@
 # Track B — spec (delta against the brief)
 
-Read-only verification pass over `docs/refactor/B_window_admission.md`. No code
+Read-only verification pass over `docs/epics/archive/B-window-admission/B_window_admission.md`. No code
 changed, no branch created. `statarb_sim_refactor_handover.md` was not consulted.
 
 ## Verify first — results
