@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
+from datetime import datetime
 from pathlib import Path
 from typing import Any, ClassVar, cast
 
 import pandas as pd
 import yfinance as yf
 
+from src.data.settled_bars import drop_unsettled_bars, require_daily_interval
 from src.data.universe_config import UniverseConfig
 from src.data.universe_marketdata import UniverseMarketData
 from src.settings import CONFIG_UNIVERSE, DATA_UNIVERSES
@@ -15,9 +18,17 @@ from src.settings import CONFIG_UNIVERSE, DATA_UNIVERSES
 class UniverseDataLoader:
     PRICE_FIELDS: ClassVar[list[str]] = ["Open", "High", "Low", "Close", "Volume"]
 
-    def __init__(self, config: UniverseConfig, data_path: str | Path, progress=False):
+    def __init__(
+        self,
+        config: UniverseConfig,
+        data_path: str | Path,
+        progress=False,
+        now: Callable[[], datetime] | None = None,
+    ):
         self.config = config
         self.progress = progress
+        # Injectable clock for the unsettled-bar guard (tests); None = real time.
+        self._now = now
         self.data_path = Path(data_path)
         self.cache_dir = self.data_path / self.config.universe_name
         self.cache_dir.mkdir(parents=True, exist_ok=True)
@@ -145,6 +156,7 @@ class UniverseDataLoader:
         print("_download_prices...")
         frames = []
         d = self.config.loader_defaults
+        require_daily_interval(d.get("interval", "1d"))
 
         for symbol in symbols:
             if self.progress:
@@ -164,6 +176,9 @@ class UniverseDataLoader:
             if self.progress:
                 print(" done.")
 
+            if x is not None and not x.empty:
+                x = drop_unsettled_bars(x, self._now() if self._now else None, symbol)
+
             if x is None or x.empty:
                 print(f"Warning: no data for {symbol}")
                 continue
@@ -182,7 +197,8 @@ class UniverseDataLoader:
 
     def _download_prices_batch(self, symbols: list[str]) -> pd.DataFrame:
         d = self.config.loader_defaults
-        return cast(
+        require_daily_interval(d.get("interval", "1d"))
+        raw = cast(
             "pd.DataFrame",
             yf.download(
                 tickers=symbols,
@@ -198,6 +214,7 @@ class UniverseDataLoader:
                 group_by="column",
             ),
         )
+        return drop_unsettled_bars(raw, self._now() if self._now else None)
 
     def _normalize_prices(self, df: pd.DataFrame) -> pd.DataFrame:
         if df.empty:
@@ -353,6 +370,7 @@ class UniverseDataLoader:
             d = {"auto_adjust": True, "repair": True}
 
         d = self.config.loader_defaults
+        require_daily_interval(d.get("interval", "1d"))
         summary: dict[str, list[str]] = {
             "skipped": [],
             "success": [],
@@ -386,6 +404,9 @@ class UniverseDataLoader:
                     threads=False,
                     progress=False,
                 )
+
+                if df is not None and not df.empty:
+                    df = drop_unsettled_bars(df, self._now() if self._now else None, symbol)
 
                 if df is None or df.empty:
                     summary["failed"].append(f"{symbol} (No data returned from yfinance)")
