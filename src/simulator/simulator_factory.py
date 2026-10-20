@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from dataclasses import replace
 from pathlib import Path
 from typing import Any, cast
 
@@ -15,7 +14,6 @@ from src.candidates.candidate_panel import (
 from src.data.market_snapshot import (
     check_snapshot_id,
     load_snapshot_market_data,
-    resolve_snapshot_id,
 )
 from src.data.universe_marketdata import UniverseMarketData
 from src.residuals.causal_residuals import (
@@ -152,8 +150,7 @@ def run_from_config(config: SimulatorConfig) -> SimulationResult:
     """
     import time as _time
 
-    snapshot_id = _require_bound_snapshot(config)
-    print(f"[run] Market snapshot: {snapshot_id}")
+    print(f"[run] Market snapshot: {config.data.snapshot_id}")
     print("[run] Loading universe market data...")
     t0 = _time.time()
     umd = _load_umd(config.data)
@@ -282,7 +279,7 @@ def generate_candidate_panels_by_group(
     from src.data.returns import build_group_return_bundle
     from src.simulator.candidate_generation import generate_candidates
 
-    snapshot_id = _require_bound_snapshot(config)
+    snapshot_id = config.data.snapshot_id
 
     residual_cfg = config.residual
     out: dict[tuple[str, str], dict[str, Any]] = {}
@@ -436,43 +433,33 @@ def persist_live_candidate_artifacts(
 
 def bind_market_snapshot(config: SimulatorConfig) -> SimulatorConfig:
     """
-    Bind `config` to one frozen market snapshot (issue #2).
+    Verify `config`'s pinned market snapshot (issues #2, #12).
 
     Entry points (run_me, sweep_runner, the baseline harness) call this
-    before hashing the config, so config.json and config_hash carry the
-    snapshot the run reads. run_from_config never binds on its own; it
-    raises on an unbound config instead.
-
-    snapshot_id already set: verified to exist for data.universe_name and
-    returned unchanged. snapshot_id None: the newest snapshot of
-    data.universe_name, minted first if none exists or if
-    data.force_download is set (both logged loudly by resolve_snapshot_id).
+    before running, so a missing or mismatched snapshot fails before any
+    work. data.snapshot_id is required and must be a full id of
+    data.universe_name that exists on disk; it is returned unchanged.
+    Never resolves "latest" and never mints: snapshots are minted only
+    explicitly (run_me.py's download stage).
     """
     cg = config.candidate_generation
     if cg is not None and cg.force_download:
         raise ValueError(
             "candidate_generation.force_download=True is not supported: it would "
             "capture a second, different block of market data within one run. "
-            "Set data.force_download=True to mint a fresh snapshot at binding."
+            "Mint snapshots explicitly (run_me.py's download stage)."
         )
 
     data_cfg = config.data
-    if data_cfg.snapshot_id is not None:
-        check_snapshot_id(data_cfg.snapshot_id, data_cfg.universe_name)
-        print(f"[snapshot] >>> using pinned market snapshot {data_cfg.snapshot_id} <<<")
-        return config
-
-    snapshot_id = resolve_snapshot_id(data_cfg.universe_name, force=data_cfg.force_download)
-    return replace(config, data=replace(data_cfg, snapshot_id=snapshot_id))
-
-
-def _require_bound_snapshot(config: SimulatorConfig) -> str:
-    if config.data.snapshot_id is None:
+    if data_cfg.force_download:
         raise ValueError(
-            "config not bound to a snapshot; call bind_market_snapshot first "
-            "(src.simulator.simulator_factory.bind_market_snapshot)."
+            "data.force_download=True is not supported: binding never mints (#12). "
+            "Mint a snapshot explicitly (run_me.py's download stage) and pin its "
+            "id in data.snapshot_id."
         )
-    return config.data.snapshot_id
+    check_snapshot_id(data_cfg.snapshot_id, data_cfg.universe_name)
+    print(f"[snapshot] >>> using pinned market snapshot {data_cfg.snapshot_id} <<<")
+    return config
 
 
 def _load_umd(data_cfg: DataConfig) -> UniverseMarketData:
@@ -484,12 +471,6 @@ def _load_umd(data_cfg: DataConfig) -> UniverseMarketData:
     data_cfg.universe_name — the universe the snapshot was minted from. The
     merge order is sorted group_id, never the configured order.
     """
-    if data_cfg.snapshot_id is None:
-        raise ValueError(
-            "config not bound to a snapshot; call bind_market_snapshot first "
-            "(src.simulator.simulator_factory.bind_market_snapshot)."
-        )
-
     group_ids: set[str] = set()
     for src in data_cfg.resolved_groups():
         rel = Path(src.universe_config_name)

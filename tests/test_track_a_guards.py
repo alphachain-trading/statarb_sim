@@ -34,7 +34,7 @@ from src.simulator.simulator_factory import _load_panels
 
 def _minimal_sim_kwargs():
     return {
-        "data": DataConfig(),
+        "data": DataConfig(universe_name="u", snapshot_id="u_20260101T000000000000"),
         "candidate_selection": CandidateSelectionConfig(require_success=True),
         "activation": ActivationConfig(one_active_per_group=True, switch_only_when_flat=True),
         "diagnostics": MRDiagnosticsConfig(lookback=21, compute_frequency="off"),
@@ -169,6 +169,8 @@ class TestGuard3MultiSleeveOccupancy(unittest.TestCase):
         )
         data_cfg = DataConfig(
             groups=[GroupDataSource(universe_config_name="u", candidate_panel_stem="stem")],
+            universe_name="u",
+            snapshot_id="u_20260101T000000000000",
         )
         with (
             patch(
@@ -192,6 +194,8 @@ class TestGuard3MultiSleeveOccupancy(unittest.TestCase):
         )
         data_cfg = DataConfig(
             groups=[GroupDataSource(universe_config_name="u", candidate_panel_stem="stem")],
+            universe_name="u",
+            snapshot_id="u_20260101T000000000000",
         )
         with patch(
             "src.simulator.simulator_factory.load_candidate_panel_result",
