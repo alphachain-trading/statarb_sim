@@ -4,9 +4,10 @@ Loaders bound to market snapshots (issue #2), always pinned explicitly (#12).
 `_load_umd` used to load each group from UniverseDataLoader's live cache and
 merge with first-group-wins on shared tickers (e.g. a benchmark like SPY),
 so results depended on DataConfig.groups order. Bound to one frozen
-snapshot, the result must not depend on that order. The merge guard (#61:
-a ticker is a member of one group only) is tested through
-load_snapshot_market_data, the real entry point, against minted snapshots.
+snapshot, the result must not depend on that order. The merge's guards
+(#13: shared tickers agree across groups; #61: a ticker is a member of one
+group only) are tested through load_snapshot_market_data, the real entry
+point, against minted snapshots.
 
 No network: downloads are mocked at UniverseDataLoader._download_prices and
 the universe/snapshot roots point at a temp dir.
@@ -24,6 +25,7 @@ import pandas as pd
 import yaml
 
 from src.data.market_snapshot import (
+    SHARED_TICKER_RTOL,
     ensure_market_snapshot,
     list_market_snapshots,
     load_snapshot_market_data,
@@ -36,10 +38,12 @@ from tests._synthetic import build_sim_config
 UNIVERSE = "bind_v1"
 SHARED = "SHR"  # benchmark shared by both groups, like SPY in sp500_v1
 
-# Every download call gets its own price level, so a ticker downloaded once
-# per group (SHARED) carries different values in each group -- the
-# adjustment-vintage drift that made first-group-wins order dependent.
-_calls = {"n": 0}
+# Every download call gets its own price level for group members. SHARED is
+# downloaded once per group (like SPY); its copies agree unless a test sets
+# shared_drift (relative, per download call after the first) or
+# shared_nan_on_call (blanks one row in that call's copy) -- the
+# adjustment-vintage drift the merge guard must catch (#13).
+_calls: dict[str, float] = {"n": 0, "shared_drift": 0.0, "shared_nan_on_call": 0}
 
 
 def _fake_download_prices(self, symbols):
@@ -48,13 +52,19 @@ def _fake_download_prices(self, symbols):
     dates = pd.bdate_range("2020-01-01", periods=6)
     frames = []
     for i, sym in enumerate(sorted(symbols)):
-        close = [level + i + k for k in range(len(dates))]
+        if sym == SHARED:
+            scale = 1.0 + _calls["shared_drift"] * (_calls["n"] - 1)
+            close = [(500.0 + k) * scale for k in range(len(dates))]
+        else:
+            close = [level + i + k for k in range(len(dates))]
         df = pd.DataFrame(
             {"Open": close, "High": close, "Low": close, "Close": close, "Volume": 1000.0},
             index=dates,
         )
         if sym == "LATE":
             df.iloc[:2] = float("nan")  # listed later: exercises the per-group NaN trim
+        if sym == SHARED and _calls["n"] == _calls["shared_nan_on_call"]:
+            df.iloc[3] = float("nan")
         df.columns = pd.MultiIndex.from_product([[sym], df.columns])
         frames.append(df)
     return pd.concat(frames, axis=1).sort_index(axis=1)
@@ -78,7 +88,7 @@ class _SnapshotFixture(unittest.TestCase):
     """A two-group temp universe with one minted snapshot; downloads mocked."""
 
     def setUp(self):
-        _calls["n"] = 0
+        _calls.update(n=0, shared_drift=0.0, shared_nan_on_call=0)
         self.tmp = Path(tempfile.mkdtemp(prefix="snapshot_binding_test_"))
         self.universe_root = self.tmp / "universes"
         self.snapshot_root = self.tmp / "snapshots"
@@ -144,16 +154,30 @@ class TestLoadUmdBoundToSnapshot(_SnapshotFixture):
 
 
 class TestSnapshotMergeGuards(_SnapshotFixture):
-    """The merge guards, through load_snapshot_market_data (#61)."""
+    """The merge guards, through load_snapshot_market_data (#13, #61)."""
 
-    def _remint(self) -> str:
-        _calls["n"] = 0
+    def _remint(self, **calls: float) -> str:
+        _calls.update(n=0, **calls)
         return ensure_market_snapshot(UNIVERSE, force=True, progress=False)[0]
 
     def _load(self, snapshot_id: str, group_ids: list[str]):
         return load_snapshot_market_data(
             snapshot_id, group_ids, start_after_nan=True, check_for_corruptions=False
         )
+
+    def test_shared_ticker_within_tolerance_loads(self):
+        umd = self._load(self._remint(shared_drift=SHARED_TICKER_RTOL / 10), ["g1", "g2"])
+        self.assertIn(SHARED, umd.tickers())
+
+    def test_shared_ticker_drift_raises_naming_ticker_and_groups(self):
+        snapshot_id = self._remint(shared_drift=SHARED_TICKER_RTOL * 10)
+        with self.assertRaisesRegex(ValueError, f"shared ticker '{SHARED}'.*'g1' and 'g2'"):
+            self._load(snapshot_id, ["g1", "g2"])
+
+    def test_shared_ticker_nan_pattern_mismatch_raises(self):
+        snapshot_id = self._remint(shared_nan_on_call=2)
+        with self.assertRaisesRegex(ValueError, "1 NaN-pattern"):
+            self._load(snapshot_id, ["g1", "g2"])
 
     def test_ticker_member_of_two_groups_raises(self):
         _write_group(self.universe_root / UNIVERSE, "g3", ["AAA", "DDD"])  # AAA also in g1

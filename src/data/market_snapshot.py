@@ -87,6 +87,7 @@ import tempfile
 from pathlib import Path
 from typing import Any, cast
 
+import numpy as np
 import pandas as pd
 from tqdm import tqdm
 
@@ -430,6 +431,13 @@ def _list_snapshots(universe_version: str, snapshot_root: Path) -> list[str]:
     return [snapshot_id for _dl_ts, snapshot_id in found]
 
 
+# Tolerance for a ticker shared across groups (SPY, ^IRX: downloaded once per
+# group). Measured cross-group noise is ~5e-7 relative; real re-adjustment
+# drift (dividends, splits) is >= 1e-3 (#13). Root cause: #62.
+SHARED_TICKER_RTOL = 1e-5
+SHARED_TICKER_ATOL = 1e-8
+
+
 def _check_one_group_per_ticker(per_group: dict[str, UniverseMarketData]) -> None:
     """Raise if a ticker is a member of more than one group (Track E, #61)."""
     membership = pd.concat([u.membership for u in per_group.values()], axis=0).drop_duplicates()
@@ -448,14 +456,53 @@ def _check_one_group_per_ticker(per_group: dict[str, UniverseMarketData]) -> Non
         )
 
 
+def _check_shared_tickers_agree(per_group: dict[str, UniverseMarketData]) -> None:
+    """
+    Raise if a ticker held by several groups differs between them (#13).
+
+    The merge keeps the first group's copy; this makes sure that choice is
+    immaterial. Every field on common dates is compared against the first
+    copy: values within SHARED_TICKER_RTOL/ATOL, NaN pattern identical.
+    """
+    first: dict[str, str] = {}
+    for group_id, umd in per_group.items():
+        for ticker in umd.tickers():
+            if ticker not in first:
+                first[ticker] = group_id
+                continue
+            kept = per_group[first[ticker]].prices
+            other = umd.prices
+            fields = [f for f in umd.fields() if (ticker, f) in kept.columns]
+            dates = kept.index.intersection(other.index)
+            for field in fields:
+                a = kept.loc[dates, (ticker, field)].to_numpy(dtype=float)
+                b = other.loc[dates, (ticker, field)].to_numpy(dtype=float)
+                nan_mismatch = np.isnan(a) != np.isnan(b)
+                both = ~np.isnan(a) & ~np.isnan(b)
+                off = ~np.isclose(
+                    a[both], b[both], rtol=SHARED_TICKER_RTOL, atol=SHARED_TICKER_ATOL
+                )
+                if nan_mismatch.any() or off.any():
+                    max_diff = float(np.abs(a[both] - b[both]).max()) if both.any() else 0.0
+                    raise ValueError(
+                        f"shared ticker {ticker!r} field {field!r} differs between groups "
+                        f"{first[ticker]!r} and {group_id!r}: {int(off.sum())} value(s) "
+                        f"outside rtol={SHARED_TICKER_RTOL}/atol={SHARED_TICKER_ATOL} "
+                        f"(max abs diff {max_diff:.3g}), {int(nan_mismatch.sum())} "
+                        "NaN-pattern mismatch(es). Merging would silently pick one copy."
+                    )
+
+
 def _merge_group_market_data(per_group: dict[str, UniverseMarketData]) -> UniverseMarketData:
     """
     Concatenate single-group UniverseMarketData into one, in sorted group_id
-    order. Raises if a ticker is a member of several groups (#61). A ticker
-    several groups hold (e.g. a shared benchmark) keeps the first group's copy.
+    order. Raises if a ticker is a member of several groups (#61) or if a
+    ticker several groups hold (e.g. a shared benchmark) differs between
+    them (#13); otherwise the first group's copy is kept.
     """
     per_group = {g: per_group[g] for g in sorted(per_group)}
     _check_one_group_per_ticker(per_group)
+    _check_shared_tickers_agree(per_group)
     groups = list(per_group.values())
 
     merged_prices = groups[0].prices.copy()
