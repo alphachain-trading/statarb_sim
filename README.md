@@ -6,7 +6,7 @@
 for a rewrite; it receives no further development. The frozen state is tagged
 `legacy-freeze`. Open issues are kept as the list of known deviations.
 
-New repository: _TBD (link follows once the repository exists)_
+New repository: [alphachain-trading/windtunnel](https://github.com/alphachain-trading/windtunnel)
 
 Docs: [epics](docs/epics/README.md) · [glossary](docs/glossary.md) · [CONTRIBUTING.md](CONTRIBUTING.md)
 
