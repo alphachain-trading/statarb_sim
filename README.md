@@ -1,9 +1,14 @@
 # statarb_sim
 
-> **Work in progress.** Simulation results are not validated until the
-> [milestone "Baseline freeze"](https://github.com/alphachain-trading/statarb_sim/milestone/1)
-> is complete. Epics were formerly called tracks (A–J); see
-> [docs/epics/](docs/epics/README.md) and [CONTRIBUTING.md](CONTRIBUTING.md).
+## Status
+
+**Frozen.** This repository is kept only as the reference implementation ("oracle")
+for a rewrite; it receives no further development. The frozen state is tagged
+`legacy-freeze`. Open issues are kept as the list of known deviations.
+
+New repository: _TBD (link follows once the repository exists)_
+
+Docs: [epics](docs/epics/README.md) · [glossary](docs/glossary.md) · [CONTRIBUTING.md](CONTRIBUTING.md)
 
 A systematic statistical arbitrage (pairs, sparse+dense portfolio spreads) trading research platform for S&P 500 equities. Built as a rigorous research tool, not a black-box strategy — the codebase is designed for transparency, reproducibility, and extension.
 
