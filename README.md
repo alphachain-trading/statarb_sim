@@ -2,9 +2,10 @@
 
 ## Status
 
-**Frozen.** This repository is kept only as the reference implementation ("oracle")
-for a rewrite; it receives no further development. The frozen state is tagged
-`legacy-freeze`. Open issues are kept as the list of known deviations.
+**Frozen.** This repository is kept only as a read-only quarry for a rewrite: code and
+ideas may be taken selectively, its output is not a target. It receives no further
+development. The frozen state is tagged `legacy-freeze`. Open issues are kept as the
+list of known deviations.
 
 New repository: [alphachain-trading/windtunnel](https://github.com/alphachain-trading/windtunnel)
 
